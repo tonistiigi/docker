@@ -179,9 +179,6 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 				if stdinOnce && stdin != nil {
 					defer stdin.Close()
 				}
-				if stdinCloser != nil {
-					defer stdinCloser.Close()
-				}
 				_, err := io.Copy(stdout, cStdout)
 				if err == io.ErrClosedPipe {
 					err = nil
@@ -195,9 +192,6 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 	} else {
 		// Point stdout of container to a no-op writer.
 		go func() {
-			if stdinCloser != nil {
-				defer stdinCloser.Close()
-			}
 			if cStdout, err := streamConfig.StdoutPipe(); err != nil {
 				log.Errorf("attach: stdout pipe: %s", err)
 			} else {
@@ -219,9 +213,6 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 				if stdinOnce && stdin != nil {
 					defer stdin.Close()
 				}
-				if stdinCloser != nil {
-					defer stdinCloser.Close()
-				}
 				_, err := io.Copy(stderr, cStderr)
 				if err == io.ErrClosedPipe {
 					err = nil
@@ -235,10 +226,6 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 	} else {
 		// Point stderr at a no-op writer.
 		go func() {
-			if stdinCloser != nil {
-				defer stdinCloser.Close()
-			}
-
 			if cStderr, err := streamConfig.StderrPipe(); err != nil {
 				log.Errorf("attach: stdout pipe: %s", err)
 			} else {
@@ -254,6 +241,9 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 			}
 			if cStderr != nil {
 				cStderr.Close()
+			}
+			if stdinCloser != nil {
+				stdinCloser.Close()
 			}
 		}()
 
