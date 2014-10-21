@@ -120,7 +120,6 @@ func (daemon *Daemon) ContainerAttach(job *engine.Job) engine.Status {
 func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, tty bool, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer) chan error {
 	var (
 		cStdout, cStderr io.ReadCloser
-		cStdin           io.WriteCloser
 		nJobs            int
 		errors           = make(chan error, 3)
 	)
@@ -174,6 +173,10 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 			go func() {
 				log.Debugf("attach: stdout: begin")
 				defer log.Debugf("attach: stdout: end")
+				// If we are in StdinOnce mode, then close stdin
+				if stdinOnce && stdin != nil {
+					defer stdin.Close()
+				}
 				_, err := io.Copy(stdout, cStdout)
 				if err == io.ErrClosedPipe {
 					err = nil
@@ -203,6 +206,11 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 			go func() {
 				log.Debugf("attach: stderr: begin")
 				defer log.Debugf("attach: stderr: end")
+				// If we are in StdinOnce mode, then close stdin
+				// Why are we closing stdin here and above while handling stdout?
+				if stdinOnce && stdin != nil {
+					defer stdin.Close()
+				}
 				_, err := io.Copy(stderr, cStderr)
 				if err == io.ErrClosedPipe {
 					err = nil
@@ -231,9 +239,6 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 			}
 			if cStderr != nil {
 				cStderr.Close()
-			}
-			if cStdin != nil {
-				cStdin.Close()
 			}
 		}()
 
