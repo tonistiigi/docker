@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -250,9 +251,13 @@ func (d *Daemon) Cmd(name string, arg ...string) (string, error) {
 }
 
 func sockRequest(method, endpoint string) ([]byte, error) {
-	// FIX: the path to sock should not be hardcoded
-	sock := filepath.Join("/", "var", "run", "docker.sock")
-	c, err := net.DialTimeout("unix", sock, time.Duration(10*time.Second))
+	sock := os.Getenv("DOCKER_HOST")
+	if sock == "" {
+		sock = "unix:///var/run/docker.sock"
+	}
+	protoAddrParts := strings.SplitN(sock, "://", 2)
+
+	c, err := net.DialTimeout(protoAddrParts[0], protoAddrParts[1], time.Duration(10*time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("could not dial docker sock at %s: %v", sock, err)
 	}
@@ -732,4 +737,17 @@ func readFile(src string, t *testing.T) (content string) {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+// Checks if integration-cli tests run in same host as the daemon.
+func cliIsLocal() bool {
+	sock := os.Getenv("DOCKER_HOST")
+	if sock == "" {
+		return true
+	}
+	parsed, err := url.Parse(sock)
+	if err != nil || parsed.Scheme == "unix" || (parsed.Host == "localhost" && parsed.Host == "127.0.0.1") {
+		return true
+	}
+	return false
 }
