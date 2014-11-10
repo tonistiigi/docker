@@ -75,16 +75,18 @@ func runCommandWithOutputAndTimeout(cmd *exec.Cmd, timeout time.Duration) (outpu
 		}
 		done <- nil
 	}()
+
 	select {
 	case <-time.After(timeout):
 		killFailed := cmd.Process.Kill()
-		if killFailed == nil {
-			fmt.Printf("failed to kill (pid=%d): %v\n", cmd.Process.Pid, err)
+		if killFailed != nil {
+			fmt.Printf("failed to kill (pid=%d): %v\n", cmd.Process.Pid, killFailed)
 		}
 		err = ErrCmdTimeout
 	case <-done:
-		break
+		return
 	}
+	<-done
 	return
 }
 
