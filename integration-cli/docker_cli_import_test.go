@@ -8,6 +8,9 @@ import (
 )
 
 func TestImportDisplay(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses local server")
+	}
 	server, err := fileServer(map[string]string{
 		"/cirros.tar.gz": "/cirros.tar.gz",
 	})

@@ -27,6 +27,9 @@ func TestLinksEtcHostsRegularFile(t *testing.T) {
 }
 
 func TestLinksEtcHostsContentMatch(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses local filesystem")
+	}
 	runCmd := exec.Command(dockerBinary, "run", "--net=host", "busybox", "cat", "/etc/hosts")
 	out, _, _, err := runCommandWithStdoutStderr(runCmd)
 	if err != nil {
@@ -75,6 +78,10 @@ func TestLinksPingLinkedContainers(t *testing.T) {
 }
 
 func TestLinksIpTablesRulesWhenLinkAndUnlink(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses host network tools")
+	}
+
 	cmd(t, "run", "-d", "--name", "child", "--publish", "8080:80", "busybox", "sleep", "10")
 	cmd(t, "run", "-d", "--name", "parent", "--link", "child:http", "busybox", "sleep", "10")
 

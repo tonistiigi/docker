@@ -36,18 +36,20 @@ func TestCpGarbagePath(t *testing.T) {
 		t.Fatal("failed to set up container", out, err)
 	}
 
-	if err := os.MkdirAll(cpTestPath, os.ModeDir); err != nil {
-		t.Fatal(err)
-	}
+	if cliIsLocal() {
+		if err := os.MkdirAll(cpTestPath, os.ModeDir); err != nil {
+			t.Fatal(err)
+		}
 
-	hostFile, err := os.Create(cpFullPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer hostFile.Close()
-	defer os.RemoveAll(cpTestPathParent)
+		hostFile, err := os.Create(cpFullPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer hostFile.Close()
+		defer os.RemoveAll(cpTestPathParent)
 
-	fmt.Fprintf(hostFile, "%s", cpHostContents)
+		fmt.Fprintf(hostFile, "%s", cpHostContents)
+	}
 
 	tmpdir, err := ioutil.TempDir("", "docker-integration")
 	if err != nil {
@@ -98,18 +100,20 @@ func TestCpRelativePath(t *testing.T) {
 		t.Fatal("failed to set up container", out, err)
 	}
 
-	if err := os.MkdirAll(cpTestPath, os.ModeDir); err != nil {
-		t.Fatal(err)
-	}
+	if cliIsLocal() {
+		if err := os.MkdirAll(cpTestPath, os.ModeDir); err != nil {
+			t.Fatal(err)
+		}
 
-	hostFile, err := os.Create(cpFullPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer hostFile.Close()
-	defer os.RemoveAll(cpTestPathParent)
+		hostFile, err := os.Create(cpFullPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer hostFile.Close()
+		defer os.RemoveAll(cpTestPathParent)
 
-	fmt.Fprintf(hostFile, "%s", cpHostContents)
+		fmt.Fprintf(hostFile, "%s", cpHostContents)
+	}
 
 	tmpdir, err := ioutil.TempDir("", "docker-integration")
 
@@ -161,18 +165,20 @@ func TestCpAbsolutePath(t *testing.T) {
 		t.Fatal("failed to set up container", out, err)
 	}
 
-	if err := os.MkdirAll(cpTestPath, os.ModeDir); err != nil {
-		t.Fatal(err)
-	}
+	if cliIsLocal() {
+		if err := os.MkdirAll(cpTestPath, os.ModeDir); err != nil {
+			t.Fatal(err)
+		}
 
-	hostFile, err := os.Create(cpFullPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer hostFile.Close()
-	defer os.RemoveAll(cpTestPathParent)
+		hostFile, err := os.Create(cpFullPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer hostFile.Close()
+		defer os.RemoveAll(cpTestPathParent)
 
-	fmt.Fprintf(hostFile, "%s", cpHostContents)
+		fmt.Fprintf(hostFile, "%s", cpHostContents)
+	}
 
 	tmpdir, err := ioutil.TempDir("", "docker-integration")
 
@@ -225,18 +231,20 @@ func TestCpAbsoluteSymlink(t *testing.T) {
 		t.Fatal("failed to set up container", out, err)
 	}
 
-	if err := os.MkdirAll(cpTestPath, os.ModeDir); err != nil {
-		t.Fatal(err)
-	}
+	if cliIsLocal() {
+		if err := os.MkdirAll(cpTestPath, os.ModeDir); err != nil {
+			t.Fatal(err)
+		}
 
-	hostFile, err := os.Create(cpFullPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer hostFile.Close()
-	defer os.RemoveAll(cpTestPathParent)
+		hostFile, err := os.Create(cpFullPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer hostFile.Close()
+		defer os.RemoveAll(cpTestPathParent)
 
-	fmt.Fprintf(hostFile, "%s", cpHostContents)
+		fmt.Fprintf(hostFile, "%s", cpHostContents)
+	}
 
 	tmpdir, err := ioutil.TempDir("", "docker-integration")
 
@@ -289,18 +297,20 @@ func TestCpSymlinkComponent(t *testing.T) {
 		t.Fatal("failed to set up container", out, err)
 	}
 
-	if err := os.MkdirAll(cpTestPath, os.ModeDir); err != nil {
-		t.Fatal(err)
-	}
+	if cliIsLocal() {
+		if err := os.MkdirAll(cpTestPath, os.ModeDir); err != nil {
+			t.Fatal(err)
+		}
 
-	hostFile, err := os.Create(cpFullPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer hostFile.Close()
-	defer os.RemoveAll(cpTestPathParent)
+		hostFile, err := os.Create(cpFullPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer hostFile.Close()
+		defer os.RemoveAll(cpTestPathParent)
 
-	fmt.Fprintf(hostFile, "%s", cpHostContents)
+		fmt.Fprintf(hostFile, "%s", cpHostContents)
+	}
 
 	tmpdir, err := ioutil.TempDir("", "docker-integration")
 
@@ -339,6 +349,9 @@ func TestCpSymlinkComponent(t *testing.T) {
 
 // Check that cp with unprivileged user doesn't return any error
 func TestCpUnprivilegedUser(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses unprivilegeduser")
+	}
 	out, exitCode, err := cmd(t, "run", "-d", "busybox", "/bin/sh", "-c", "touch "+cpTestName)
 	if err != nil || exitCode != 0 {
 		t.Fatal("failed to create a container", out, err)
@@ -374,6 +387,9 @@ func TestCpUnprivilegedUser(t *testing.T) {
 }
 
 func TestCpVolumePath(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: tests volumes mounted from host")
+	}
 	tmpDir, err := ioutil.TempDir("", "cp-test-volumepath")
 	if err != nil {
 		t.Fatal(err)
@@ -450,6 +466,9 @@ func TestCpVolumePath(t *testing.T) {
 
 	// Copy file nested in bind-mounted dir
 	_, _, err = cmd(t, "cp", cleanedContainerID+":/baz/test", outDir)
+	if err != nil {
+		t.Fatalf("couldn't copy from bind-mounted volume path: %s:%s %v", cleanedContainerID, "/baz/test", err)
+	}
 	fb, err := ioutil.ReadFile(outDir + "/baz/test")
 	if err != nil {
 		t.Fatal(err)

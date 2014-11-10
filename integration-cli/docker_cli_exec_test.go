@@ -156,6 +156,10 @@ func TestExecAfterContainerRestart(t *testing.T) {
 }
 
 func TestExecAfterDaemonRestart(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: tests daemon")
+	}
+
 	d := NewDaemon(t)
 	if err := d.StartWithBusybox(); err != nil {
 		t.Fatalf("Could not start daemon with busybox: %v", err)

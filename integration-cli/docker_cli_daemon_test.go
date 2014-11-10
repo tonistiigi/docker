@@ -10,6 +10,9 @@ import (
 )
 
 func TestDaemonRestartWithRunningContainersPorts(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: tests daemon")
+	}
 	d := NewDaemon(t)
 	if err := d.StartWithBusybox(); err != nil {
 		t.Fatalf("Could not start daemon with busybox: %v", err)
@@ -54,6 +57,9 @@ func TestDaemonRestartWithRunningContainersPorts(t *testing.T) {
 }
 
 func TestDaemonRestartWithVolumesRefs(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: tests daemon")
+	}
 	d := NewDaemon(t)
 	if err := d.StartWithBusybox(); err != nil {
 		t.Fatal(err)
@@ -86,6 +92,9 @@ func TestDaemonRestartWithVolumesRefs(t *testing.T) {
 }
 
 func TestDaemonStartIptablesFalse(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: tests daemon")
+	}
 	d := NewDaemon(t)
 	if err := d.Start("--iptables=false"); err != nil {
 		t.Fatalf("we should have been able to start the daemon with passing iptables=false: %v", err)
@@ -99,6 +108,9 @@ func TestDaemonStartIptablesFalse(t *testing.T) {
 // no longer has an IP associated, we should gracefully handle that case and associate
 // an IP with it rather than fail daemon start
 func TestDaemonStartBridgeWithoutIPAssociation(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: tests daemon")
+	}
 	d := NewDaemon(t)
 	// rather than depending on brctl commands to verify docker0 is created and up
 	// let's start the daemon and stop it, and then make a modification to run the
@@ -131,6 +143,9 @@ func TestDaemonStartBridgeWithoutIPAssociation(t *testing.T) {
 }
 
 func TestDaemonIptablesClean(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: tests daemon")
+	}
 	d := NewDaemon(t)
 	if err := d.StartWithBusybox(); err != nil {
 		t.Fatalf("Could not start daemon with busybox: %v", err)
@@ -174,6 +189,9 @@ func TestDaemonIptablesClean(t *testing.T) {
 }
 
 func TestDaemonIptablesCreate(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: tests daemon")
+	}
 	d := NewDaemon(t)
 	if err := d.StartWithBusybox(); err != nil {
 		t.Fatalf("Could not start daemon with busybox: %v", err)
@@ -226,6 +244,9 @@ func TestDaemonIptablesCreate(t *testing.T) {
 }
 
 func TestDaemonLoggingLevel(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: tests daemon")
+	}
 	d := NewDaemon(t)
 
 	if err := d.Start("--log-level=bogus"); err == nil {

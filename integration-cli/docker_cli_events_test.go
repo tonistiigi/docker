@@ -241,6 +241,10 @@ func TestEventsImagePull(t *testing.T) {
 }
 
 func TestEventsImageImport(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses local server")
+	}
+
 	since := time.Now().Unix()
 
 	server, err := fileServer(map[string]string{

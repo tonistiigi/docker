@@ -574,6 +574,9 @@ ONBUILD ENTRYPOINT ["echo"]`,
 }
 
 func TestBuildCacheADD(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses local server")
+	}
 	name := "testbuildtwoimageswithadd"
 	defer deleteImages(name)
 	server, err := fakeStorage(map[string]string{
@@ -804,6 +807,9 @@ func TestBuildCopyMultipleFilesToFile(t *testing.T) {
 }
 
 func TestBuildCopyWildcard(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses local server")
+	}
 	name := "testcopywildcard"
 	defer deleteImages(name)
 	server, err := fakeStorage(map[string]string{
@@ -1235,6 +1241,9 @@ COPY https://index.docker.io/robots.txt /`,
 // when we can't access files in the context.
 func TestBuildWithInaccessibleFilesInContext(t *testing.T) {
 	{
+		if !cliIsLocal() {
+			t.Skip("skipping: uses root and unprivilegeduser")
+		}
 		name := "testbuildinaccessiblefiles"
 		defer deleteImages(name)
 		ctx, err := fakeContext("FROM scratch\nADD . /foo/", map[string]string{"fileWithoutReadAccess": "foo"})
@@ -1641,6 +1650,9 @@ func TestBuildEnv(t *testing.T) {
 }
 
 func TestBuildContextCleanup(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses host filesystem")
+	}
 	name := "testbuildcontextcleanup"
 	defer deleteImages(name)
 	entries, err := ioutil.ReadDir("/var/lib/docker/tmp")
@@ -1666,6 +1678,9 @@ func TestBuildContextCleanup(t *testing.T) {
 }
 
 func TestBuildContextCleanupFailedBuild(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses host filesystem")
+	}
 	name := "testbuildcontextcleanup"
 	defer deleteImages(name)
 	entries, err := ioutil.ReadDir("/var/lib/docker/tmp")
@@ -2153,6 +2168,9 @@ func TestBuildADDCurrentDirWithoutCache(t *testing.T) {
 }
 
 func TestBuildADDRemoteFileWithCache(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses local server")
+	}
 	name := "testbuildaddremotefilewithcache"
 	defer deleteImages(name)
 	server, err := fakeStorage(map[string]string{
@@ -2185,6 +2203,9 @@ func TestBuildADDRemoteFileWithCache(t *testing.T) {
 }
 
 func TestBuildADDRemoteFileWithoutCache(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses local server")
+	}
 	name := "testbuildaddremotefilewithoutcache"
 	defer deleteImages(name)
 	server, err := fakeStorage(map[string]string{
@@ -2217,6 +2238,9 @@ func TestBuildADDRemoteFileWithoutCache(t *testing.T) {
 }
 
 func TestBuildADDRemoteFileMTime(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses local server")
+	}
 	name := "testbuildaddremotefilemtime"
 	defer deleteImages(name)
 
@@ -2275,6 +2299,9 @@ func TestBuildADDRemoteFileMTime(t *testing.T) {
 }
 
 func TestBuildADDLocalAndRemoteFilesWithCache(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses local server")
+	}
 	name := "testbuildaddlocalandremotefilewithcache"
 	defer deleteImages(name)
 	server, err := fakeStorage(map[string]string{
@@ -2363,6 +2390,9 @@ func TestBuildNoContext(t *testing.T) {
 
 // TODO: TestCaching
 func TestBuildADDLocalAndRemoteFilesWithoutCache(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses local server")
+	}
 	name := "testbuildaddlocalandremotefilewithoutcache"
 	defer deleteImages(name)
 	server, err := fakeStorage(map[string]string{

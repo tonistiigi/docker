@@ -1169,6 +1169,10 @@ func TestRunAddingOptionalDevices(t *testing.T) {
 }
 
 func TestRunModeHostname(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses host hostname")
+	}
+
 	cmd := exec.Command(dockerBinary, "run", "-h=testhostname", "busybox", "cat", "/etc/hostname")
 
 	out, _, err := runCommandWithOutput(cmd)
@@ -1238,6 +1242,9 @@ func TestRunDisallowBindMountingRootToRoot(t *testing.T) {
 
 // Test recursive bind mount works by default
 func TestRunWithVolumesIsRecursive(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses host filesystem")
+	}
 	tmpDir, err := ioutil.TempDir("", "docker_recursive_mount_test")
 	if err != nil {
 		t.Fatal(err)
@@ -1275,6 +1282,9 @@ func TestRunWithVolumesIsRecursive(t *testing.T) {
 }
 
 func TestRunDnsDefaultOptions(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses host filesystem")
+	}
 	// ci server has default resolv.conf
 	// so rewrite it for the test
 	origResolvConf, err := ioutil.ReadFile("/etc/resolv.conf")
@@ -1344,6 +1354,10 @@ func TestRunDnsOptions(t *testing.T) {
 }
 
 func TestRunDnsOptionsBasedOnHostResolvConf(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses host filesystem")
+	}
+
 	var out string
 
 	origResolvConf, err := ioutil.ReadFile("/etc/resolv.conf")
@@ -1826,6 +1840,9 @@ func TestRunEntrypoint(t *testing.T) {
 }
 
 func TestRunBindMounts(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses host filesystem")
+	}
 	tmpDir, err := ioutil.TempDir("", "docker-test-container")
 	if err != nil {
 		t.Fatal(err)
@@ -1875,6 +1892,10 @@ func TestRunBindMounts(t *testing.T) {
 }
 
 func TestRunMutableNetworkFiles(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses graph locally")
+	}
+
 	defer deleteAllContainers()
 
 	for _, fn := range []string{"resolv.conf", "hosts"} {
@@ -2019,6 +2040,9 @@ func TestRunNetworkNotInitializedNoneMode(t *testing.T) {
 }
 
 func TestRunSetMacAddress(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses host network tools")
+	}
 	mac := "12:34:56:78:9a:bc"
 	cmd := exec.Command("/bin/bash", "-c", dockerBinary+` run -i --rm --mac-address=`+mac+` busybox /bin/sh -c "ip link show eth0 | tail -1 | awk '{ print \$2 }'"`)
 	out, _, err := runCommandWithOutput(cmd)
@@ -2054,6 +2078,9 @@ func TestRunInspectMacAddress(t *testing.T) {
 }
 
 func TestRunDeallocatePortOnMissingIptablesRule(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses host network tools")
+	}
 	cmd := exec.Command(dockerBinary, "run", "-d", "-p", "23:23", "busybox", "top")
 	out, _, err := runCommandWithOutput(cmd)
 	if err != nil {
@@ -2083,6 +2110,9 @@ func TestRunDeallocatePortOnMissingIptablesRule(t *testing.T) {
 }
 
 func TestRunPortInUse(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: uses host network tools")
+	}
 	port := "1234"
 	l, err := net.Listen("tcp", ":"+port)
 	if err != nil {
@@ -2104,6 +2134,9 @@ func TestRunPortInUse(t *testing.T) {
 
 // https://github.com/docker/docker/issues/8428
 func TestRunPortProxy(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses host processes")
+	}
 	defer deleteAllContainers()
 
 	port := "12345"
@@ -2137,6 +2170,10 @@ func TestRunPortProxy(t *testing.T) {
 
 // Regression test for #7792
 func TestRunMountOrdering(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses host filesystem")
+	}
+
 	tmpDir, err := ioutil.TempDir("", "docker_nested_mount_test")
 	if err != nil {
 		t.Fatal(err)
@@ -2178,6 +2215,9 @@ func TestRunMountOrdering(t *testing.T) {
 }
 
 func TestRunExecDir(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses host filesystem")
+	}
 	cmd := exec.Command(dockerBinary, "run", "-d", "busybox", "top")
 	out, _, err := runCommandWithOutput(cmd)
 	if err != nil {
@@ -2383,6 +2423,9 @@ func TestVolumesNoCopyData(t *testing.T) {
 }
 
 func TestRunVolumesNotRecreatedOnStart(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses host filesystem")
+	}
 	// Clear out any remnants from other tests
 	deleteAllContainers()
 	info, err := ioutil.ReadDir(volumesConfigPath)
@@ -2462,7 +2505,7 @@ func TestRunVolumesCleanPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, volumesStoragePath) {
+	if !strings.Contains(out, "/vfs/dir") {
 		t.Fatalf("Volume was not defined for /foo\n%q", out)
 	}
 
@@ -2477,7 +2520,7 @@ func TestRunVolumesCleanPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, volumesStoragePath) {
+	if !strings.Contains(out, "/vfs/dir") {
 		t.Fatalf("Volume was not defined for /bar\n%q", out)
 	}
 
@@ -2570,6 +2613,9 @@ func TestRunUnknownCommand(t *testing.T) {
 }
 
 func TestRunModeIpcHost(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses local filesystem")
+	}
 	hostIpc, err := os.Readlink("/proc/1/ns/ipc")
 	if err != nil {
 		t.Fatal(err)
@@ -2602,6 +2648,9 @@ func TestRunModeIpcHost(t *testing.T) {
 }
 
 func TestRunModeIpcContainer(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses local filesystem")
+	}
 	cmd := exec.Command(dockerBinary, "run", "-d", "busybox", "top")
 	out, _, err := runCommandWithOutput(cmd)
 	if err != nil {

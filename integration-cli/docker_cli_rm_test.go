@@ -8,6 +8,10 @@ import (
 )
 
 func TestRmContainerWithRemovedVolume(t *testing.T) {
+	if !cliIsLocal() {
+		t.Skip("skipping: accesses local filesystem")
+	}
+
 	cmd := exec.Command(dockerBinary, "run", "--name", "losemyvolumes", "-v", "/tmp/testing:/test", "busybox", "true")
 	if _, err := runCommand(cmd); err != nil {
 		t.Fatal(err)
