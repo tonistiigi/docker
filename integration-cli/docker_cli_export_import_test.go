@@ -30,7 +30,8 @@ func TestExportContainerAndImportImage(t *testing.T) {
 		t.Fatalf("failed to export container: %s, %v", out, err)
 	}
 
-	importCmdFinal := `cat /tmp/testexp.tar | docker import - repo/testexp:v1`
+	importCmdTemplate := `cat /tmp/testexp.tar | %v import - repo/testexp:v1`
+	importCmdFinal := fmt.Sprintf(importCmdTemplate, dockerBinary)
 	importCmd := exec.Command("bash", "-c", importCmdFinal)
 	out, _, err = runCommandWithOutput(importCmd)
 	if err != nil {

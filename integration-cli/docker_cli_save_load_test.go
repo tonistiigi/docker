@@ -50,7 +50,8 @@ func TestSaveAndLoadRepoStdout(t *testing.T) {
 
 	deleteImages(repoName)
 
-	loadCmdFinal := `cat /tmp/foobar-save-load-test.tar | docker load`
+	loadCmdTemplate := `cat /tmp/foobar-save-load-test.tar | %v load`
+	loadCmdFinal := fmt.Sprintf(loadCmdTemplate, dockerBinary)
 	loadCmd := exec.Command("bash", "-c", loadCmdFinal)
 	if out, _, err = runCommandWithOutput(loadCmd); err != nil {
 		t.Fatalf("failed to load repo: %s, %v", out, err)
@@ -206,7 +207,8 @@ func TestSaveAndLoadRepoFlags(t *testing.T) {
 
 	deleteImages(repoName)
 
-	loadCmdFinal := `docker load -i /tmp/foobar-save-load-test.tar`
+	loadCmdTemplate := `%v load -i /tmp/foobar-save-load-test.tar`
+	loadCmdFinal := fmt.Sprintf(loadCmdTemplate, dockerBinary)
 	loadCmd := exec.Command("bash", "-c", loadCmdFinal)
 	if out, _, err = runCommandWithOutput(loadCmd); err != nil {
 		t.Fatalf("failed to load repo: %s, %v", out, err)
