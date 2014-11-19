@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+
+[[ "$TRACE" ]] && set -x
+set -eo pipefail
+
+cmd_binary () {
+  DOCKER_CLIENTONLY=1 AUTO_GOPATH=1 CGO_ENABLED=0 hack/make.sh binary
+}
+
+cmd_integration_cli () {
+  local GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  local DOCKER_IMAGE="docker$GIT_BRANCH"
+  
+  docker build -t "$DOCKER_IMAGE" .
+  
+  local env="-e INSIDE_DOCKER_CONTEXT=1 -e TIMEOUT -e BUILDFLAGS -e TESTFLAGS \
+  -e TESTDIRS -e DOCKER_GRAPHDRIVER -e DOCKER_EXECDRIVER -e DAEMON_OPTS \
+  -e DOCKER_CLIENTONLY -e DOCKER_TEST_DAEMON_OPTS"
+  
+  local mount=""
+  if [[ -n "$BINDDIR" ]]; then
+    mount="-v $BINDDIR:/go/src/github.com/docker/docker/bundles"
+  fi
+  
+  local id=$(docker run -d -it --privileged $env $mount -p :2375 "$DOCKER_IMAGE" hack/make.sh binary ../../contrib/local-build)
+
+  local host="$DOCKER_TEST_DOCKER_HOST"
+  if [[ -z "$host" ]]; then
+    local port=$(docker port $id | cut -d':' -f2)
+    host="$(echo $DOCKER_HOST | cut -d':' -f 1-2):$port"
+  fi
+  
+  echo -n "Waiting daemon to start"
+  while ! DOCKER_HOST="$host" docker version >/dev/null 2>&1; do
+    echo -n "."
+    sleep 1
+  done
+  echo
+  
+  DOCKER_CLIENTONLY=1 AUTO_GOPATH=1 CGO_ENABLED=0 DOCKER_TEST_DOCKER_HOST="$host" hack/make.sh binary ../../contrib/local-build || true
+  
+  echo "Stopping the daemon"
+  docker stop $id >/dev/null
+  
+  docker rm $id >/dev/null
+  
+}
+
+
+run_daemon () {
+  DEST=$1
+
+  DOCKER_GRAPHDRIVER=${DOCKER_GRAPHDRIVER:-vfs}
+  DOCKER_EXECDRIVER=${DOCKER_EXECDRIVER:-native}
+  
+  # subshell so that we can export PATH without breaking other things
+  exec > >(tee -a $DEST/test.log) 2>&1
+  (
+    export PATH="$DEST/../binary:$DEST/../dynbinary:$PATH"
+
+    if ! command -v docker &> /dev/null; then
+      echo >&2 'error: binary or dynbinary must be run before test-integration-cli'
+      false
+    fi
+
+    # intentionally open a couple bogus file descriptors to help test that they get scrubbed in containers
+    exec 41>&1 42>&2
+
+    ( set -x; exec \
+      docker --daemon --debug \
+      $DOCKER_TEST_DAEMON_OPTS -H tcp://0.0.0.0:2375 \
+      --storage-driver "$DOCKER_GRAPHDRIVER" \
+      --exec-driver "$DOCKER_EXECDRIVER" \
+      --pidfile "$DEST/docker.pid" \
+        &> "$DEST/docker.log"
+    )
+  )
+  
+}
+
+run_local_tests () {
+  DEST=$1
+  DOCKER_BINARY="$DEST/../binary/docker" DOCKER_HOST="$DOCKER_TEST_DOCKER_HOST" go_test_dir ./integration-cli
+}
+
+usage () {
+  cat <<EOT
+Usage: $0 [command]
+
+Commands:
+  binary - Build new client-only binary
+  integration-cli - Run integration-cli tests
+
+Environment variables for hack/make.sh are supported.
+
+Additionally these environment variables can be also used:
+
+DOCKER_TEST_DAEMON_OPTS - Additional options set when starting docker daemon.
+DOCKER_TEST_DOCKER_HOST - Path to connect when running integration-cli tests. If
+  this is not set then this script tries to find it automatically by replacing
+  the port in DOCKER_HOST with the one exposed by the daemon.
+
+EOT
+}
+
+main () {
+  if type go_test_dir >/dev/null 2>&1 && [[ "$0" != "$BASH_SOURCE" ]]; then
+    if [[ -z "$INSIDE_DOCKER_CONTEXT" ]]; then
+      run_local_tests "$@"
+    else
+      run_daemon "$@"
+    fi
+    exit 0
+  fi
+  
+  case "$1" in
+    binary)
+      cmd_binary
+    ;;
+    integration-cli)
+      cmd_integration_cli
+    ;;
+    *)
+      usage
+    ;;
+  esac
+}
+
+main "$@"
