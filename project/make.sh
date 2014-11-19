@@ -101,6 +101,9 @@ LDFLAGS='
 	-X '$DOCKER_PKG'/dockerversion.VERSION "'$VERSION'"
 '
 LDFLAGS_STATIC='-linkmode external'
+if [ "$(go env GOOS)" = 'darwin' ]; then
+	LDFLAGS_STATIC=''
+fi
 EXTLDFLAGS_STATIC='-static'
 # ORIG_BUILDFLAGS is necessary for the cross target which cannot always build
 # with options like -race.
