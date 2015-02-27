@@ -117,6 +117,14 @@ func (m *containerMonitor) Start() error {
 		m.Close()
 	}()
 
+	// reset SkipBoot flag
+	if m.restartPolicy.SkipBoot {
+		m.container.hostConfig.RestartPolicy.SkipBoot = false
+		if err := m.container.toDisk(); err != nil { // container is already locked
+			return err
+		}
+	}
+
 	// reset the restart count
 	m.container.RestartCount = -1
 
@@ -220,6 +228,14 @@ func (m *containerMonitor) shouldRestart(exitCode int) bool {
 
 	// do not restart if the user or docker has requested that this container be stopped
 	if m.shouldStop {
+
+		if m.restartPolicy.Name != "no" && !m.container.daemon.eng.IsShutdown() {
+			m.container.hostConfig.RestartPolicy.SkipBoot = true
+			if err := m.container.ToDisk(); err != nil {
+				log.Debugf("%s", err)
+			}
+		}
+
 		return false
 	}
 

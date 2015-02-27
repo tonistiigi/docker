@@ -91,6 +91,55 @@ func TestDaemonRestartWithVolumesRefs(t *testing.T) {
 	logDone("daemon - volume refs are restored")
 }
 
+// #11008
+func TestDaemonRestartWithStoppedContainers(t *testing.T) {
+	d := NewDaemon(t)
+	if err := d.StartWithBusybox(); err != nil {
+		t.Fatalf("Could not start daemon with busybox: %v", err)
+	}
+	defer d.Stop()
+
+	if out, err := d.Cmd("run", "-d", "--name", "top1", "--restart", "always", "busybox:latest", "top"); err != nil {
+		t.Fatalf("Could not run top1: err=%v\n%s", err, out)
+	}
+
+	if out, err := d.Cmd("run", "-d", "--name", "top2", "--restart", "always", "busybox:latest", "top"); err != nil {
+		t.Fatalf("Could not run top2: err=%v\n%s", err, out)
+	}
+
+	if out, err := d.Cmd("stop", "top1"); err != nil {
+		t.Fatalf("Could not stop top1: err=%v\n%s", err, out)
+	}
+
+	testRun := func(m map[string]bool, prefix string) {
+		var format string
+		for c, shouldRun := range m {
+			out, err := d.Cmd("ps")
+			if err != nil {
+				t.Fatalf("Could not run ps: err=%v\n%q", err, out)
+			}
+			if shouldRun {
+				format = "%scontainer %q is not running"
+			} else {
+				format = "%scontainer %q is running"
+			}
+			if shouldRun != strings.Contains(out, c) {
+				t.Fatalf(format, prefix, c)
+			}
+		}
+	}
+
+	testRun(map[string]bool{"top1": false, "top2": true}, "")
+
+	if err := d.Restart(); err != nil {
+		t.Fatalf("Could not restart daemon: %v", err)
+	}
+
+	testRun(map[string]bool{"top1": false, "top2": true}, "After daemon restart: ")
+
+	logDone("daemon - running stopped containers on daemon restart")
+}
+
 func TestDaemonStartIptablesFalse(t *testing.T) {
 	d := NewDaemon(t)
 	if err := d.Start("--iptables=false"); err != nil {

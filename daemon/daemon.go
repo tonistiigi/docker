@@ -407,8 +407,9 @@ func (daemon *Daemon) restore() error {
 		log.Debugf("Restarting containers...")
 
 		for _, container := range registeredContainers {
-			if container.hostConfig.RestartPolicy.Name == "always" ||
-				(container.hostConfig.RestartPolicy.Name == "on-failure" && container.ExitCode != 0) {
+			if !container.hostConfig.RestartPolicy.SkipBoot &&
+				(container.hostConfig.RestartPolicy.Name == "always" ||
+					container.hostConfig.RestartPolicy.Name == "on-failure" && container.ExitCode != 0) {
 				log.Debugf("Starting container %s", container.ID)
 
 				if err := container.Start(); err != nil {

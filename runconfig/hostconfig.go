@@ -96,6 +96,7 @@ type DeviceMapping struct {
 type RestartPolicy struct {
 	Name              string
 	MaximumRetryCount int
+	SkipBoot          bool
 }
 
 type HostConfig struct {
