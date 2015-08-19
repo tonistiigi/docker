@@ -21,6 +21,8 @@ type Options struct {
 }
 
 const (
+	// Official Hub server
+	HubServer = "https://index.docker.io/v1/"
 	// DefaultNamespace is the default namespace
 	DefaultNamespace = "docker.io"
 	// DefaultRegistryVersionHeader is the name of the default HTTP header
