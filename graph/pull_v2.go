@@ -295,28 +295,42 @@ func (p *v2Puller) pullV2Tag(tag, taggedName string) (verified bool, err error) 
 		if d.layer == nil {
 			continue
 		}
-		// if tmpFile is empty assume download and extracted elsewhere
-		d.tmpFile.Seek(0, 0)
-		reader := progressreader.New(progressreader.Config{
-			In:        d.tmpFile,
-			Out:       out,
-			Formatter: p.sf,
-			Size:      d.size,
-			NewLines:  false,
-			ID:        stringid.TruncateID(d.img.ID),
-			Action:    "Extracting",
-		})
 
-		err = p.graph.Register(d.img, reader)
-		if err != nil {
-			return false, err
+		if c, err := p.poolAdd("pull", "extract:"+d.img.ID); err != nil && c != nil {
+			<-c
+		} else {
+
+			releasePool := func() {
+				p.poolRemove("pull", "extract:"+d.img.ID)
+			}
+
+			// if tmpFile is empty assume download and extracted elsewhere
+			d.tmpFile.Seek(0, 0)
+			reader := progressreader.New(progressreader.Config{
+				In:        d.tmpFile,
+				Out:       out,
+				Formatter: p.sf,
+				Size:      d.size,
+				NewLines:  false,
+				ID:        stringid.TruncateID(d.img.ID),
+				Action:    "Extracting",
+			})
+
+			err = p.graph.Register(d.img, reader)
+			if err != nil {
+				releasePool()
+				return false, err
+			}
+
+			if err := p.graph.SetDigest(d.img.ID, d.digest); err != nil {
+				releasePool()
+				return false, err
+			}
+
+			releasePool()
+
 		}
 
-		if err := p.graph.SetDigest(d.img.ID, d.digest); err != nil {
-			return false, err
-		}
-
-		// FIXME: Pool release here for parallel tag pull (ensures any downloads block until fully extracted)
 		out.Write(p.sf.FormatProgress(stringid.TruncateID(d.img.ID), "Pull complete", nil))
 		tagUpdated = true
 	}
