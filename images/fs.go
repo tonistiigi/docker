@@ -1,7 +1,6 @@
 package images
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -110,14 +109,44 @@ func (s *fs) Set(data []byte) (digest.Digest, error) {
 
 // remove base file and helpers
 func (s *fs) Delete(id digest.Digest) error {
-	return errors.New("not implemented")
+	s.Lock()
+	defer s.Unlock()
+
+	if err := os.RemoveAll(filepath.Join(s.root, metadataDirName, id.String())); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(filepath.Join(s.root, contentDirName, id.String())); err != nil {
+		return err
+	}
+	return nil
 }
 
 // fails if no base file
 func (s *fs) SetMetadata(id digest.Digest, key string, data []byte) error {
-	return errors.New("not implemented")
+	s.Lock()
+	defer s.Unlock()
+
+	if _, err := s.Get(id); err != nil {
+		return err
+	}
+
+	baseDir := filepath.Join(s.root, metadataDirName, string(id))
+	if err := os.MkdirAll(baseDir, 0600); err != nil {
+		return err
+	}
+	if err := ioutil.WriteFile(filepath.Join(baseDir, key), data, 0600); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *fs) GetMetadata(id digest.Digest, key string) ([]byte, error) {
-	return nil, errors.New("not implemented")
+	s.Lock()
+	defer s.Unlock()
+
+	if _, err := s.Get(id); err != nil {
+		return nil, err
+	}
+	return ioutil.ReadFile(filepath.Join(s.root, metadataDirName, id.String()))
 }
