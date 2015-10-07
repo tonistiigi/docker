@@ -3,7 +3,6 @@ package images
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -24,6 +23,7 @@ type store struct {
 	ls   layers.LayerStore
 	root string
 	ids  map[ID]struct{}
+	fs   *fs
 }
 
 type migratoryLayerStore interface {
@@ -43,15 +43,16 @@ const (
 // )
 
 func NewImageStore(root string, ls layers.LayerStore) (Store, error) {
+	fs, err := newFSStore(filepath.Join(root, imagesDirName))
+	if err != nil {
+		return nil, err
+	}
+
 	is := &store{
 		root: root,
 		ls:   ls,
 		ids:  make(map[ID]struct{}),
-	}
-
-	imagesDir := filepath.Join(is.root, imagesDirName)
-	if err := os.MkdirAll(imagesDir, 0600); err != nil {
-		return nil, err
+		fs:   fs,
 	}
 
 	// load all current images and retain layers
@@ -67,29 +68,16 @@ func NewImageStore(root string, ls layers.LayerStore) (Store, error) {
 }
 
 func (is *store) restore() error {
-	is.Lock()
-	defer is.Unlock()
-
-	dir, err := ioutil.ReadDir(filepath.Join(is.root, imagesDirName))
-	if err != nil {
-		return err
-	}
-	for _, v := range dir {
-		hex := v.Name()
-		if err := ValidateID(hex); err != nil { // todo: new method
-			continue
-		}
-		dgst := digest.NewDigestFromHex(string(digest.Canonical), hex)
-		imageID := ID(dgst)
-		img, err := is.Get(imageID)
+	return is.fs.Walk(func(id digest.Digest) error {
+		img, err := is.Get(ID(id))
 		if err != nil {
-			logrus.Errorf("invalid image %v, %v", dgst, err)
-			continue
+			logrus.Errorf("invalid image %v, %v", id, err)
+			return nil
 		}
-		is.retainLayers(img.LayerDigests, dgst.String())
-		is.ids[imageID] = struct{}{}
-	}
-	return nil
+		is.retainLayers(img.LayerDigests, id.String())
+		is.ids[ID(id)] = struct{}{}
+		return nil
+	})
 }
 
 func (is *store) Create(config []byte) (ID, error) {
@@ -119,8 +107,8 @@ func (is *store) Create(config []byte) (ID, error) {
 		return "", err
 	}
 
-	// todo: locking
-	if err := ioutil.WriteFile(filepath.Join(is.root, imagesDirName, dgst.Hex()), config, 0600); err != nil {
+	_, err = is.fs.Set(config) // todo: validate or reorganize
+	if err != nil {
 		return "", err
 	}
 
@@ -134,13 +122,13 @@ func (is *store) retainLayers(dgsts []layers.LayerDigest, key string) error {
 		return errors.New("Invalid image config. No layer digests.")
 	}
 
-	for i := 0; i < len(dgsts); i++ {
+	for i := range dgsts {
 		layerID, err := layers.LayerID("", dgsts[:i+1]...) // todo: this can be optimized
 		if err != nil {
 			return err
 		}
 		k := key
-		if i < len(dgsts)-1 {
+		if i < len(dgsts)-1 { // last image is retained by image
 			k = string(dgsts[i+1])
 		}
 		if err := is.ls.Retain(layerID, k); err != nil {
@@ -153,20 +141,9 @@ func (is *store) retainLayers(dgsts []layers.LayerDigest, key string) error {
 func (is *store) Get(id ID) (*Image, error) {
 	// todo: validate digest(maybe imageID)
 
-	dgst := digest.Digest(id)
-
-	// todo: everything should already be in memory
-	config, err := ioutil.ReadFile(filepath.Join(is.root, imagesDirName, dgst.Hex()))
+	config, err := is.fs.Get(digest.Digest(id))
 	if err != nil {
 		return nil, err
-	}
-	calcDgst, err := digest.FromBytes(config)
-	if err != nil {
-		return nil, err
-	}
-	// validate. todo: likely better in a separate valiation function
-	if calcDgst != dgst {
-		return nil, fmt.Errorf("failed to verify image: %v", dgst)
 	}
 
 	var img Image
