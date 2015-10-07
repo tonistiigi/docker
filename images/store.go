@@ -294,21 +294,8 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 
 	// todo: fallback default fields removal for old clients
 
-	var c map[string]*json.RawMessage
-	if err := json.Unmarshal(imageJSON, &c); err != nil {
-		return err
-	}
-
-	delete(c, "id")
-	delete(c, "parent")
-	delete(c, "Size") // Size is calculated from data on disk and is inconsitent
-	delete(c, "parent_id")
-	delete(c, "layer_id")
-
 	layerDigests = append(layerDigests, diffID)
-	c["layer_digests"] = rawJSON(layerDigests)
-
-	config, err := json.Marshal(c)
+	config, err := ConfigFromV1Config(imageJSON, layerDigests)
 	if err != nil {
 		return err
 	}
@@ -319,6 +306,24 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 
 	mappings[id] = strongID
 	return
+}
+
+// CreateFromV1Config creates an image config from the legacy V1 config format.
+func ConfigFromV1Config(imageJSON []byte, layerDigests []layers.LayerDigest) ([]byte, error) {
+	var c map[string]*json.RawMessage
+	if err := json.Unmarshal(imageJSON, &c); err != nil {
+		return nil, err
+	}
+
+	delete(c, "id")
+	delete(c, "parent")
+	delete(c, "Size") // Size is calculated from data on disk and is inconsitent
+	delete(c, "parent_id")
+	delete(c, "layer_id")
+
+	c["layer_digests"] = rawJSON(layerDigests)
+
+	return json.Marshal(c)
 }
 
 func rawJSON(value interface{}) *json.RawMessage {
