@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/layers"
 )
 
+// Store is an interface for creating and accessing images
 type Store interface {
 	Create(config []byte) (ID, error)
 	Get(id ID) (*Image, error)
@@ -37,11 +38,7 @@ const (
 	migrationFileName = "graph-to-images-migration.json"
 )
 
-// 	layersizeFileName = "layersize"
-// 	digestFileName    = "checksum"
-// 	tarDataFileName   = "tar-data.json.gz"
-// )
-
+// NewImageStore returns new store object for given LayerStore
 func NewImageStore(root string, ls layers.LayerStore) (Store, error) {
 	fs, err := newFSStore(filepath.Join(root, imagesDirName))
 	if err != nil {
@@ -253,7 +250,7 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 		if err != nil {
 			return err
 		}
-		layerDigests = append(layerDigests, parentImg.LayerDigests...)
+		layerDigests = parentImg.LayerDigests
 	}
 
 	parentLayer, err := layers.LayerID("", layerDigests...)
@@ -288,7 +285,7 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 	return
 }
 
-// CreateFromV1Config creates an image config from the legacy V1 config format.
+// ConfigFromV1Config creates an image config from the legacy V1 config format.
 func ConfigFromV1Config(imageJSON []byte, layerDigests []layers.LayerDigest) ([]byte, error) {
 	var c map[string]*json.RawMessage
 	if err := json.Unmarshal(imageJSON, &c); err != nil {

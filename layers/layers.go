@@ -23,7 +23,8 @@ var (
 )
 
 // ID is the content-addressable ID of a layer.
-type ID digest.Digest // change ID
+type ID digest.Digest
+
 // LayerDigest is the hash of an individual layer tar.
 type LayerDigest digest.Digest
 
@@ -379,6 +380,7 @@ func (ls *layerStore) assembleTar(cacheID, tarDataFile string) (io.Reader, error
 	return pR, nil
 }
 
+// LayerID returns ID for a layerDigest slice and optional parent ID
 func LayerID(parent ID, dgsts ...LayerDigest) (ID, error) {
 	if len(dgsts) == 0 {
 		return parent, nil
@@ -386,7 +388,8 @@ func LayerID(parent ID, dgsts ...LayerDigest) (ID, error) {
 	if parent == "" {
 		return LayerID(ID(dgsts[0]), dgsts[1:]...)
 	}
-	dgst, err := digest.FromBytes([]byte(string(parent) + " " + string(dgsts[0]))) // todo: backwards in prototype
+	// H = "H(n-1) SHA256(n)"
+	dgst, err := digest.FromBytes([]byte(string(parent) + " " + string(dgsts[0])))
 	if err != nil {
 		return "", err
 	}

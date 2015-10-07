@@ -13,9 +13,10 @@ import (
 
 var validHex = regexp.MustCompile(`^([a-f0-9]{64})$`)
 
+// ID is the content-addressable ID of an image.
 type ID digest.Digest
 
-// Image stores the image configuration.
+// ImageV1 stores the V1 image configuration.
 type ImageV1 struct {
 	// ID a unique 64 character identifier of the image
 	ID string `json:"id,omitempty"`
@@ -43,6 +44,7 @@ type ImageV1 struct {
 	Size int64 `json:",omitempty"`
 }
 
+// Image stores the image configuration
 type Image struct {
 	ImageV1
 	ID           ID                   `json:"id,omitempty"`
@@ -50,6 +52,7 @@ type Image struct {
 	History      []History            `json:"history,omitempty"`
 }
 
+// History stores build commands that were used to create an image
 type History struct {
 	Cmd string
 	// todo
