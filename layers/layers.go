@@ -23,7 +23,7 @@ var (
 )
 
 // ID is the content-addressable ID of a layer.
-type LayerAddress digest.Digest // change ID
+type ID digest.Digest // change ID
 // LayerDigest is the hash of an individual layer tar.
 type LayerDigest digest.Digest
 
@@ -34,7 +34,7 @@ type TarStreamer interface {
 // Layer represents a read only layer
 type Layer interface {
 	TarStreamer
-	Address() LayerAddress
+	Address() ID
 	Parent() (Layer, error)
 	Size() (int64, error)
 }
@@ -48,22 +48,22 @@ type RWLayer interface {
 }
 
 type LayerStore interface {
-	Register(io.Reader, LayerAddress) (Layer, error)
-	Get(LayerAddress) (Layer, error)
-	Put(LayerAddress) error
+	Register(io.Reader, ID) (Layer, error)
+	Get(ID) (Layer, error)
+	Put(ID) error
 
-	Mount(id string, parent LayerAddress) (RWLayer, error)
+	Mount(id string, parent ID) (RWLayer, error)
 	Unmount(id string) error
 
-	Retain(LayerAddress, string) error
-	Release(LayerAddress, string) error
+	Retain(ID, string) error
+	Release(ID, string) error
 }
 
 type tarStreamer func() (io.Reader, error)
 
 type cacheLayer struct {
 	tarStreamer
-	address LayerAddress
+	address ID
 	parent  *cacheLayer
 	cacheID string
 	size    int64
@@ -73,7 +73,7 @@ func (cl *cacheLayer) TarStream() (io.Reader, error) {
 	return cl.tarStreamer()
 }
 
-func (cl *cacheLayer) Address() LayerAddress {
+func (cl *cacheLayer) Address() ID {
 	return cl.address
 }
 
@@ -108,7 +108,7 @@ type layerStore struct {
 	root   string
 	driver graphdriver.Driver
 
-	layerMap map[LayerAddress]*cacheLayer
+	layerMap map[ID]*cacheLayer
 	layerL   sync.Mutex
 
 	mounts map[string]*mountedLayer
@@ -119,7 +119,7 @@ func NewLayerStore(root string, driver graphdriver.Driver) (LayerStore, error) {
 	ls := &layerStore{
 		root:     root,
 		driver:   driver,
-		layerMap: map[LayerAddress]*cacheLayer{},
+		layerMap: map[ID]*cacheLayer{},
 		mounts:   map[string]*mountedLayer{},
 	}
 
@@ -128,7 +128,7 @@ func NewLayerStore(root string, driver graphdriver.Driver) (LayerStore, error) {
 	return ls, nil
 }
 
-func (ls *layerStore) Register(ts io.Reader, parent LayerAddress) (Layer, error) {
+func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 	var pid string
 	var p *cacheLayer
 	if string(parent) != "" {
@@ -194,7 +194,7 @@ func (ls *layerStore) Register(ts io.Reader, parent LayerAddress) (Layer, error)
 	return layer, nil
 }
 
-func (ls *layerStore) Get(l LayerAddress) (Layer, error) {
+func (ls *layerStore) Get(l ID) (Layer, error) {
 	ls.layerL.Lock()
 	defer ls.layerL.Unlock()
 
@@ -206,7 +206,7 @@ func (ls *layerStore) Get(l LayerAddress) (Layer, error) {
 	return layer, nil
 }
 
-func (ls *layerStore) Put(l LayerAddress) error {
+func (ls *layerStore) Put(l ID) error {
 	// TODO: Release reference, attempt garbage collections
 	// NOTE: If put is called on layer before layers have all
 	// been fully retrieved via Get, layers may unintentionally
@@ -214,7 +214,7 @@ func (ls *layerStore) Put(l LayerAddress) error {
 	return nil
 }
 
-func (ls *layerStore) Mount(id string, parent LayerAddress) (RWLayer, error) {
+func (ls *layerStore) Mount(id string, parent ID) (RWLayer, error) {
 	ls.mountL.Lock()
 	defer ls.mountL.Unlock()
 	if m, ok := ls.mounts[id]; ok {
@@ -277,18 +277,18 @@ func (ls *layerStore) Unmount(id string) error {
 	return ls.driver.Remove(m.mountID)
 }
 
-func (ls *layerStore) Retain(id LayerAddress, key string) error {
+func (ls *layerStore) Retain(id ID, key string) error {
 	// todo:
 	logrus.Debugf("retain %v %v", id, key)
 	return nil
 }
-func (ls *layerStore) Release(id LayerAddress, key string) error {
+func (ls *layerStore) Release(id ID, key string) error {
 	// todo:
 	logrus.Debugf("release %v %v", id, key)
 	return nil
 }
 
-func (ls *layerStore) RegisterOnDisk(cacheID string, parent LayerAddress, tarDataFile string) (Layer, LayerDigest, error) {
+func (ls *layerStore) RegisterOnDisk(cacheID string, parent ID, tarDataFile string) (Layer, LayerDigest, error) {
 	var p *cacheLayer
 	if string(parent) != "" {
 		l, ok := ls.layerMap[parent]
@@ -379,16 +379,16 @@ func (ls *layerStore) assembleTar(cacheID, tarDataFile string) (io.Reader, error
 	return pR, nil
 }
 
-func LayerID(parent LayerAddress, dgsts ...LayerDigest) (LayerAddress, error) {
+func LayerID(parent ID, dgsts ...LayerDigest) (ID, error) {
 	if len(dgsts) == 0 {
 		return parent, nil
 	}
 	if parent == "" {
-		return LayerID(LayerAddress(dgsts[0]), dgsts[1:]...)
+		return LayerID(ID(dgsts[0]), dgsts[1:]...)
 	}
 	dgst, err := digest.FromBytes([]byte(string(parent) + " " + string(dgsts[0]))) // todo: backwards in prototype
 	if err != nil {
 		return "", err
 	}
-	return LayerID(LayerAddress(dgst), dgsts[1:]...)
+	return LayerID(ID(dgst), dgsts[1:]...)
 }

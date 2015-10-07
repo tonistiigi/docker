@@ -27,7 +27,7 @@ type store struct {
 }
 
 type migratoryLayerStore interface {
-	RegisterOnDisk(string, layers.LayerAddress, string) (layers.Layer, layers.LayerDigest, error)
+	RegisterOnDisk(string, layers.ID, string) (layers.Layer, layers.LayerDigest, error)
 }
 
 const (
