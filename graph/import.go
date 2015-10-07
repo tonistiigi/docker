@@ -74,6 +74,7 @@ func (s *TagStore) Import(src string, repo string, tag string, msg string, inCon
 		logID = utils.ImageReference(logID, tag)
 	}
 
-	s.eventsService.Log("import", logID, "")
+	// FIXME
+	//s.eventsService.Log("import", logID, "")
 	return nil
 }

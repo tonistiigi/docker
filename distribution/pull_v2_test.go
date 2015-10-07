@@ -1,4 +1,4 @@
-package graph
+package distribution
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/manifest"
+	"github.com/docker/distribution/reference"
 )
 
 // TestFixManifestLayers checks that fixManifestLayers removes a duplicate
@@ -103,7 +104,10 @@ func TestFixManifestLayersBadParent(t *testing.T) {
 
 // TestValidateManifest verifies the validateManifest function
 func TestValidateManifest(t *testing.T) {
-	expectedDigest := "sha256:02fee8c3220ba806531f606525eceb83f4feb654f62b207191b1c9209188dedd"
+	expectedDigest, err := reference.Parse("repo@sha256:02fee8c3220ba806531f606525eceb83f4feb654f62b207191b1c9209188dedd")
+	if err != nil {
+		t.Fatal("could not parse reference")
+	}
 	expectedFSLayer0 := digest.Digest("sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4")
 
 	// Good manifest
@@ -170,7 +174,10 @@ func TestValidateManifest(t *testing.T) {
 
 	// Manifest with no signature
 
-	expectedWholeFileDigest := "7ec3615a120efcdfc270e9c7ea4183330775a3e52a09e2efb194b9a7c18e5ff7"
+	expectedWholeFileDigest, err := reference.Parse("7ec3615a120efcdfc270e9c7ea4183330775a3e52a09e2efb194b9a7c18e5ff7")
+	if err != nil {
+		t.Fatal("could not parse reference")
+	}
 
 	noSignatureManifestBytes, err := ioutil.ReadFile("fixtures/validate_manifest/no_signature_manifest")
 	if err != nil {

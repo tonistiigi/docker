@@ -1,4 +1,4 @@
-package graph
+package distribution
 
 import (
 	"fmt"
@@ -6,9 +6,16 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/cliconfig"
+	"github.com/docker/docker/daemon/events"
+	"github.com/docker/docker/distribution/metadata"
+	"github.com/docker/docker/images"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/registry"
+	"github.com/docker/docker/tag"
+	"github.com/docker/libtrust"
 )
 
 // ImagePushConfig stores push configuration.
@@ -19,12 +26,28 @@ type ImagePushConfig struct {
 	// AuthConfig holds authentication credentials for authenticating with
 	// the registry.
 	AuthConfig *cliconfig.AuthConfig
-	// Tag is the specific variant of the image to be pushed.
+	// Reference is the specific variant of the image to be pushed.
 	// If no tag is provided, all tags will be pushed.
-	Tag string
+	Reference reference.Reference
 	// OutStream is the output writer for showing the status of the push
 	// operation.
 	OutStream io.Writer
+	// RegistryService is the registry service to use for TLS configuration
+	// and endpoint lookup.
+	RegistryService *registry.Service
+	// EventsService is the events service to use for logging.
+	EventsService *events.Events
+	// LayerStore manges layers.
+	LayerStore layer.Store
+	// ImageStore manages images.
+	ImageStore images.Store
+	// TagStore manages tags.
+	TagStore tag.Store
+	// Pool manages concurrent pulls and pushes.
+	Pool *Pool
+	// TrustKey is the private key for legacy signatures. This is typically
+	// an ephemeral key, since these signatures are no longer verified.
+	TrustKey libtrust.PrivateKey
 }
 
 // Pusher is an interface that abstracts pushing for different API versions.
@@ -36,63 +59,63 @@ type Pusher interface {
 	Push() (fallback bool, err error)
 }
 
+// FIXME
+// Repository maps tags to image IDs.
+type Repository map[string]string
+
 // NewPusher creates a new Pusher interface that will push to either a v1 or v2
 // registry. The endpoint argument contains a Version field that determines
 // whether a v1 or v2 pusher will be created. The other parameters are passed
 // through to the underlying pusher implementation for use during the actual
 // push operation.
-func (s *TagStore) NewPusher(endpoint registry.APIEndpoint, localRepo Repository, repoInfo *registry.RepositoryInfo, imagePushConfig *ImagePushConfig, sf *streamformatter.StreamFormatter) (Pusher, error) {
+func NewPusher(endpoint registry.APIEndpoint, metadataStore metadata.Store, repoInfo *registry.RepositoryInfo, imagePushConfig *ImagePushConfig, sf *streamformatter.StreamFormatter) (Pusher, error) {
 	switch endpoint.Version {
 	case registry.APIVersion2:
 		return &v2Pusher{
-			TagStore:     s,
-			endpoint:     endpoint,
-			localRepo:    localRepo,
-			repoInfo:     repoInfo,
-			config:       imagePushConfig,
-			sf:           sf,
-			layersPushed: make(map[digest.Digest]bool),
+			blobSumLookupService:  metadata.NewBlobSumLookupService(metadataStore),
+			blobSumStorageService: metadata.NewBlobSumStorageService(metadataStore),
+			endpoint:              endpoint,
+			repoInfo:              repoInfo,
+			config:                imagePushConfig,
+			sf:                    sf,
+			layersPushed:          make(map[digest.Digest]bool),
 		}, nil
 	case registry.APIVersion1:
-		return &v1Pusher{
-			TagStore:  s,
-			endpoint:  endpoint,
-			localRepo: localRepo,
-			repoInfo:  repoInfo,
-			config:    imagePushConfig,
-			sf:        sf,
-		}, nil
+		// FIXME
+		panic("v1 push not supported")
+		/*
+			return &v1Pusher{
+				v1IDService: metadata.NewV1IDService(metadataStore),
+				endpoint:    endpoint,
+				repoInfo:    repoInfo,
+				config:      imagePushConfig,
+				sf:          sf,
+			}, nil*/
 	}
 	return nil, fmt.Errorf("unknown version %d for registry %s", endpoint.Version, endpoint.URL)
 }
 
 // Push initiates a push operation on the repository named localName.
-func (s *TagStore) Push(localName string, imagePushConfig *ImagePushConfig) error {
+func Push(localName string, metadataDir string, imagePushConfig *ImagePushConfig) error {
 	// FIXME: Allow to interrupt current push when new push of same image is done.
 
 	var sf = streamformatter.NewJSONStreamFormatter()
 
 	// Resolve the Repository name from fqn to RepositoryInfo
-	repoInfo, err := s.registryService.ResolveRepository(localName)
+	repoInfo, err := imagePushConfig.RegistryService.ResolveRepository(localName)
 	if err != nil {
 		return err
 	}
 
-	endpoints, err := s.registryService.LookupPushEndpoints(repoInfo.CanonicalName)
+	endpoints, err := imagePushConfig.RegistryService.LookupPushEndpoints(repoInfo.CanonicalName)
 	if err != nil {
 		return err
 	}
 
-	reposLen := 1
-	if imagePushConfig.Tag == "" {
-		reposLen = len(s.Repositories[repoInfo.LocalName])
-	}
+	imagePushConfig.OutStream.Write(sf.FormatStatus("", "The push refers to a repository [%s]", repoInfo.CanonicalName))
 
-	imagePushConfig.OutStream.Write(sf.FormatStatus("", "The push refers to a repository [%s] (len: %d)", repoInfo.CanonicalName, reposLen))
-
-	// If it fails, try to get the repository
-	localRepo, exists := s.Repositories[repoInfo.LocalName]
-	if !exists {
+	tags := imagePushConfig.TagStore.GetRepoTags(repoInfo.LocalName)
+	if len(tags) == 0 {
 		return fmt.Errorf("Repository does not exist: %s", repoInfo.LocalName)
 	}
 
@@ -100,7 +123,7 @@ func (s *TagStore) Push(localName string, imagePushConfig *ImagePushConfig) erro
 	for _, endpoint := range endpoints {
 		logrus.Debugf("Trying to push %s to %s %s", repoInfo.CanonicalName, endpoint.URL, endpoint.Version)
 
-		pusher, err := s.NewPusher(endpoint, localRepo, repoInfo, imagePushConfig, sf)
+		pusher, err := NewPusher(endpoint, metadata.NewFSMetadataStore(metadataDir), repoInfo, imagePushConfig, sf)
 		if err != nil {
 			lastErr = err
 			continue
@@ -115,7 +138,7 @@ func (s *TagStore) Push(localName string, imagePushConfig *ImagePushConfig) erro
 
 		}
 
-		s.eventsService.Log("push", repoInfo.LocalName, "")
+		imagePushConfig.EventsService.Log("push", repoInfo.LocalName, "")
 		return nil
 	}
 

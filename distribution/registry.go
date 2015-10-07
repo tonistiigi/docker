@@ -1,4 +1,4 @@
-package graph
+package distribution
 
 import (
 	"errors"

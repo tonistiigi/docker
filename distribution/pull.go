@@ -1,13 +1,19 @@
-package graph
+package distribution
 
 import (
 	"fmt"
 	"io"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/cliconfig"
+	"github.com/docker/docker/daemon/events"
+	"github.com/docker/docker/distribution/metadata"
+	"github.com/docker/docker/images"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/registry"
+	"github.com/docker/docker/tag"
 	"github.com/docker/docker/utils"
 )
 
@@ -22,6 +28,19 @@ type ImagePullConfig struct {
 	// OutStream is the output writer for showing the status of the pull
 	// operation.
 	OutStream io.Writer
+	// RegistryService is the registry service to use for TLS configuration
+	// and endpoint lookup.
+	RegistryService *registry.Service
+	// EventsService is the events service to use for logging.
+	EventsService *events.Events
+	// LayerStore manages layers.
+	LayerStore layer.Store
+	// ImageStore manages images.
+	ImageStore images.Store
+	// TagStore manages tags.
+	TagStore tag.Store
+	// Pool manages concurrent pulls and pushes.
+	Pool *Pool
 }
 
 // Puller is an interface that abstracts pulling for different API versions.
@@ -29,8 +48,7 @@ type Puller interface {
 	// Pull tries to pull the image referenced by `tag`
 	// Pull returns an error if any, as well as a boolean that determines whether to retry Pull on the next configured endpoint.
 	//
-	// TODO(tiborvass): have Pull() take a reference to repository + tag, so that the puller itself is repository-agnostic.
-	Pull(tag string) (fallback bool, err error)
+	Pull(ref reference.Reference) (fallback bool, err error)
 }
 
 // NewPuller returns a Puller interface that will pull from either a v1 or v2
@@ -38,35 +56,43 @@ type Puller interface {
 // whether a v1 or v2 puller will be created. The other parameters are passed
 // through to the underlying puller implementation for use during the actual
 // pull operation.
-func NewPuller(s *TagStore, endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo, imagePullConfig *ImagePullConfig, sf *streamformatter.StreamFormatter) (Puller, error) {
+func NewPuller(metadataStore metadata.Store, endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo, imagePullConfig *ImagePullConfig, sf *streamformatter.StreamFormatter) (Puller, error) {
 	switch endpoint.Version {
 	case registry.APIVersion2:
 		return &v2Puller{
-			TagStore: s,
-			endpoint: endpoint,
-			config:   imagePullConfig,
-			sf:       sf,
-			repoInfo: repoInfo,
+			blobSumLookupService:  metadata.NewBlobSumLookupService(metadataStore),
+			blobSumStorageService: metadata.NewBlobSumStorageService(metadataStore),
+			endpoint:              endpoint,
+			config:                imagePullConfig,
+			sf:                    sf,
+			repoInfo:              repoInfo,
 		}, nil
 	case registry.APIVersion1:
-		return &v1Puller{
-			TagStore: s,
-			endpoint: endpoint,
-			config:   imagePullConfig,
-			sf:       sf,
-			repoInfo: repoInfo,
-		}, nil
+		panic("v1 unsupported")
+		// FIXME
+		/*return &v1Puller{
+			v1IDService: metadata.NewV1IDService(metadataStore),
+			endpoint:    endpoint,
+			config:      imagePullConfig,
+			sf:          sf,
+			repoInfo:    repoInfo,
+		}, nil*/
 	}
 	return nil, fmt.Errorf("unknown version %d for registry %s", endpoint.Version, endpoint.URL)
 }
 
 // Pull initiates a pull operation. image is the repository name to pull, and
 // tag may be either empty, or indicate a specific tag to pull.
-func (s *TagStore) Pull(image string, tag string, imagePullConfig *ImagePullConfig) error {
+func Pull(ref reference.Reference, metadataDir string, imagePullConfig *ImagePullConfig) error {
 	var sf = streamformatter.NewJSONStreamFormatter()
 
+	named, isNamed := ref.(reference.Named)
+	if !isNamed {
+		return fmt.Errorf("reference %s does not have a name", ref.String)
+	}
+
 	// Resolve the Repository name from fqn to RepositoryInfo
-	repoInfo, err := s.registryService.ResolveRepository(image)
+	repoInfo, err := imagePullConfig.RegistryService.ResolveRepository(named.Name())
 	if err != nil {
 		return err
 	}
@@ -76,14 +102,14 @@ func (s *TagStore) Pull(image string, tag string, imagePullConfig *ImagePullConf
 		return err
 	}
 
-	endpoints, err := s.registryService.LookupPullEndpoints(repoInfo.CanonicalName)
+	endpoints, err := imagePullConfig.RegistryService.LookupPullEndpoints(repoInfo.CanonicalName)
 	if err != nil {
 		return err
 	}
 
 	logName := repoInfo.LocalName
-	if tag != "" {
-		logName = utils.ImageReference(logName, tag)
+	if tagged, isTagged := ref.(reference.Tagged); isTagged {
+		logName = utils.ImageReference(logName, tagged.Tag())
 	}
 
 	var (
@@ -101,12 +127,12 @@ func (s *TagStore) Pull(image string, tag string, imagePullConfig *ImagePullConf
 	for _, endpoint := range endpoints {
 		logrus.Debugf("Trying to pull %s from %s %s", repoInfo.LocalName, endpoint.URL, endpoint.Version)
 
-		puller, err := NewPuller(s, endpoint, repoInfo, imagePullConfig, sf)
+		puller, err := NewPuller(metadata.NewFSMetadataStore(metadataDir), endpoint, repoInfo, imagePullConfig, sf)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		if fallback, err := puller.Pull(tag); err != nil {
+		if fallback, err := puller.Pull(ref); err != nil {
 			if fallback {
 				if _, ok := err.(registry.ErrNoSupport); !ok {
 					// Because we found an error that's not ErrNoSupport, discard all subsequent ErrNoSupport errors.
@@ -125,12 +151,12 @@ func (s *TagStore) Pull(image string, tag string, imagePullConfig *ImagePullConf
 
 		}
 
-		s.eventsService.Log("pull", logName, "")
+		imagePullConfig.EventsService.Log("pull", logName, "")
 		return nil
 	}
 
 	if lastErr == nil {
-		lastErr = fmt.Errorf("no endpoints found for %s", image)
+		lastErr = fmt.Errorf("no endpoints found for %s", named.Name())
 	}
 	return lastErr
 }
@@ -145,4 +171,15 @@ func writeStatus(requestedTag string, out io.Writer, sf *streamformatter.StreamF
 	} else {
 		out.Write(sf.FormatStatus("", "Status: Image is up to date for %s", requestedTag))
 	}
+}
+
+// validateRepoName validates the name of a repository.
+func validateRepoName(name string) error {
+	if name == "" {
+		return fmt.Errorf("Repository name can't be empty")
+	}
+	if name == "scratch" {
+		return fmt.Errorf("'scratch' is a reserved name")
+	}
+	return nil
 }

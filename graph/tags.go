@@ -13,7 +13,6 @@ import (
 	"sync"
 
 	"github.com/docker/distribution/digest"
-	"github.com/docker/docker/daemon/events"
 	"github.com/docker/docker/graph/tags"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/broadcaster"
@@ -21,7 +20,6 @@ import (
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/registry"
 	"github.com/docker/docker/utils"
-	"github.com/docker/libtrust"
 )
 
 // TagStore manages repositories. It encompasses the Graph used for versioned
@@ -32,14 +30,7 @@ type TagStore struct {
 	graph *Graph
 	// Repositories is a map of repositories, indexed by name.
 	Repositories map[string]Repository
-	trustKey     libtrust.PrivateKey
 	sync.Mutex
-	// FIXME: move push/pull-related fields
-	// to a helper type
-	pullingPool     map[string]*broadcaster.Buffered
-	pushingPool     map[string]*broadcaster.Buffered
-	registryService *registry.Service
-	eventsService   *events.Events
 }
 
 // Repository maps tags to image IDs.
@@ -68,13 +59,6 @@ func (r Repository) Contains(u Repository) bool {
 type TagStoreConfig struct {
 	// Graph is the versioned image store
 	Graph *Graph
-	// Key is the private key to use for signing manifests.
-	Key libtrust.PrivateKey
-	// Registry is the registry service to use for TLS configuration and
-	// endpoint lookup.
-	Registry *registry.Service
-	// Events is the events service to use for logging.
-	Events *events.Events
 }
 
 // NewTagStore creates a new TagStore at specified path, using the parameters
@@ -86,14 +70,9 @@ func NewTagStore(path string, cfg *TagStoreConfig) (*TagStore, error) {
 	}
 
 	store := &TagStore{
-		path:            abspath,
-		graph:           cfg.Graph,
-		trustKey:        cfg.Key,
-		Repositories:    make(map[string]Repository),
-		pullingPool:     make(map[string]*broadcaster.Buffered),
-		pushingPool:     make(map[string]*broadcaster.Buffered),
-		registryService: cfg.Registry,
-		eventsService:   cfg.Events,
+		path:         abspath,
+		graph:        cfg.Graph,
+		Repositories: make(map[string]Repository),
 	}
 	// Load the json file if it exists, otherwise create it.
 	if err := store.reload(); os.IsNotExist(err) {
@@ -427,56 +406,4 @@ func validateDigest(dgst string) error {
 		return err
 	}
 	return nil
-}
-
-// poolAdd checks if a push or pull is already running, and returns
-// (broadcaster, true) if a running operation is found. Otherwise, it creates a
-// new one and returns (broadcaster, false).
-func (store *TagStore) poolAdd(kind, key string) (*broadcaster.Buffered, bool) {
-	store.Lock()
-	defer store.Unlock()
-
-	if p, exists := store.pullingPool[key]; exists {
-		return p, true
-	}
-	if p, exists := store.pushingPool[key]; exists {
-		return p, true
-	}
-
-	broadcaster := broadcaster.NewBuffered()
-
-	switch kind {
-	case "pull":
-		store.pullingPool[key] = broadcaster
-	case "push":
-		store.pushingPool[key] = broadcaster
-	default:
-		panic("Unknown pool type")
-	}
-
-	return broadcaster, false
-}
-
-func (store *TagStore) poolRemoveWithError(kind, key string, broadcasterResult error) error {
-	store.Lock()
-	defer store.Unlock()
-	switch kind {
-	case "pull":
-		if broadcaster, exists := store.pullingPool[key]; exists {
-			broadcaster.CloseWithError(broadcasterResult)
-			delete(store.pullingPool, key)
-		}
-	case "push":
-		if broadcaster, exists := store.pushingPool[key]; exists {
-			broadcaster.CloseWithError(broadcasterResult)
-			delete(store.pushingPool, key)
-		}
-	default:
-		return fmt.Errorf("Unknown pool type")
-	}
-	return nil
-}
-
-func (store *TagStore) poolRemove(kind, key string) error {
-	return store.poolRemoveWithError(kind, key, nil)
 }
