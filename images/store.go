@@ -14,7 +14,10 @@ import (
 	"github.com/docker/docker/layers"
 )
 
-// todo: make public interface
+type Store interface {
+	Create(config []byte) (ID, error)
+	Get(id ID) (*Image, error)
+}
 
 type store struct {
 	sync.Mutex
@@ -39,7 +42,7 @@ const (
 // 	tarDataFileName   = "tar-data.json.gz"
 // )
 
-func NewImageStore(root string, ls layers.LayerStore) (*store, error) {
+func NewImageStore(root string, ls layers.LayerStore) (Store, error) {
 	is := &store{
 		root: root,
 		ls:   ls,
