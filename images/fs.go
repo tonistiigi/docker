@@ -79,6 +79,10 @@ func (s *fs) Get(id digest.Digest) ([]byte, error) {
 	s.Lock()
 	defer s.Unlock()
 
+	return s.get(id)
+}
+
+func (s *fs) get(id digest.Digest) ([]byte, error) {
 	if err := validateCanonicalDigest(id); err != nil {
 		return nil, err
 	}
@@ -134,8 +138,7 @@ func (s *fs) Delete(id digest.Digest) error {
 func (s *fs) SetMetadata(id digest.Digest, key string, data []byte) error {
 	s.Lock()
 	defer s.Unlock()
-
-	if _, err := s.Get(id); err != nil {
+	if _, err := s.get(id); err != nil {
 		return err
 	}
 
@@ -154,7 +157,7 @@ func (s *fs) GetMetadata(id digest.Digest, key string) ([]byte, error) {
 	s.Lock()
 	defer s.Unlock()
 
-	if _, err := s.Get(id); err != nil {
+	if _, err := s.get(id); err != nil {
 		return nil, err
 	}
 	return ioutil.ReadFile(filepath.Join(s.root, metadataDirName, id.String()))

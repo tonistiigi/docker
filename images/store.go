@@ -272,6 +272,12 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 		return err
 	}
 
+	if parentID != "" {
+		if err := is.fs.SetMetadata(digest.Digest(strongID), "parent", []byte(parentID)); err != nil {
+			return err
+		}
+	}
+
 	mappings[id] = strongID
 	return
 }
