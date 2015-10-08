@@ -79,6 +79,8 @@ type cacheLayer struct {
 	parent  *cacheLayer
 	cacheID string
 	size    int64
+
+	referenceCount int
 }
 
 func (cl *cacheLayer) TarStream() (io.Reader, error) {
@@ -189,9 +191,15 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 		return io.Reader(archiver), err
 	}
 
-	layer.address, err = LayerID(layer.parent.address, DiffID(digester.Digest()))
-	if err != nil {
-		return nil, err
+	layer.digest = DiffID(digester.Digest())
+
+	if layer.parent == nil {
+		layer.address = ID(layer.digest)
+	} else {
+		layer.address, err = LayerID(layer.parent.address, layer.digest)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	ls.layerL.Lock()
@@ -204,6 +212,8 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 	}
 
 	ls.layerMap[layer.address] = layer
+
+	ls.retainLayer(layer)
 
 	// TODO: Persist mapping update to disk
 
@@ -218,16 +228,91 @@ func (ls *layerStore) Get(l ID) (Layer, error) {
 	if !ok {
 		return nil, ErrLayerDoesNotExist
 	}
-	// TODO: retain parent and all ancestors
+
+	ls.retainLayer(layer)
+
 	return layer, nil
 }
 
+func (ls *layerStore) retainLayer(layer *cacheLayer) {
+	for l := layer; ; l = l.parent {
+		l.referenceCount++
+		if l.parent == nil {
+			break
+		}
+	}
+}
+
+func (ls *layerStore) cleanup() ([]Metadata, error) {
+	// Mark
+	layers := []*cacheLayer{}
+	for id, layer := range ls.layerMap {
+		if layer.referenceCount == 0 {
+			layers = append(layers, layer)
+			delete(ls.layerMap, id)
+		}
+	}
+
+	// Order
+	// if is parent, order after, since
+	// loops are not possible due to linking
+	// by content hash, this will always
+	// converge and complete
+	for i := 0; i < len(layers); {
+		layer := layers[i]
+		newPosition := i
+		for j := i + 1; j < len(layers); j++ {
+			if layers[j].parent == layer {
+				newPosition = j
+			}
+		}
+		if newPosition > i {
+			// Shift and continue at same index
+			copy(layers[i:newPosition], layers[i+1:newPosition+1])
+			layers[newPosition] = layer
+		} else {
+			// Properly ordered, move to next
+			i++
+		}
+	}
+
+	// Sweep
+	metadata := make([]Metadata, len(layers))
+	var lastErr error
+	for i, layer := range layers {
+		metadata[i].DiffID = layer.digest
+		metadata[i].LayerID = layer.address
+		metadata[i].Size = layer.size
+		if err := ls.driver.Remove(layer.cacheID); err != nil {
+			// TODO: Should this continue, log and return last?
+			lastErr = err
+		}
+		// TODO: Delete from storage
+	}
+
+	return metadata, lastErr
+}
+
 func (ls *layerStore) Release(l Layer) ([]Metadata, error) {
-	// TODO: Release reference, attempt garbage collections
-	// NOTE: If put is called on layer before layers have all
-	// been fully retrieved via Get, layers may unintentionally
-	// be removed.
-	return []Metadata{}, nil
+	ls.layerL.Lock()
+	defer ls.layerL.Unlock()
+	layer, ok := ls.layerMap[l.ID()]
+	if !ok {
+		return []Metadata{}, nil
+	}
+
+	for l := layer; ; l = l.parent {
+		if l.referenceCount < 2 {
+			l.referenceCount = 0
+		} else {
+			l.referenceCount--
+		}
+		if l.parent == nil {
+			break
+		}
+	}
+
+	return ls.cleanup()
 }
 
 func (ls *layerStore) Mount(id string, parent ID, mountLabel string, initFunc MountInit) (RWLayer, error) {
@@ -338,6 +423,7 @@ func (ls *layerStore) RegisterOnDisk(cacheID string, parent ID, tarDataFile stri
 	}
 
 	ls.layerMap[layer.address] = layer
+	ls.retainLayer(layer)
 
 	return layer, nil
 }
