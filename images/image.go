@@ -50,6 +50,14 @@ type Image struct {
 	ID      ID              `json:"id,omitempty"`
 	DiffIDs []layers.DiffID `json:"diff_ids,omitempty"`
 	History []History       `json:"history,omitempty"`
+
+	// rawJSON caches the immutable JSON associated with this image.
+	rawJSON []byte
+}
+
+// RawJSON returns the immutable JSON associated with the image.
+func (img *Image) RawJSON() []byte {
+	return img.rawJSON
 }
 
 // History stores build commands that were used to create an image
