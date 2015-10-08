@@ -54,8 +54,12 @@ type Image struct {
 
 // History stores build commands that were used to create an image
 type History struct {
-	Cmd string
-	// todo
+	// Created timestamp for build point
+	Created time.Time `json:"created"`
+	// Author of the build point
+	Author string `json:"author,omitempty"`
+	// Description for build point. Command and comment for Dockerfiles.
+	Description string `json:"description,omitempty"`
 }
 
 // NewImgJSON creates an Image configuration from json.

@@ -12,8 +12,10 @@ import (
 
 // FIXME: unit-test this
 
+// IDWalKFunc is function called by StoreBackgend.Walk
 type IDWalKFunc func(id digest.Digest) error
 
+// StoreBackend provides interface for image.Store persistence
 type StoreBackend interface {
 	Walk(f IDWalKFunc) error
 	Get(id digest.Digest) ([]byte, error)

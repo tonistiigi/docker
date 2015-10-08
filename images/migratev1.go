@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
@@ -169,6 +170,7 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 	}
 
 	var layerDigests []layers.DiffID
+	var history []History
 
 	if parentID != "" {
 		parentImg, err := is.Get(parentID)
@@ -177,7 +179,7 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 		}
 
 		layerDigests = parentImg.DiffIDs
-
+		history = parentImg.History
 	}
 
 	parentLayer, err := layers.LayerID("", layerDigests...)
@@ -199,7 +201,14 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 	// todo: fallback default fields removal for old clients
 
 	layerDigests = append(layerDigests, layer.DiffID())
-	config, err := ConfigFromV1Config(imageJSON, layerDigests)
+
+	h, err := HistoryFromV1Config(imageJSON)
+	if err != nil {
+		return err
+	}
+	history = append(history, h)
+
+	config, err := ConfigFromV1Config(imageJSON, layerDigests, history)
 	if err != nil {
 		return err
 	}
@@ -223,8 +232,27 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 	return
 }
 
+// HistoryFromV1Config creates a History struct from v1 configuration JSON
+func HistoryFromV1Config(imageJSON []byte) (History, error) {
+	h := History{}
+	var v1Image ImageV1
+	if err := json.Unmarshal(imageJSON, &v1Image); err != nil {
+		return h, err
+	}
+
+	h.Author = v1Image.Author
+	h.Created = v1Image.Created
+	h.Description = strings.Join(v1Image.ContainerConfig.Cmd.Slice(), " ")
+
+	if len(v1Image.Comment) > 0 {
+		h.Description += "(" + v1Image.Comment + ")"
+	}
+
+	return h, nil
+}
+
 // ConfigFromV1Config creates an image config from the legacy V1 config format.
-func ConfigFromV1Config(imageJSON []byte, layerDigests []layers.DiffID) ([]byte, error) {
+func ConfigFromV1Config(imageJSON []byte, layerDigests []layers.DiffID, history []History) ([]byte, error) {
 	var c map[string]*json.RawMessage
 	if err := json.Unmarshal(imageJSON, &c); err != nil {
 		return nil, err
@@ -237,6 +265,7 @@ func ConfigFromV1Config(imageJSON []byte, layerDigests []layers.DiffID) ([]byte,
 	delete(c, "layer_id")
 
 	c["diff_ids"] = rawJSON(layerDigests)
+	c["history"] = rawJSON(history)
 
 	return json.Marshal(c)
 }
