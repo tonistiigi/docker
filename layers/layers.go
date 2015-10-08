@@ -55,12 +55,18 @@ type Metadata struct {
 	Size    int64
 }
 
+// MountInit is a function to initialize a
+// writable mount. Changes made here will
+// not be included in the Tar stream of the
+// RWLayer.
+type MountInit func(root string) error
+
 type LayerStore interface {
 	Register(io.Reader, ID) (Layer, error)
 	Get(ID) (Layer, error)
 	Release(Layer) ([]Metadata, error)
 
-	Mount(id string, parent ID) (RWLayer, error)
+	Mount(id string, parent ID, label string, init MountInit) (RWLayer, error)
 	Unmount(id string) error
 }
 
@@ -224,7 +230,7 @@ func (ls *layerStore) Release(l Layer) ([]Metadata, error) {
 	return []Metadata{}, nil
 }
 
-func (ls *layerStore) Mount(id string, parent ID) (RWLayer, error) {
+func (ls *layerStore) Mount(id string, parent ID, mountLabel string, initFunc MountInit) (RWLayer, error) {
 	ls.mountL.Lock()
 	defer ls.mountL.Unlock()
 	if m, ok := ls.mounts[id]; ok {
