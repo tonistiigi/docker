@@ -6,26 +6,31 @@ import (
 	"testing"
 
 	"github.com/docker/docker/daemon/graphdriver"
-	_ "github.com/docker/docker/daemon/graphdriver/overlay"
-	"github.com/docker/docker/pkg/reexec"
+	"github.com/docker/docker/daemon/graphdriver/vfs"
+	"github.com/docker/docker/pkg/archive"
 )
 
 func init() {
-	reexec.Init()
+	graphdriver.ApplyUncompressedLayer = archive.UnpackLayer
+	vfs.CopyWithTar = archive.CopyWithTar
 }
 
-func TestMountAndRegister(t *testing.T) {
+func newTestGraphDriver(t *testing.T) graphdriver.Driver {
 	td, err := ioutil.TempDir("", "graph")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	driver, err := graphdriver.GetDriver("overlay", td, nil)
+	driver, err := graphdriver.GetDriver("vfs", td, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	ls, err := NewLayerStore("", driver)
+	return driver
+}
+
+func TestMountAndRegister(t *testing.T) {
+	ls, err := NewLayerStore("", newTestGraphDriver(t))
 	if err != nil {
 		t.Fatal(err)
 	}
