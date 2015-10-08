@@ -12,12 +12,21 @@ import (
 
 // FIXME: unit-test this
 
+type IDWalKFunc func(id digest.Digest) error
+
+type StoreBackend interface {
+	Walk(f IDWalKFunc) error
+	Get(id digest.Digest) ([]byte, error)
+	Set(data []byte) (digest.Digest, error)
+	Delete(id digest.Digest) error
+	SetMetadata(id digest.Digest, key string, data []byte) error
+	GetMetadata(id digest.Digest, key string) ([]byte, error)
+}
+
 type fs struct {
 	sync.Mutex
 	root string
 }
-
-type walkFunc func(id digest.Digest) error
 
 const (
 	contentDirName  = "content"
@@ -37,7 +46,7 @@ func newFSStore(root string) (*fs, error) {
 	return s, nil
 }
 
-func (s *fs) Walk(f walkFunc) error {
+func (s *fs) Walk(f IDWalKFunc) error {
 	dir, err := ioutil.ReadDir(filepath.Join(s.root, contentDirName))
 	if err != nil {
 		return err

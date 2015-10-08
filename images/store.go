@@ -24,7 +24,7 @@ type store struct {
 	ls   layers.LayerStore
 	root string
 	ids  map[ID]layers.Layer
-	fs   *fs
+	fs   StoreBackend
 }
 
 type migratoryLayerStore interface {
