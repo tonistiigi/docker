@@ -147,28 +147,36 @@ func NewLayerStore(root string, driver graphdriver.Driver) (LayerStore, error) {
 }
 
 func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
+	var err error
 	var pid string
 	var p *cacheLayer
 	if string(parent) != "" {
-		l, ok := ls.layerMap[parent]
-		if !ok {
+		p = ls.get(parent)
+		if p == nil {
 			return nil, ErrLayerDoesNotExist
 		}
-		p = l
-		pid = l.cacheID
+		pid = p.cacheID
+		// Release parent chain if error
+		defer func() {
+			if err != nil {
+				ls.layerL.Lock()
+				ls.releaseLayer(p)
+				ls.layerL.Unlock()
+			}
+		}()
 	}
 
 	// Create new cacheLayer
 	layer := &cacheLayer{
-		parent:  p,
-		cacheID: stringid.GenerateRandomID(),
+		parent:         p,
+		cacheID:        stringid.GenerateRandomID(),
+		referenceCount: 1,
 	}
 
-	if err := ls.driver.Create(layer.cacheID, pid); err != nil {
+	if err = ls.driver.Create(layer.cacheID, pid); err != nil {
 		return nil, err
 	}
 
-	var err error
 	defer func() {
 		if err != nil {
 			logrus.Debugf("Cleaning up layer %s: %v", layer.cacheID, err)
@@ -213,23 +221,30 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 
 	ls.layerMap[layer.address] = layer
 
-	ls.retainLayer(layer)
-
 	// TODO: Persist mapping update to disk
 
 	return layer, nil
 }
 
-func (ls *layerStore) Get(l ID) (Layer, error) {
+func (ls *layerStore) get(l ID) *cacheLayer {
 	ls.layerL.Lock()
 	defer ls.layerL.Unlock()
 
 	layer, ok := ls.layerMap[l]
 	if !ok {
-		return nil, ErrLayerDoesNotExist
+		return nil
 	}
 
 	ls.retainLayer(layer)
+
+	return layer
+}
+
+func (ls *layerStore) Get(l ID) (Layer, error) {
+	layer := ls.get(l)
+	if layer == nil {
+		return nil, ErrLayerDoesNotExist
+	}
 
 	return layer, nil
 }
@@ -237,6 +252,19 @@ func (ls *layerStore) Get(l ID) (Layer, error) {
 func (ls *layerStore) retainLayer(layer *cacheLayer) {
 	for l := layer; ; l = l.parent {
 		l.referenceCount++
+		if l.parent == nil {
+			break
+		}
+	}
+}
+
+func (ls *layerStore) releaseLayer(layer *cacheLayer) {
+	for l := layer; ; l = l.parent {
+		if l.referenceCount < 2 {
+			l.referenceCount = 0
+		} else {
+			l.referenceCount--
+		}
 		if l.parent == nil {
 			break
 		}
@@ -301,16 +329,7 @@ func (ls *layerStore) Release(l Layer) ([]Metadata, error) {
 		return []Metadata{}, nil
 	}
 
-	for l := layer; ; l = l.parent {
-		if l.referenceCount < 2 {
-			l.referenceCount = 0
-		} else {
-			l.referenceCount--
-		}
-		if l.parent == nil {
-			break
-		}
-	}
+	ls.releaseLayer(layer)
 
 	return ls.cleanup()
 }
@@ -382,19 +401,29 @@ func (ls *layerStore) Unmount(id string) error {
 }
 
 func (ls *layerStore) RegisterOnDisk(cacheID string, parent ID, tarDataFile string) (Layer, error) {
+	var err error
 	var p *cacheLayer
 	if string(parent) != "" {
-		l, ok := ls.layerMap[parent]
-		if !ok {
+		p = ls.get(parent)
+		if p == nil {
 			return nil, ErrLayerDoesNotExist
 		}
-		p = l
+
+		// Release parent chain if error
+		defer func() {
+			if err != nil {
+				ls.layerL.Lock()
+				ls.releaseLayer(p)
+				ls.layerL.Unlock()
+			}
+		}()
 	}
 
 	// Create new cacheLayer
 	layer := &cacheLayer{
-		parent:  p,
-		cacheID: cacheID,
+		parent:         p,
+		cacheID:        cacheID,
+		referenceCount: 1,
 	}
 
 	tar, err := ls.assembleTar(cacheID, tarDataFile)
@@ -403,7 +432,8 @@ func (ls *layerStore) RegisterOnDisk(cacheID string, parent ID, tarDataFile stri
 	}
 
 	digester := digest.Canonical.New()
-	if _, err := io.Copy(digester.Hash(), tar); err != nil {
+	_, err = io.Copy(digester.Hash(), tar)
+	if err != nil {
 		return nil, err
 	}
 	layer.digest = DiffID(digester.Digest())
@@ -423,7 +453,6 @@ func (ls *layerStore) RegisterOnDisk(cacheID string, parent ID, tarDataFile stri
 	}
 
 	ls.layerMap[layer.address] = layer
-	ls.retainLayer(layer)
 
 	return layer, nil
 }
