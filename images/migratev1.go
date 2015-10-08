@@ -160,7 +160,7 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 				// todo: fail or allow broken chains?
 				return err
 			}
-			parentID = mappings[id]
+			parentID = mappings[parent.Parent]
 		}
 	}
 
