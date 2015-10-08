@@ -23,12 +23,12 @@ type store struct {
 	sync.Mutex
 	ls   layers.LayerStore
 	root string
-	ids  map[ID]struct{}
+	ids  map[ID]layers.Layer
 	fs   *fs
 }
 
 type migratoryLayerStore interface {
-	RegisterOnDisk(string, layers.ID, string) (layers.Layer, layers.DiffID, error)
+	RegisterOnDisk(string, layers.ID, string) (layers.Layer, error)
 }
 
 const (
@@ -48,7 +48,7 @@ func NewImageStore(root string, ls layers.LayerStore) (Store, error) {
 	is := &store{
 		root: root,
 		ls:   ls,
-		ids:  make(map[ID]struct{}),
+		ids:  make(map[ID]layers.Layer),
 		fs:   fs,
 	}
 
@@ -71,8 +71,16 @@ func (is *store) restore() error {
 			logrus.Errorf("invalid image %v, %v", id, err)
 			return nil
 		}
-		is.retainLayers(img.DiffIDs, id.String())
-		is.ids[ID(id)] = struct{}{}
+		layerID, err := layers.LayerID("", img.DiffIDs...)
+		if err != nil {
+			return err
+		}
+		layer, err := is.ls.Get(layerID)
+		if err != nil {
+			return err
+		}
+		is.ids[ID(id)] = layer
+
 		return nil
 	})
 }
@@ -87,53 +95,33 @@ func (is *store) Create(config []byte) (ID, error) {
 		return "", err
 	}
 
-	dgst, err := digest.FromBytes(config)
+	dgst, err := is.fs.Set(config)
 	if err != nil {
 		return "", err
 	}
 	imageID := ID(dgst)
 
-	is.Lock()
-	defer is.Unlock()
-
 	if _, exists := is.ids[imageID]; exists {
 		return imageID, nil
 	}
 
-	if err := is.retainLayers(img.DiffIDs, string(imageID)); err != nil {
+	layerID, err := layers.LayerID("", img.DiffIDs...)
+	if err != nil {
 		return "", err
 	}
-
-	_, err = is.fs.Set(config) // todo: validate or reorganize
+	layer, err := is.ls.Get(layerID)
 	if err != nil {
 		return "", err
 	}
 
-	is.ids[imageID] = struct{}{}
+	is.ids[imageID] = layer
 
 	return imageID, nil
 }
 
-func (is *store) retainLayers(dgsts []layers.DiffID, key string) error {
-	if len(dgsts) == 0 {
-		return errors.New("Invalid image config. No layer digests.")
-	}
-
-	for i := range dgsts {
-		layerID, err := layers.LayerID("", dgsts[:i+1]...) // todo: this can be optimized
-		if err != nil {
-			return err
-		}
-		if _, err := is.ls.Get(layerID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (is *store) Get(id ID) (*Image, error) {
 	// todo: validate digest(maybe imageID)
-
+	// check if image is in ids, detect manual insertions and start using them
 	config, err := is.fs.Get(digest.Digest(id))
 	if err != nil {
 		return nil, err
@@ -256,7 +244,7 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 		return err
 	}
 
-	_, diffID, err := migratoryLayerStore.RegisterOnDisk(id, parentLayer, filepath.Join(filepath.Join(is.root, graphDirName, id, tarDataFileName)))
+	layer, err := migratoryLayerStore.RegisterOnDisk(id, parentLayer, filepath.Join(filepath.Join(is.root, graphDirName, id, tarDataFileName)))
 	if err != nil {
 		return err
 	}
@@ -269,12 +257,17 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 
 	// todo: fallback default fields removal for old clients
 
-	layerDigests = append(layerDigests, diffID)
+	layerDigests = append(layerDigests, layer.DiffID())
 	config, err := ConfigFromV1Config(imageJSON, layerDigests)
 	if err != nil {
 		return err
 	}
 	strongID, err := is.Create(config)
+	if err != nil {
+		return err
+	}
+
+	_, err = is.ls.Release(layer)
 	if err != nil {
 		return err
 	}
@@ -296,7 +289,7 @@ func ConfigFromV1Config(imageJSON []byte, layerDigests []layers.DiffID) ([]byte,
 	delete(c, "parent_id")
 	delete(c, "layer_id")
 
-	c["layer_digests"] = rawJSON(layerDigests)
+	c["diff_ids"] = rawJSON(layerDigests)
 
 	return json.Marshal(c)
 }
