@@ -28,7 +28,7 @@ type store struct {
 }
 
 type migratoryLayerStore interface {
-	RegisterOnDisk(string, layers.ID, string) (layers.Layer, layers.LayerDigest, error)
+	RegisterOnDisk(string, layers.ID, string) (layers.Layer, layers.DiffID, error)
 }
 
 const (
@@ -71,7 +71,7 @@ func (is *store) restore() error {
 			logrus.Errorf("invalid image %v, %v", id, err)
 			return nil
 		}
-		is.retainLayers(img.LayerDigests, id.String())
+		is.retainLayers(img.DiffIDs, id.String())
 		is.ids[ID(id)] = struct{}{}
 		return nil
 	})
@@ -100,7 +100,7 @@ func (is *store) Create(config []byte) (ID, error) {
 		return imageID, nil
 	}
 
-	if err := is.retainLayers(img.LayerDigests, string(imageID)); err != nil {
+	if err := is.retainLayers(img.DiffIDs, string(imageID)); err != nil {
 		return "", err
 	}
 
@@ -114,7 +114,7 @@ func (is *store) Create(config []byte) (ID, error) {
 	return imageID, nil
 }
 
-func (is *store) retainLayers(dgsts []layers.LayerDigest, key string) error {
+func (is *store) retainLayers(dgsts []layers.DiffID, key string) error {
 	if len(dgsts) == 0 {
 		return errors.New("Invalid image config. No layer digests.")
 	}
@@ -239,14 +239,16 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 		return errors.New("migration not supported")
 	}
 
-	var layerDigests []layers.LayerDigest
+	var layerDigests []layers.DiffID
 
 	if parentID != "" {
 		parentImg, err := is.Get(parentID)
 		if err != nil {
 			return err
 		}
-		layerDigests = parentImg.LayerDigests
+
+		layerDigests = parentImg.DiffIDs
+
 	}
 
 	parentLayer, err := layers.LayerID("", layerDigests...)
@@ -282,7 +284,7 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 }
 
 // ConfigFromV1Config creates an image config from the legacy V1 config format.
-func ConfigFromV1Config(imageJSON []byte, layerDigests []layers.LayerDigest) ([]byte, error) {
+func ConfigFromV1Config(imageJSON []byte, layerDigests []layers.DiffID) ([]byte, error) {
 	var c map[string]*json.RawMessage
 	if err := json.Unmarshal(imageJSON, &c); err != nil {
 		return nil, err

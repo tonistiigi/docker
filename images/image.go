@@ -47,9 +47,9 @@ type ImageV1 struct {
 // Image stores the image configuration
 type Image struct {
 	ImageV1
-	ID           ID                   `json:"id,omitempty"`
-	LayerDigests []layers.LayerDigest `json:"layer_digests,omitempty"`
-	History      []History            `json:"history,omitempty"`
+	ID      ID              `json:"id,omitempty"`
+	DiffIDs []layers.DiffID `json:"diff_ids,omitempty"`
+	History []History       `json:"history,omitempty"`
 }
 
 // History stores build commands that were used to create an image

@@ -25,8 +25,8 @@ var (
 // ID is the content-addressable ID of a layer.
 type ID digest.Digest
 
-// LayerDigest is the hash of an individual layer tar.
-type LayerDigest digest.Digest
+// DiffID is the hash of an individual layer tar.
+type DiffID digest.Digest
 
 type TarStreamer interface {
 	TarStream() (io.Reader, error)
@@ -36,7 +36,7 @@ type TarStreamer interface {
 type Layer interface {
 	TarStreamer
 	ID() ID
-	Digest() LayerDigest
+	DiffID() DiffID
 	Parent() (Layer, error)
 	Size() (int64, error)
 }
@@ -50,9 +50,9 @@ type RWLayer interface {
 }
 
 type Metadata struct {
-	LayerID     ID
-	LayerDigest LayerDigest
-	Size        int64
+	LayerID ID
+	DiffID  DiffID
+	Size    int64
 }
 
 type LayerStore interface {
@@ -69,7 +69,7 @@ type tarStreamer func() (io.Reader, error)
 type cacheLayer struct {
 	tarStreamer
 	address ID
-	digest  LayerDigest
+	digest  DiffID
 	parent  *cacheLayer
 	cacheID string
 	size    int64
@@ -83,7 +83,7 @@ func (cl *cacheLayer) ID() ID {
 	return cl.address
 }
 
-func (cl *cacheLayer) Digest() LayerDigest {
+func (cl *cacheLayer) DiffID() DiffID {
 	return cl.digest
 }
 
@@ -183,7 +183,7 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 		return io.Reader(archiver), err
 	}
 
-	layer.address, err = LayerID(layer.parent.address, LayerDigest(digester.Digest()))
+	layer.address, err = LayerID(layer.parent.address, DiffID(digester.Digest()))
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +315,7 @@ func (ls *layerStore) RegisterOnDisk(cacheID string, parent ID, tarDataFile stri
 	if _, err := io.Copy(digester.Hash(), tar); err != nil {
 		return nil, err
 	}
-	layer.digest = LayerDigest(digester.Digest())
+	layer.digest = DiffID(digester.Digest())
 
 	layer.address, err = LayerID(parent, layer.digest)
 	if err != nil {
@@ -382,7 +382,7 @@ func (ls *layerStore) assembleTar(cacheID, tarDataFile string) (io.Reader, error
 }
 
 // LayerID returns ID for a layerDigest slice and optional parent ID
-func LayerID(parent ID, dgsts ...LayerDigest) (ID, error) {
+func LayerID(parent ID, dgsts ...DiffID) (ID, error) {
 	if len(dgsts) == 0 {
 		return parent, nil
 	}
