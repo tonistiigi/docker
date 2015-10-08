@@ -3,8 +3,10 @@ package images
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/Sirupsen/logrus"
@@ -17,9 +19,12 @@ type migratoryLayerStore interface {
 }
 
 const (
-	graphDirName      = "graph"
-	tarDataFileName   = "tar-data.json.gz"
-	migrationFileName = "graph-to-images-migration.json"
+	graphDirName         = "graph"
+	tarDataFileName      = "tar-data.json.gz"
+	migrationFileName    = "graph-to-images-migration.json"
+	containersDirName    = "containers"
+	configFileNameLegacy = "config.json"
+	configFileName       = "config.v2.json"
 )
 
 func (is *store) migrateV1Images() error {
@@ -73,6 +78,59 @@ func (is *store) migrateV1Images() error {
 		return err
 	}
 
+	return is.migrateV1Containers(mappings)
+}
+
+func (is *store) migrateV1Containers(imageMappings map[string]ID) error {
+	containersDir := path.Join(is.root, containersDirName)
+	dir, err := ioutil.ReadDir(containersDir)
+	if err != nil {
+		return err
+	}
+	// var ids = []string{}
+	for _, v := range dir {
+		id := v.Name()
+
+		if _, err := os.Stat(path.Join(containersDir, id, configFileName)); err == nil {
+			continue
+		}
+
+		containerJSON, err := ioutil.ReadFile(path.Join(containersDir, id, configFileNameLegacy))
+		if err != nil {
+			return err
+		}
+
+		var c map[string]*json.RawMessage
+		if err := json.Unmarshal(containerJSON, &c); err != nil {
+			return err
+		}
+
+		imageStrJSON, ok := c["Image"]
+		if !ok {
+			return fmt.Errorf("invalid container configuration for %v", id)
+		}
+
+		var image string
+		if err := json.Unmarshal([]byte(*imageStrJSON), &image); err != nil {
+			return err
+		}
+
+		imageID, ok := imageMappings[image]
+		if !ok {
+			return fmt.Errorf("image not migrated %v", imageID)
+		}
+
+		c["Image"] = rawJSON(imageID)
+
+		containerJSON, err = json.Marshal(c)
+		if err != nil {
+			return err
+		}
+
+		if err := ioutil.WriteFile(path.Join(containersDir, id, configFileName), containerJSON, 0600); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

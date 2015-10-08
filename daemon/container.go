@@ -34,6 +34,8 @@ import (
 	"github.com/docker/docker/volume"
 )
 
+const configFileName = "config.v2.json"
+
 var (
 	// ErrRootFSReadOnly is returned when a container
 	// rootfs is marked readonly.
@@ -601,7 +603,7 @@ func (container *Container) hostConfigPath() (string, error) {
 }
 
 func (container *Container) jsonPath() (string, error) {
-	return container.getRootResourcePath("config.json")
+	return container.getRootResourcePath(configFileName)
 }
 
 // This method must be exported to be used from the lxc template
