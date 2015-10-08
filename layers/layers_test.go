@@ -57,7 +57,7 @@ func TestMountAndRegister(t *testing.T) {
 	size, _ := layer.Size()
 	t.Logf("Layer size: %d", size)
 
-	mount2, err := ls.Mount("new-test-mount", layer.Address())
+	mount2, err := ls.Mount("new-test-mount", layer.ID())
 	if err != nil {
 		t.Fatal(err)
 	}

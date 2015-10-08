@@ -124,11 +124,7 @@ func (is *store) retainLayers(dgsts []layers.LayerDigest, key string) error {
 		if err != nil {
 			return err
 		}
-		k := key
-		if i < len(dgsts)-1 { // last image is retained by image
-			k = string(dgsts[i+1])
-		}
-		if err := is.ls.Retain(layerID, k); err != nil {
+		if _, err := is.ls.Get(layerID); err != nil {
 			return err
 		}
 	}

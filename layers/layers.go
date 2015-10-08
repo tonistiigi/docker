@@ -35,7 +35,8 @@ type TarStreamer interface {
 // Layer represents a read only layer
 type Layer interface {
 	TarStreamer
-	Address() ID
+	ID() ID
+	Digest() LayerDigest
 	Parent() (Layer, error)
 	Size() (int64, error)
 }
@@ -48,16 +49,19 @@ type RWLayer interface {
 	Parent() (Layer, error)
 }
 
+type Metadata struct {
+	LayerID     ID
+	LayerDigest LayerDigest
+	Size        int64
+}
+
 type LayerStore interface {
 	Register(io.Reader, ID) (Layer, error)
 	Get(ID) (Layer, error)
-	Put(ID) error
+	Release(Layer) ([]Metadata, error)
 
 	Mount(id string, parent ID) (RWLayer, error)
 	Unmount(id string) error
-
-	Retain(ID, string) error
-	Release(ID, string) error
 }
 
 type tarStreamer func() (io.Reader, error)
@@ -65,6 +69,7 @@ type tarStreamer func() (io.Reader, error)
 type cacheLayer struct {
 	tarStreamer
 	address ID
+	digest  LayerDigest
 	parent  *cacheLayer
 	cacheID string
 	size    int64
@@ -74,8 +79,12 @@ func (cl *cacheLayer) TarStream() (io.Reader, error) {
 	return cl.tarStreamer()
 }
 
-func (cl *cacheLayer) Address() ID {
+func (cl *cacheLayer) ID() ID {
 	return cl.address
+}
+
+func (cl *cacheLayer) Digest() LayerDigest {
+	return cl.digest
 }
 
 func (cl *cacheLayer) Parent() (Layer, error) {
@@ -203,16 +212,16 @@ func (ls *layerStore) Get(l ID) (Layer, error) {
 	if !ok {
 		return nil, ErrLayerDoesNotExist
 	}
-	// TODO: Add name here to keep reference?
+	// TODO: retain parent and all ancestors
 	return layer, nil
 }
 
-func (ls *layerStore) Put(l ID) error {
+func (ls *layerStore) Release(l Layer) ([]Metadata, error) {
 	// TODO: Release reference, attempt garbage collections
 	// NOTE: If put is called on layer before layers have all
 	// been fully retrieved via Get, layers may unintentionally
 	// be removed.
-	return nil
+	return []Metadata{}, nil
 }
 
 func (ls *layerStore) Mount(id string, parent ID) (RWLayer, error) {
@@ -222,6 +231,7 @@ func (ls *layerStore) Mount(id string, parent ID) (RWLayer, error) {
 		return m, nil
 	}
 
+	//TODO: Call get to fully retain
 	ls.layerL.Lock()
 	defer ls.layerL.Unlock()
 
@@ -252,7 +262,7 @@ func (ls *layerStore) Mount(id string, parent ID) (RWLayer, error) {
 
 	dir, err := ls.driver.Get(mount.mountID, "")
 	if err != nil {
-		// TODO: Cleaup
+		// TODO: Cleanup
 		return nil, err
 	}
 	mount.path = dir
@@ -275,26 +285,17 @@ func (ls *layerStore) Unmount(id string) error {
 
 	delete(ls.mounts, id)
 
-	return ls.driver.Remove(m.mountID)
+	// TODO: Issue cleanup to remove mount layer and any unretained ancestors
+
+	return ls.driver.Put(m.mountID)
 }
 
-func (ls *layerStore) Retain(id ID, key string) error {
-	// todo:
-	logrus.Debugf("retain %v %v", id, key)
-	return nil
-}
-func (ls *layerStore) Release(id ID, key string) error {
-	// todo:
-	logrus.Debugf("release %v %v", id, key)
-	return nil
-}
-
-func (ls *layerStore) RegisterOnDisk(cacheID string, parent ID, tarDataFile string) (Layer, LayerDigest, error) {
+func (ls *layerStore) RegisterOnDisk(cacheID string, parent ID, tarDataFile string) (Layer, error) {
 	var p *cacheLayer
 	if string(parent) != "" {
 		l, ok := ls.layerMap[parent]
 		if !ok {
-			return nil, "", ErrLayerDoesNotExist
+			return nil, ErrLayerDoesNotExist
 		}
 		p = l
 	}
@@ -307,18 +308,18 @@ func (ls *layerStore) RegisterOnDisk(cacheID string, parent ID, tarDataFile stri
 
 	tar, err := ls.assembleTar(cacheID, tarDataFile)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	digester := digest.Canonical.New()
 	if _, err := io.Copy(digester.Hash(), tar); err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	diffID := LayerDigest(digester.Digest())
+	layer.digest = LayerDigest(digester.Digest())
 
-	layer.address, err = LayerID(parent, diffID)
+	layer.address, err = LayerID(parent, layer.digest)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	ls.layerL.Lock()
@@ -327,12 +328,12 @@ func (ls *layerStore) RegisterOnDisk(cacheID string, parent ID, tarDataFile stri
 	if existingLayer, ok := ls.layerMap[layer.address]; ok {
 		// Set error for cleanup, but do not return
 		err = errors.New("layer already exists")
-		return existingLayer, "", nil
+		return existingLayer, nil
 	}
 
 	ls.layerMap[layer.address] = layer
 
-	return layer, diffID, nil
+	return layer, nil
 }
 
 func (ls *layerStore) assembleTar(cacheID, tarDataFile string) (io.Reader, error) {
