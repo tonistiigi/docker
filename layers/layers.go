@@ -70,6 +70,22 @@ type LayerStore interface {
 	Unmount(id string) error
 }
 
+type MetadataStore interface {
+	SetSize(ID, int64) error
+	SetParent(layer, parent ID) error
+	SetDiffID(ID, DiffID) error
+	SetCacheID(ID, string) error
+	SetTarSplit(ID, io.Reader) error
+
+	GetSize(ID) (int64, error)
+	GetParent(ID) (ID, error)
+	GetDiffID(ID) (DiffID, error)
+	GetCacheID(ID) (string, error)
+	GetTarSplit(ID) (io.ReadCloser, error)
+
+	List() ([]ID, []string, error)
+}
+
 type tarStreamer func() (io.Reader, error)
 
 type cacheLayer struct {
@@ -123,7 +139,7 @@ func (ml *mountedLayer) Parent() (Layer, error) {
 }
 
 type layerStore struct {
-	root   string
+	store  MetadataStore
 	driver graphdriver.Driver
 
 	layerMap map[ID]*cacheLayer
@@ -133,17 +149,85 @@ type layerStore struct {
 	mountL sync.Mutex
 }
 
-func NewLayerStore(root string, driver graphdriver.Driver) (LayerStore, error) {
+func NewLayerStore(store MetadataStore, driver graphdriver.Driver) (LayerStore, error) {
 	ls := &layerStore{
-		root:     root,
+		store:    store,
 		driver:   driver,
 		layerMap: map[ID]*cacheLayer{},
 		mounts:   map[string]*mountedLayer{},
 	}
 
-	// TODO: Load existing layers and references
+	ids, mounts, err := store.List()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, id := range ids {
+		if _, err := ls.loadLayer(id); err != nil {
+			// TODO warn with bad layers, don't error out
+			return nil, err
+		}
+	}
+
+	// TODO: Load mounts
+	logrus.Debugf("Existing mounts: %#v", mounts)
 
 	return ls, nil
+}
+
+func (ls *layerStore) loadLayer(layer ID) (*cacheLayer, error) {
+	cl, ok := ls.layerMap[layer]
+	if ok {
+		return cl, nil
+	}
+
+	diff, err := ls.store.GetDiffID(layer)
+	if err != nil {
+		return nil, err
+	}
+
+	size, err := ls.store.GetSize(layer)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheID, err := ls.store.GetCacheID(layer)
+	if err != nil {
+		return nil, err
+	}
+
+	parent, err := ls.store.GetParent(layer)
+	if err != nil {
+		return nil, err
+	}
+
+	cl = &cacheLayer{
+		address: layer,
+		digest:  diff,
+		size:    size,
+		cacheID: cacheID,
+	}
+
+	if parent != "" {
+		p, err := ls.loadLayer(parent)
+		if err != nil {
+			return nil, err
+		}
+		cl.parent = p
+	}
+	var pid string
+	if cl.parent != nil {
+		pid = cl.parent.cacheID
+	}
+
+	cl.tarStreamer = func() (io.Reader, error) {
+		archiver, err := ls.driver.Diff(cl.cacheID, pid)
+		return io.Reader(archiver), err
+	}
+
+	ls.layerMap[cl.address] = cl
+
+	return cl, nil
 }
 
 func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
@@ -219,11 +303,33 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 		return existingLayer, nil
 	}
 
+	if err = ls.storeLayer(layer); err != nil {
+		return nil, err
+	}
+	// TODO: Set tarsplit data
+
 	ls.layerMap[layer.address] = layer
 
-	// TODO: Persist mapping update to disk
-
 	return layer, nil
+}
+
+func (ls *layerStore) storeLayer(layer *cacheLayer) error {
+	if err := ls.store.SetDiffID(layer.address, layer.digest); err != nil {
+		return err
+	}
+	if err := ls.store.SetSize(layer.address, layer.size); err != nil {
+		return err
+	}
+	if err := ls.store.SetCacheID(layer.address, layer.cacheID); err != nil {
+		return err
+	}
+	if layer.parent != nil {
+		if err := ls.store.SetParent(layer.address, layer.parent.address); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (ls *layerStore) get(l ID) *cacheLayer {
@@ -460,6 +566,10 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 		// Set error for cleanup, but do not return
 		err = errors.New("layer already exists")
 		return existingLayer, nil
+	}
+
+	if err = ls.storeLayer(layer); err != nil {
+		return nil, err
 	}
 
 	ls.layerMap[layer.address] = layer

@@ -17,8 +17,8 @@ func init() {
 	vfs.CopyWithTar = archive.CopyWithTar
 }
 
-func newTestGraphDriver(t *testing.T) graphdriver.Driver {
-	td, err := ioutil.TempDir("", "graph")
+func newTestGraphDriver(t *testing.T) (graphdriver.Driver, func()) {
+	td, err := ioutil.TempDir("", "graph-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,27 @@ func newTestGraphDriver(t *testing.T) graphdriver.Driver {
 		t.Fatal(err)
 	}
 
-	return driver
+	return driver, func() {
+		os.RemoveAll(td)
+	}
+}
+
+func newTestLayerStore(t *testing.T) (LayerStore, func()) {
+	td, err := ioutil.TempDir("", "layerstore-")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	graph, graphcleanup := newTestGraphDriver(t)
+	ls, err := NewLayerStore(NewFileMetadataStore(td), graph)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return ls, func() {
+		graphcleanup()
+		os.RemoveAll(td)
+	}
 }
 
 type layerInit func(root string) error
@@ -143,11 +163,52 @@ func releaseAndCheckDeleted(t *testing.T, ls LayerStore, layer Layer, removed ..
 	// TODO: Done
 }
 
-func TestMountAndRegister(t *testing.T) {
-	ls, err := NewLayerStore("", newTestGraphDriver(t))
+func assertLayerEqual(t *testing.T, l1, l2 Layer) {
+	if l1.ID() != l2.ID() {
+		t.Fatalf("Mismatched ID: %s vs %s", l1.ID(), l2.ID())
+	}
+	if l1.DiffID() != l2.DiffID() {
+		t.Fatalf("Mismatched DiffID: %s vs %s", l1.DiffID(), l2.DiffID())
+	}
+
+	size1, err := l1.Size()
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	size2, err := l2.Size()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if size1 != size2 {
+		t.Fatalf("Mismatched size: %d vs %d", size1, size2)
+	}
+
+	if l1.(*cacheLayer).cacheID != l2.(*cacheLayer).cacheID {
+		t.Fatalf("Mismatched cache id: %s vs %s", l1.(*cacheLayer).cacheID, l2.(*cacheLayer).cacheID)
+	}
+
+	p1, err := l1.Parent()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p2, err := l2.Parent()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if p1.(*cacheLayer) != nil && p2.(*cacheLayer) != nil {
+		assertLayerEqual(t, p1, p2)
+	} else if p1.(*cacheLayer) != nil || p2.(*cacheLayer) != nil {
+		t.Fatalf("Mismatched parents: %v vs %v", p1, p2)
+	}
+}
+
+func TestMountAndRegister(t *testing.T) {
+	ls, cleanup := newTestLayerStore(t)
+	defer cleanup()
 
 	li := initWithFiles(newTestFile("testfile.txt", []byte("some test data"), 0644))
 	layer, err := createLayer(ls, "", li)
@@ -183,10 +244,8 @@ func TestMountAndRegister(t *testing.T) {
 }
 
 func TestLayerRelease(t *testing.T) {
-	ls, err := NewLayerStore("", newTestGraphDriver(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	ls, cleanup := newTestLayerStore(t)
+	defer cleanup()
 
 	layer1, err := createLayer(ls, "", initWithFiles(newTestFile("layer1.txt", []byte("layer 1 file"), 0644)))
 	if err != nil {
@@ -227,4 +286,46 @@ func TestLayerRelease(t *testing.T) {
 
 	releaseAndCheckDeleted(t, ls, layer3b, layer3b)
 	releaseAndCheckDeleted(t, ls, layer3a, layer3a, layer2, layer1)
+}
+
+func TestLayerStoreRestore(t *testing.T) {
+	ls, cleanup := newTestLayerStore(t)
+	defer cleanup()
+
+	layer1, err := createLayer(ls, "", initWithFiles(newTestFile("layer1.txt", []byte("layer 1 file"), 0644)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer2, err := createLayer(ls, layer1.ID(), initWithFiles(newTestFile("layer2.txt", []byte("layer 2 file"), 0644)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ls.Release(layer1); err != nil {
+		t.Fatal(err)
+	}
+
+	layer3, err := createLayer(ls, layer2.ID(), initWithFiles(newTestFile("layer3.txt", []byte("layer 3 file"), 0644)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ls.Release(layer2); err != nil {
+		t.Fatal(err)
+	}
+
+	ls2, err := NewLayerStore(ls.(*layerStore).store, ls.(*layerStore).driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer3b, err := ls2.Get(layer3.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertLayerEqual(t, layer3b, layer3)
+
+	releaseAndCheckDeleted(t, ls2, layer3b, layer3, layer2, layer1)
 }
