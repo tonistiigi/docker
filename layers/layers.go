@@ -384,6 +384,15 @@ func (ls *layerStore) Mount(id string, parent ID, mountLabel string, initFunc Mo
 	return mount, nil
 }
 
+func (ls *layerStore) MountByGraphID(id string, graphID string, parent ID) (RWLayer, error) {
+	// mount by already known driver ID
+	// keep the mount in the array so it can be reused
+	// FIXME
+	ls.mounts[id] = &mountedLayer{}
+	
+	return nil, nil
+}
+
 func (ls *layerStore) Unmount(id string) error {
 	ls.mountL.Lock()
 	defer ls.mountL.Unlock()
@@ -393,6 +402,7 @@ func (ls *layerStore) Unmount(id string) error {
 		return errors.New("mount does not exist")
 	}
 
+	// FIXME: unmount should not delete the reference, needed for remount
 	delete(ls.mounts, id)
 
 	// TODO: Issue cleanup to remove mount layer and any unretained ancestors
@@ -400,7 +410,7 @@ func (ls *layerStore) Unmount(id string) error {
 	return ls.driver.Put(m.mountID)
 }
 
-func (ls *layerStore) RegisterOnDisk(cacheID string, parent ID, tarDataFile string) (Layer, error) {
+func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile string) (Layer, error) {
 	var err error
 	var p *cacheLayer
 	if string(parent) != "" {
@@ -422,11 +432,11 @@ func (ls *layerStore) RegisterOnDisk(cacheID string, parent ID, tarDataFile stri
 	// Create new cacheLayer
 	layer := &cacheLayer{
 		parent:         p,
-		cacheID:        cacheID,
+		cacheID:        graphID,
 		referenceCount: 1,
 	}
 
-	tar, err := ls.assembleTar(cacheID, tarDataFile)
+	tar, err := ls.assembleTar(graphID, tarDataFile)
 	if err != nil {
 		return nil, err
 	}

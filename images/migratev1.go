@@ -16,7 +16,8 @@ import (
 )
 
 type migratoryLayerStore interface {
-	RegisterOnDisk(string, layers.ID, string) (layers.Layer, error)
+	RegisterByGraphID(string, layers.ID, string) (layers.Layer, error)
+	MountByGraphID(string, string, layers.ID) (layers.RWLayer, error)
 }
 
 const (
@@ -131,6 +132,32 @@ func (is *store) migrateV1Containers(imageMappings map[string]ID) error {
 		if err := ioutil.WriteFile(path.Join(containersDir, id, configFileName), containerJSON, 0600); err != nil {
 			return err
 		}
+
+		migratoryLayerStore, exists := is.ls.(migratoryLayerStore)
+		if !exists {
+			return errors.New("migration not supported")
+		}
+
+		img, err := is.Get(imageID)
+		if err != nil {
+			return err
+		}
+
+		layer, err := img.GetTopLayer()
+		if err != nil {
+			return err
+		}
+
+		_, err = migratoryLayerStore.MountByGraphID(id, id, layer.ID())
+		if err != nil {
+			return err
+		}
+
+		err = is.ls.Unmount(id)
+		if err != nil {
+			return err
+		}
+
 	}
 	return nil
 }
@@ -187,7 +214,7 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 		return err
 	}
 
-	layer, err := migratoryLayerStore.RegisterOnDisk(id, parentLayer, filepath.Join(filepath.Join(is.root, graphDirName, id, tarDataFileName)))
+	layer, err := migratoryLayerStore.RegisterByGraphID(id, parentLayer, filepath.Join(filepath.Join(is.root, graphDirName, id, tarDataFileName)))
 	if err != nil {
 		return err
 	}
