@@ -8,12 +8,13 @@
 //	// repository.go
 //	repository			:= hostname ['/' component]+
 //	hostname 			:= hostcomponent [':' port-number]
-//	component			:= alpha-numeric [separator alpha-numeric]*
+//	component			:= subcomponent [separator subcomponent]*
+//	subcomponent			:= alpha-numeric ['-'* alpha-numeric]*
 //	hostcomponent                   := [hostpart '.']* hostpart
-// 	alpha-numeric			:= /[a-zA-Z0-9]+/
-//	separator			:= /[_-]/
+// 	alpha-numeric			:= /[a-z0-9]+/
+//	separator			:= /([_.]|__)/
 //	port-number			:= /[0-9]+/
-//	hostpart                        := /([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])/
+//	hostpart                        := /([a-z0-9]|[a-z0-9][a-z0-9-]*[a-z0-9])/
 //
 //	// tag.go
 //	tag                             := /[\w][\w.-]{0,127}/
@@ -41,6 +42,12 @@ const (
 var (
 	// ErrReferenceInvalidFormat represents an error while trying to parse a string as a reference.
 	ErrReferenceInvalidFormat = errors.New("invalid reference format")
+
+	// ErrTagInvalidFormat represents an error while trying to parse a string as a tag.
+	ErrTagInvalidFormat = errors.New("invalid tag format")
+
+	// ErrDigestInvalidFormat represents an error while trying to parse a string as a tag.
+	ErrDigestInvalidFormat = errors.New("invalid digest format")
 
 	// ErrNameEmpty is returned for empty, invalid repository names.
 	ErrNameEmpty = errors.New("repository name must have at least one component")
@@ -97,26 +104,28 @@ func (f *Field) UnmarshalText(p []byte) error {
 
 // Named is an object with a full name
 type Named interface {
+	Reference
 	Name() string
 }
 
 // Tagged is an object which has a tag
 type Tagged interface {
+	Reference
 	Tag() string
 }
 
 // Digested is an object which has a digest
 // in which it can be referenced by
 type Digested interface {
+	Reference
 	Digest() digest.Digest
 }
 
 // Canonical reference is an object with a fully unique
 // name including a name with hostname and digest
 type Canonical interface {
-	Reference
 	Named
-	Digested
+	Digest() digest.Digest
 }
 
 // SplitHostname splits a named reference into a
@@ -177,6 +186,30 @@ func ParseNamed(name string) (Named, error) {
 		return nil, ErrReferenceInvalidFormat
 	}
 	return repository(name), nil
+}
+
+// WithTag combines the name from "name" and the tag from "tag" to form a
+// reference incorporating both the name and the tag.
+func WithTag(name Named, tag string) (Tagged, error) {
+	if !anchoredNameRegexp.MatchString(tag) {
+		return nil, ErrTagInvalidFormat
+	}
+	return taggedReference{
+		name: name.Name(),
+		tag:  tag,
+	}, nil
+}
+
+// WithDigest combines the name from "name" and the digest from "digest" to form
+// a reference incorporating both the name and the digest.
+func WithDigest(name Named, digest digest.Digest) (Digested, error) {
+	if !anchoredDigestRegexp.MatchString(digest.String()) {
+		return nil, ErrDigestInvalidFormat
+	}
+	return canonicalReference{
+		name:   name.Name(),
+		digest: digest,
+	}, nil
 }
 
 func getBestReferenceType(ref reference) Reference {

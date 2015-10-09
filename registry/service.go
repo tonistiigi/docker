@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/client/auth"
 	"github.com/docker/docker/cliconfig"
 )
@@ -54,8 +55,11 @@ func (s *Service) Auth(authConfig *cliconfig.AuthConfig) (string, error) {
 // Search queries the public registry for images matching the specified
 // search terms, and returns the results.
 func (s *Service) Search(term string, authConfig *cliconfig.AuthConfig, headers map[string][]string) (*SearchResults, error) {
-
-	repoInfo, err := s.ResolveRepositoryBySearch(term)
+	termNamed, err := reference.ParseNamed(term)
+	if err != nil {
+		return nil, err
+	}
+	repoInfo, err := s.ResolveRepositoryBySearch(termNamed)
 	if err != nil {
 		return nil, err
 	}
@@ -70,18 +74,18 @@ func (s *Service) Search(term string, authConfig *cliconfig.AuthConfig, headers 
 	if err != nil {
 		return nil, err
 	}
-	return r.SearchRepositories(repoInfo.GetSearchTerm())
+	return r.SearchRepositories(repoInfo.GetSearchTerm().Name())
 }
 
 // ResolveRepository splits a repository name into its components
 // and configuration of the associated registry.
-func (s *Service) ResolveRepository(name string) (*RepositoryInfo, error) {
+func (s *Service) ResolveRepository(name reference.Named) (*RepositoryInfo, error) {
 	return s.Config.NewRepositoryInfo(name, false)
 }
 
 // ResolveRepositoryBySearch splits a repository name into its components
 // and configuration of the associated registry.
-func (s *Service) ResolveRepositoryBySearch(name string) (*RepositoryInfo, error) {
+func (s *Service) ResolveRepositoryBySearch(name reference.Named) (*RepositoryInfo, error) {
 	return s.Config.NewRepositoryInfo(name, true)
 }
 
@@ -123,14 +127,14 @@ func (s *Service) tlsConfigForMirror(mirror string) (*tls.Config, error) {
 // LookupPullEndpoints creates an list of endpoints to try to pull from, in order of preference.
 // It gives preference to v2 endpoints over v1, mirrors over the actual
 // registry, and HTTPS over plain HTTP.
-func (s *Service) LookupPullEndpoints(repoName string) (endpoints []APIEndpoint, err error) {
+func (s *Service) LookupPullEndpoints(repoName reference.Named) (endpoints []APIEndpoint, err error) {
 	return s.lookupEndpoints(repoName)
 }
 
 // LookupPushEndpoints creates an list of endpoints to try to push to, in order of preference.
 // It gives preference to v2 endpoints over v1, and HTTPS over plain HTTP.
 // Mirrors are not included.
-func (s *Service) LookupPushEndpoints(repoName string) (endpoints []APIEndpoint, err error) {
+func (s *Service) LookupPushEndpoints(repoName reference.Named) (endpoints []APIEndpoint, err error) {
 	allEndpoints, err := s.lookupEndpoints(repoName)
 	if err == nil {
 		for _, endpoint := range allEndpoints {
@@ -142,7 +146,7 @@ func (s *Service) LookupPushEndpoints(repoName string) (endpoints []APIEndpoint,
 	return endpoints, err
 }
 
-func (s *Service) lookupEndpoints(repoName string) (endpoints []APIEndpoint, err error) {
+func (s *Service) lookupEndpoints(repoName reference.Named) (endpoints []APIEndpoint, err error) {
 	endpoints, err = s.lookupV2Endpoints(repoName)
 	if err != nil {
 		return nil, err

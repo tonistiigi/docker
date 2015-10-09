@@ -14,7 +14,6 @@ import (
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/registry"
 	"github.com/docker/docker/tag"
-	"github.com/docker/docker/utils"
 )
 
 // ImagePullConfig stores pull configuration.
@@ -33,6 +32,9 @@ type ImagePullConfig struct {
 	RegistryService *registry.Service
 	// EventsService is the events service to use for logging.
 	EventsService *events.Events
+	// MetadataStore is the storage backend for distribution-specific
+	// metadata.
+	MetadataStore metadata.Store
 	// LayerStore manages layers.
 	LayerStore layer.Store
 	// ImageStore manages images.
@@ -56,12 +58,12 @@ type Puller interface {
 // whether a v1 or v2 puller will be created. The other parameters are passed
 // through to the underlying puller implementation for use during the actual
 // pull operation.
-func NewPuller(metadataStore metadata.Store, endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo, imagePullConfig *ImagePullConfig, sf *streamformatter.StreamFormatter) (Puller, error) {
+func NewPuller(endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo, imagePullConfig *ImagePullConfig, sf *streamformatter.StreamFormatter) (Puller, error) {
 	switch endpoint.Version {
 	case registry.APIVersion2:
 		return &v2Puller{
-			blobSumLookupService:  metadata.NewBlobSumLookupService(metadataStore),
-			blobSumStorageService: metadata.NewBlobSumStorageService(metadataStore),
+			blobSumLookupService:  metadata.NewBlobSumLookupService(imagePullConfig.MetadataStore),
+			blobSumStorageService: metadata.NewBlobSumStorageService(imagePullConfig.MetadataStore),
 			endpoint:              endpoint,
 			config:                imagePullConfig,
 			sf:                    sf,
@@ -88,17 +90,17 @@ func Pull(ref reference.Reference, metadataDir string, imagePullConfig *ImagePul
 
 	named, isNamed := ref.(reference.Named)
 	if !isNamed {
-		return fmt.Errorf("reference %s does not have a name", ref.String)
+		return fmt.Errorf("Specified reference %s has no name", ref.String())
 	}
 
 	// Resolve the Repository name from fqn to RepositoryInfo
-	repoInfo, err := imagePullConfig.RegistryService.ResolveRepository(named.Name())
+	repoInfo, err := imagePullConfig.RegistryService.ResolveRepository(named)
 	if err != nil {
 		return err
 	}
 
 	// makes sure name is not empty or `scratch`
-	if err := validateRepoName(repoInfo.LocalName); err != nil {
+	if err := validateRepoName(repoInfo.LocalName.Name()); err != nil {
 		return err
 	}
 
@@ -107,9 +109,11 @@ func Pull(ref reference.Reference, metadataDir string, imagePullConfig *ImagePul
 		return err
 	}
 
-	logName := repoInfo.LocalName
+	var logName reference.Reference = repoInfo.LocalName
 	if tagged, isTagged := ref.(reference.Tagged); isTagged {
-		logName = utils.ImageReference(logName, tagged.Tag())
+		if logName, err = reference.WithTag(repoInfo.LocalName, tagged.Tag()); err != nil {
+			return err
+		}
 	}
 
 	var (
@@ -127,7 +131,7 @@ func Pull(ref reference.Reference, metadataDir string, imagePullConfig *ImagePul
 	for _, endpoint := range endpoints {
 		logrus.Debugf("Trying to pull %s from %s %s", repoInfo.LocalName, endpoint.URL, endpoint.Version)
 
-		puller, err := NewPuller(metadata.NewFSMetadataStore(metadataDir), endpoint, repoInfo, imagePullConfig, sf)
+		puller, err := NewPuller(endpoint, repoInfo, imagePullConfig, sf)
 		if err != nil {
 			lastErr = err
 			continue
@@ -151,7 +155,7 @@ func Pull(ref reference.Reference, metadataDir string, imagePullConfig *ImagePul
 
 		}
 
-		imagePullConfig.EventsService.Log("pull", logName, "")
+		imagePullConfig.EventsService.Log("pull", logName.String(), "")
 		return nil
 	}
 

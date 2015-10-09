@@ -91,12 +91,12 @@ func NewV2Repository(repoInfo *registry.RepositoryInfo, endpoint registry.APIEnd
 	}
 
 	creds := dumbCredentialStore{auth: authConfig}
-	tokenHandler := auth.NewTokenHandler(authTransport, creds, repoName, actions...)
+	tokenHandler := auth.NewTokenHandler(authTransport, creds, repoName.Name(), actions...)
 	basicHandler := auth.NewBasicHandler(creds)
 	modifiers = append(modifiers, auth.NewAuthorizer(challengeManager, tokenHandler, basicHandler))
 	tr := transport.NewTransport(base, modifiers...)
 
-	return client.NewRepository(ctx, repoName, endpoint.URL, tr)
+	return client.NewRepository(ctx, repoName.Name(), endpoint.URL, tr)
 }
 
 func digestFromManifest(m *manifest.SignedManifest, localName string) (digest.Digest, int, error) {

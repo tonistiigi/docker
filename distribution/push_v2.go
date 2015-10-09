@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/registry"
+	"github.com/docker/docker/tag"
 	"golang.org/x/net/context"
 )
 
@@ -47,28 +48,38 @@ func (p *v2Pusher) Push() (fallback bool, err error) {
 		return true, err
 	}
 
-	localName := p.repoInfo.LocalName
+	localName := p.repoInfo.LocalName.Name()
 	if _, found := p.config.Pool.add("push", localName); found {
 		return false, fmt.Errorf("push or pull %s is already in progress", localName)
 	}
 	defer p.config.Pool.remove("push", localName)
 
-	var refs []reference.Reference
+	var associations []tag.Association
 	if _, isTagged := p.config.Reference.(reference.Tagged); isTagged {
-		refs = []reference.Reference{p.config.Reference}
+		imageID, err := p.config.TagStore.Get(p.config.Reference)
+		if err != nil {
+			return false, fmt.Errorf("tag does not exist: %s", p.config.Reference.String())
+		}
+
+		associations = []tag.Association{
+			tag.Association{
+				Ref:     p.config.Reference,
+				ImageID: imageID,
+			},
+		}
 	} else {
 		// Pull all tags
-		refs = p.config.TagStore.GetRepoTags(named.Name())
+		associations = p.config.TagStore.ReferencesByName(named)
 	}
 	if err != nil {
 		return false, fmt.Errorf("error getting tags for %s: %s", localName, err)
 	}
-	if len(refs) == 0 {
+	if len(associations) == 0 {
 		return false, fmt.Errorf("no tags to push for %s", localName)
 	}
 
-	for _, ref := range refs {
-		if err := p.pushV2Tag(ref); err != nil {
+	for _, association := range associations {
+		if err := p.pushV2Tag(association); err != nil {
 			return false, err
 		}
 	}
@@ -76,15 +87,11 @@ func (p *v2Pusher) Push() (fallback bool, err error) {
 	return false, nil
 }
 
-func (p *v2Pusher) pushV2Tag(ref reference.Reference) error {
+func (p *v2Pusher) pushV2Tag(association tag.Association) error {
+	ref := association.Ref
 	logrus.Debugf("Pushing repository: %s", ref.String())
 
-	imageID, err := p.config.TagStore.Get(ref)
-	if err != nil {
-		return fmt.Errorf("tag does not exist: %s", ref.String())
-	}
-
-	img, err := p.config.ImageStore.Get(imageID)
+	img, err := p.config.ImageStore.Get(association.ImageID)
 	if err != nil {
 		return fmt.Errorf("could not find image from tag %s: %v", ref.String(), err)
 	}

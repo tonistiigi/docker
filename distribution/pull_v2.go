@@ -22,7 +22,6 @@ import (
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/registry"
-	"github.com/docker/docker/utils"
 	"golang.org/x/net/context"
 )
 
@@ -77,7 +76,7 @@ func (p *v2Puller) pullV2Repository(ref reference.Reference) (err error) {
 		// This probably becomes a lot nicer after the manifest
 		// refactor...
 		for _, tag := range tags {
-			tagRef, err := reference.Parse(utils.ImageReference(p.repoInfo.LocalName, tag))
+			tagRef, err := reference.WithTag(p.repoInfo.LocalName, tag)
 			if err != nil {
 				return err
 			}
@@ -373,7 +372,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Reference) (tagUpdated
 		return false, err
 	}
 
-	manifestDigest, _, err := digestFromManifest(unverifiedManifest, p.repoInfo.LocalName)
+	manifestDigest, _, err := digestFromManifest(unverifiedManifest, p.repoInfo.LocalName.Name())
 	if err != nil {
 		return false, err
 	}
@@ -388,7 +387,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Reference) (tagUpdated
 	}
 
 	if tagUpdated {
-		if err = p.config.TagStore.Tag(imageID, ref, true); err != nil {
+		if err = p.config.TagStore.Add(ref, imageID, true); err != nil {
 			return false, err
 		}
 	}

@@ -37,6 +37,9 @@ type ImagePushConfig struct {
 	RegistryService *registry.Service
 	// EventsService is the events service to use for logging.
 	EventsService *events.Events
+	// MetadataStore is the storage backend for distribution-specific
+	// metadata.
+	MetadataStore metadata.Store
 	// LayerStore manges layers.
 	LayerStore layer.Store
 	// ImageStore manages images.
@@ -68,12 +71,12 @@ type Repository map[string]string
 // whether a v1 or v2 pusher will be created. The other parameters are passed
 // through to the underlying pusher implementation for use during the actual
 // push operation.
-func NewPusher(endpoint registry.APIEndpoint, metadataStore metadata.Store, repoInfo *registry.RepositoryInfo, imagePushConfig *ImagePushConfig, sf *streamformatter.StreamFormatter) (Pusher, error) {
+func NewPusher(endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo, imagePushConfig *ImagePushConfig, sf *streamformatter.StreamFormatter) (Pusher, error) {
 	switch endpoint.Version {
 	case registry.APIVersion2:
 		return &v2Pusher{
-			blobSumLookupService:  metadata.NewBlobSumLookupService(metadataStore),
-			blobSumStorageService: metadata.NewBlobSumStorageService(metadataStore),
+			blobSumLookupService:  metadata.NewBlobSumLookupService(imagePushConfig.MetadataStore),
+			blobSumStorageService: metadata.NewBlobSumStorageService(imagePushConfig.MetadataStore),
 			endpoint:              endpoint,
 			repoInfo:              repoInfo,
 			config:                imagePushConfig,
@@ -96,13 +99,18 @@ func NewPusher(endpoint registry.APIEndpoint, metadataStore metadata.Store, repo
 }
 
 // Push initiates a push operation on the repository named localName.
-func Push(localName string, metadataDir string, imagePushConfig *ImagePushConfig) error {
+func Push(imagePushConfig *ImagePushConfig) error {
 	// FIXME: Allow to interrupt current push when new push of same image is done.
 
 	var sf = streamformatter.NewJSONStreamFormatter()
 
+	named, isNamed := imagePushConfig.Reference.(reference.Named)
+	if !isNamed {
+		return fmt.Errorf("Specified reference %s has no name", imagePushConfig.Reference.String())
+	}
+
 	// Resolve the Repository name from fqn to RepositoryInfo
-	repoInfo, err := imagePushConfig.RegistryService.ResolveRepository(localName)
+	repoInfo, err := imagePushConfig.RegistryService.ResolveRepository(named)
 	if err != nil {
 		return err
 	}
@@ -114,8 +122,8 @@ func Push(localName string, metadataDir string, imagePushConfig *ImagePushConfig
 
 	imagePushConfig.OutStream.Write(sf.FormatStatus("", "The push refers to a repository [%s]", repoInfo.CanonicalName))
 
-	tags := imagePushConfig.TagStore.GetRepoTags(repoInfo.LocalName)
-	if len(tags) == 0 {
+	associations := imagePushConfig.TagStore.ReferencesByName(repoInfo.LocalName)
+	if len(associations) == 0 {
 		return fmt.Errorf("Repository does not exist: %s", repoInfo.LocalName)
 	}
 
@@ -123,7 +131,7 @@ func Push(localName string, metadataDir string, imagePushConfig *ImagePushConfig
 	for _, endpoint := range endpoints {
 		logrus.Debugf("Trying to push %s to %s %s", repoInfo.CanonicalName, endpoint.URL, endpoint.Version)
 
-		pusher, err := NewPusher(endpoint, metadata.NewFSMetadataStore(metadataDir), repoInfo, imagePushConfig, sf)
+		pusher, err := NewPusher(endpoint, repoInfo, imagePushConfig, sf)
 		if err != nil {
 			lastErr = err
 			continue
@@ -138,7 +146,7 @@ func Push(localName string, metadataDir string, imagePushConfig *ImagePushConfig
 
 		}
 
-		imagePushConfig.EventsService.Log("push", repoInfo.LocalName, "")
+		imagePushConfig.EventsService.Log("push", repoInfo.LocalName.Name(), "")
 		return nil
 	}
 

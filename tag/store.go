@@ -7,14 +7,19 @@ import (
 	"github.com/docker/docker/images"
 )
 
-type Walker func(ref reference.Reference, imageID images.ID) error
+// An Association is a tuple associating a reference with an image ID.
+type Association struct {
+	Ref     reference.Reference
+	ImageID images.ID
+}
 
+// Store provides the set of methods which can operate on a tag store.
 type Store interface {
-	Walk(walker Walker) error
+	References(id images.ID) []reference.Reference
+	ReferencesByName(ref reference.Named) []Association
+	Add(ref reference.Reference, id images.ID, force bool) error
 	Delete(ref reference.Reference) (bool, error)
 	Get(ref reference.Reference) (images.ID, error)
-	GetRepoTags(repoName string) []reference.Reference
-	Tag(id images.ID, ref reference.Reference, force bool) error
 }
 
 type store struct {
@@ -24,7 +29,7 @@ func NewTagStore() Store {
 	return &store{}
 }
 
-func (store *store) Walk(walker Walker) error {
+func (store *store) Add(ref reference.Reference, id images.ID, force bool) error {
 	return errors.New("not implemented")
 }
 
@@ -36,10 +41,10 @@ func (store *store) Get(ref reference.Reference) (images.ID, error) {
 	return "", errors.New("not implemented")
 }
 
-func (store *store) GetRepoTags(repoName string) []reference.Reference {
+func (store *store) References(id images.ID) []reference.Reference {
 	return nil
 }
 
-func (store *store) Tag(id images.ID, ref reference.Reference, force bool) error {
-	return errors.New("not implemented")
+func (store *store) ReferencesByName(ref reference.Named) []Association {
+	return nil
 }
