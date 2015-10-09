@@ -123,7 +123,7 @@ func (is *store) Get(id ID) (*Image, error) {
 
 	img.ID = id
 	img.rawJSON = config
-	// todo: load parent file
+	img.store = is
 
 	return &img, nil
 }

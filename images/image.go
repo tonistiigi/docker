@@ -54,6 +54,8 @@ type Image struct {
 
 	// rawJSON caches the immutable JSON associated with this image.
 	rawJSON []byte
+	// back reference to a managing Store
+	store *store
 }
 
 // RawJSON returns the immutable JSON associated with the image.
@@ -63,8 +65,14 @@ func (img *Image) RawJSON() []byte {
 
 // GetTopLayer returns the top Layer object for this image.
 func (img *Image) GetTopLayer() (layers.Layer, error) {
-	// FIXME
-	return nil, errors.New("not implemented yet")
+	if img.store == nil {
+		return nil, errors.New("image not referenced by store")
+	}
+	layerID, err := layers.LayerID("", img.DiffIDs...)
+	if err != nil {
+		return nil, err
+	}
+	return img.store.ls.Get(layerID)
 }
 
 // History stores build commands that were used to create an image
