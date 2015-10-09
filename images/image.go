@@ -2,6 +2,7 @@ package images
 
 import (
 	"encoding/json"
+	"errors"
 	"regexp"
 	"time"
 
@@ -58,6 +59,12 @@ type Image struct {
 // RawJSON returns the immutable JSON associated with the image.
 func (img *Image) RawJSON() []byte {
 	return img.rawJSON
+}
+
+// GetTopLayer returns the top Layer object for this image.
+func (img *Image) GetTopLayer() (layers.Layer, error) {
+	// FIXME
+	return nil, errors.New("not implemented yet")
 }
 
 // History stores build commands that were used to create an image
