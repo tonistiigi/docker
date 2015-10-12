@@ -1,4 +1,4 @@
-package layers
+package layer
 
 import (
 	"errors"
@@ -20,6 +20,9 @@ type fileMetadataStore struct {
 	root string
 }
 
+// NewFileMetadataStore returns an instance of a metadata store
+// which is backed by files on disk using the provided root
+// as the root of metadata files.
 func NewFileMetadataStore(root string) MetadataStore {
 	return &fileMetadataStore{
 		root: root,

@@ -12,12 +12,12 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
-	"github.com/docker/docker/layers"
+	"github.com/docker/docker/layer"
 )
 
 type migratoryLayerStore interface {
-	RegisterByGraphID(string, layers.ID, string) (layers.Layer, error)
-	MountByGraphID(string, string, layers.ID) (layers.RWLayer, error)
+	RegisterByGraphID(string, layer.ID, string) (layer.Layer, error)
+	MountByGraphID(string, string, layer.ID) (layer.RWLayer, error)
 }
 
 const (
@@ -196,7 +196,7 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 		return errors.New("migration not supported")
 	}
 
-	var layerDigests []layers.DiffID
+	var layerDigests []layer.DiffID
 	var history []History
 
 	if parentID != "" {
@@ -209,7 +209,7 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 		history = parentImg.History
 	}
 
-	parentLayer, err := layers.LayerID("", layerDigests...)
+	parentLayer, err := layer.CreateID("", layerDigests...)
 	if err != nil {
 		return err
 	}
@@ -279,7 +279,7 @@ func HistoryFromV1Config(imageJSON []byte) (History, error) {
 }
 
 // ConfigFromV1Config creates an image config from the legacy V1 config format.
-func ConfigFromV1Config(imageJSON []byte, layerDigests []layers.DiffID, history []History) ([]byte, error) {
+func ConfigFromV1Config(imageJSON []byte, layerDigests []layer.DiffID, history []History) ([]byte, error) {
 	var c map[string]*json.RawMessage
 	if err := json.Unmarshal(imageJSON, &c); err != nil {
 		return nil, err

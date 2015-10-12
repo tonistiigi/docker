@@ -1,4 +1,4 @@
-package layers
+package layer
 
 import (
 	"io/ioutil"
@@ -33,14 +33,14 @@ func newTestGraphDriver(t *testing.T) (graphdriver.Driver, func()) {
 	}
 }
 
-func newTestLayerStore(t *testing.T) (LayerStore, func()) {
+func newTestStore(t *testing.T) (Store, func()) {
 	td, err := ioutil.TempDir("", "layerstore-")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	graph, graphcleanup := newTestGraphDriver(t)
-	ls, err := NewLayerStore(NewFileMetadataStore(td), graph)
+	ls, err := NewStore(NewFileMetadataStore(td), graph)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func newTestLayerStore(t *testing.T) (LayerStore, func()) {
 
 type layerInit func(root string) error
 
-func createLayer(ls LayerStore, parent ID, layerFunc layerInit) (Layer, error) {
+func createLayer(ls Store, parent ID, layerFunc layerInit) (Layer, error) {
 	containerID := stringid.GenerateRandomID()
 	mount, err := ls.Mount(containerID, parent, "", nil)
 	if err != nil {
@@ -126,7 +126,7 @@ func initWithFiles(files ...FileApplier) layerInit {
 	}
 }
 
-func releaseAndCheckDeleted(t *testing.T, ls LayerStore, layer Layer, removed ...Layer) {
+func releaseAndCheckDeleted(t *testing.T, ls Store, layer Layer, removed ...Layer) {
 	layerCount := len(ls.(*layerStore).layerMap)
 	expectedMetadata := make([]Metadata, len(removed))
 	for i := range removed {
@@ -207,7 +207,7 @@ func assertLayerEqual(t *testing.T, l1, l2 Layer) {
 }
 
 func TestMountAndRegister(t *testing.T) {
-	ls, cleanup := newTestLayerStore(t)
+	ls, cleanup := newTestStore(t)
 	defer cleanup()
 
 	li := initWithFiles(newTestFile("testfile.txt", []byte("some test data"), 0644))
@@ -244,7 +244,7 @@ func TestMountAndRegister(t *testing.T) {
 }
 
 func TestLayerRelease(t *testing.T) {
-	ls, cleanup := newTestLayerStore(t)
+	ls, cleanup := newTestStore(t)
 	defer cleanup()
 
 	layer1, err := createLayer(ls, "", initWithFiles(newTestFile("layer1.txt", []byte("layer 1 file"), 0644)))
@@ -288,8 +288,8 @@ func TestLayerRelease(t *testing.T) {
 	releaseAndCheckDeleted(t, ls, layer3a, layer3a, layer2, layer1)
 }
 
-func TestLayerStoreRestore(t *testing.T) {
-	ls, cleanup := newTestLayerStore(t)
+func TestStoreRestore(t *testing.T) {
+	ls, cleanup := newTestStore(t)
 	defer cleanup()
 
 	layer1, err := createLayer(ls, "", initWithFiles(newTestFile("layer1.txt", []byte("layer 1 file"), 0644)))
@@ -315,7 +315,7 @@ func TestLayerStoreRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ls2, err := NewLayerStore(ls.(*layerStore).store, ls.(*layerStore).driver)
+	ls2, err := NewStore(ls.(*layerStore).store, ls.(*layerStore).driver)
 	if err != nil {
 		t.Fatal(err)
 	}

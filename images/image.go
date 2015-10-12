@@ -8,7 +8,7 @@ import (
 
 	"github.com/docker/distribution/digest"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/layers"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/runconfig"
 )
 
@@ -48,9 +48,9 @@ type ImageV1 struct {
 // Image stores the image configuration
 type Image struct {
 	ImageV1
-	ID      ID              `json:"id,omitempty"`
-	DiffIDs []layers.DiffID `json:"diff_ids,omitempty"`
-	History []History       `json:"history,omitempty"`
+	ID      ID             `json:"id,omitempty"`
+	DiffIDs []layer.DiffID `json:"diff_ids,omitempty"`
+	History []History      `json:"history,omitempty"`
 
 	// rawJSON caches the immutable JSON associated with this image.
 	rawJSON []byte
@@ -64,11 +64,11 @@ func (img *Image) RawJSON() []byte {
 }
 
 // GetTopLayer returns the top Layer object for this image.
-func (img *Image) GetTopLayer() (layers.Layer, error) {
+func (img *Image) GetTopLayer() (layer.Layer, error) {
 	if img.store == nil {
 		return nil, errors.New("image not referenced by store")
 	}
-	layerID, err := layers.LayerID("", img.DiffIDs...)
+	layerID, err := layer.CreateID("", img.DiffIDs...)
 	if err != nil {
 		return nil, err
 	}

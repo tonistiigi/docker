@@ -1,4 +1,13 @@
-package layers
+// Package layer is package for managing read only
+// and read-write mounts on the union file system
+// driver. Read-only mounts are refenced using a
+// content hash and are protected from mutation in
+// the exposed interface. The tar format is used
+// to create read only layers and export both
+// read only and writable layers. The exported
+// tar data for a read only layer should match
+// the tar used to create the layer.
+package layer
 
 import (
 	"compress/gzip"
@@ -19,6 +28,8 @@ import (
 )
 
 var (
+	// ErrLayerDoesNotExist is used when an operation is
+	// attempted on a layer which does not exist.
 	ErrLayerDoesNotExist = errors.New("layer does not exist")
 )
 
@@ -28,6 +39,8 @@ type ID digest.Digest
 // DiffID is the hash of an individual layer tar.
 type DiffID digest.Digest
 
+// TarStreamer represents an object which may
+// have its contents exported as a tar stream.
 type TarStreamer interface {
 	TarStream() (io.Reader, error)
 }
@@ -49,10 +62,18 @@ type RWLayer interface {
 	Parent() (Layer, error)
 }
 
+// Metadata holds information about a
+// read only layer
 type Metadata struct {
+	// LayerID is the content hash of the layer
 	LayerID ID
-	DiffID  DiffID
-	Size    int64
+
+	// DiffID is the hash of the tar data used to
+	// create the layer
+	DiffID DiffID
+
+	// Size is the size of the layer content
+	Size int64
 }
 
 // MountInit is a function to initialize a
@@ -61,7 +82,9 @@ type Metadata struct {
 // RWLayer.
 type MountInit func(root string) error
 
-type LayerStore interface {
+// Store represents a backend for managing both
+// read-only and read-write layers.
+type Store interface {
 	Register(io.Reader, ID) (Layer, error)
 	Get(ID) (Layer, error)
 	Release(Layer) ([]Metadata, error)
@@ -70,6 +93,9 @@ type LayerStore interface {
 	Unmount(id string) error
 }
 
+// MetadataStore represents a backend for persisting
+// metadata about layers and providing the metadata
+// for restoring a Store.
 type MetadataStore interface {
 	SetSize(ID, int64) error
 	SetParent(layer, parent ID) error
@@ -149,7 +175,11 @@ type layerStore struct {
 	mountL sync.Mutex
 }
 
-func NewLayerStore(store MetadataStore, driver graphdriver.Driver) (LayerStore, error) {
+// NewStore creates a new Store instance using
+// the provided metadata store and graph driver.
+// The metadata store will be used to restore
+// the Store.
+func NewStore(store MetadataStore, driver graphdriver.Driver) (Store, error) {
 	ls := &layerStore{
 		store:    store,
 		driver:   driver,
@@ -288,7 +318,7 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 	if layer.parent == nil {
 		layer.address = ID(layer.digest)
 	} else {
-		layer.address, err = LayerID(layer.parent.address, layer.digest)
+		layer.address, err = CreateID(layer.parent.address, layer.digest)
 		if err != nil {
 			return nil, err
 		}
@@ -495,7 +525,7 @@ func (ls *layerStore) MountByGraphID(id string, graphID string, parent ID) (RWLa
 	// keep the mount in the array so it can be reused
 	// FIXME
 	ls.mounts[id] = &mountedLayer{}
-	
+
 	return nil, nil
 }
 
@@ -554,7 +584,7 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 	}
 	layer.digest = DiffID(digester.Digest())
 
-	layer.address, err = LayerID(parent, layer.digest)
+	layer.address, err = CreateID(parent, layer.digest)
 	if err != nil {
 		return nil, err
 	}
@@ -622,18 +652,18 @@ func (ls *layerStore) assembleTar(cacheID, tarDataFile string) (io.Reader, error
 	return pR, nil
 }
 
-// LayerID returns ID for a layerDigest slice and optional parent ID
-func LayerID(parent ID, dgsts ...DiffID) (ID, error) {
+// CreateID returns ID for a layerDigest slice and optional parent ID
+func CreateID(parent ID, dgsts ...DiffID) (ID, error) {
 	if len(dgsts) == 0 {
 		return parent, nil
 	}
 	if parent == "" {
-		return LayerID(ID(dgsts[0]), dgsts[1:]...)
+		return CreateID(ID(dgsts[0]), dgsts[1:]...)
 	}
 	// H = "H(n-1) SHA256(n)"
 	dgst, err := digest.FromBytes([]byte(string(parent) + " " + string(dgsts[0])))
 	if err != nil {
 		return "", err
 	}
-	return LayerID(ID(dgst), dgsts[1:]...)
+	return CreateID(ID(dgst), dgsts[1:]...)
 }

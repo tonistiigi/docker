@@ -7,7 +7,7 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
-	"github.com/docker/docker/layers"
+	"github.com/docker/docker/layer"
 )
 
 // Store is an interface for creating and accessing images
@@ -18,16 +18,16 @@ type Store interface {
 
 type store struct {
 	sync.Mutex
-	ls   layers.LayerStore
+	ls   layer.Store
 	root string
-	ids  map[ID]layers.Layer
+	ids  map[ID]layer.Layer
 	fs   StoreBackend
 }
 
 const imagesDirName = "images"
 
-// NewImageStore returns new store object for given LayerStore
-func NewImageStore(root string, ls layers.LayerStore) (Store, error) {
+// NewImageStore returns new store object for given layer.Store
+func NewImageStore(root string, ls layer.Store) (Store, error) {
 	fs, err := newFSStore(filepath.Join(root, imagesDirName))
 	if err != nil {
 		return nil, err
@@ -36,7 +36,7 @@ func NewImageStore(root string, ls layers.LayerStore) (Store, error) {
 	is := &store{
 		root: root,
 		ls:   ls,
-		ids:  make(map[ID]layers.Layer),
+		ids:  make(map[ID]layer.Layer),
 		fs:   fs,
 	}
 
@@ -59,7 +59,7 @@ func (is *store) restore() error {
 			logrus.Errorf("invalid image %v, %v", id, err)
 			return nil
 		}
-		layerID, err := layers.LayerID("", img.DiffIDs...)
+		layerID, err := layer.CreateID("", img.DiffIDs...)
 		if err != nil {
 			return err
 		}
@@ -93,7 +93,7 @@ func (is *store) Create(config []byte) (ID, error) {
 		return imageID, nil
 	}
 
-	layerID, err := layers.LayerID("", img.DiffIDs...)
+	layerID, err := layer.CreateID("", img.DiffIDs...)
 	if err != nil {
 		return "", err
 	}
