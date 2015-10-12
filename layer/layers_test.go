@@ -83,6 +83,10 @@ func createLayer(ls Store, parent ID, layerFunc layerInit) (Layer, error) {
 		return nil, err
 	}
 
+	if _, err := ls.DeleteMount(containerID); err != nil {
+		return nil, err
+	}
+
 	return layer, nil
 }
 
@@ -241,6 +245,10 @@ func TestMountAndRegister(t *testing.T) {
 	if err := ls.Unmount("new-test-mount"); err != nil {
 		t.Fatal(err)
 	}
+
+	if _, err := ls.DeleteMount("new-test-mount"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestLayerRelease(t *testing.T) {
@@ -315,6 +323,24 @@ func TestStoreRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	m, err := ls.Mount("some-mount_name", layer3.ID(), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := m.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ioutil.WriteFile(filepath.Join(path, "testfile.txt"), []byte("nothing here"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ls.Unmount("some-mount_name"); err != nil {
+		t.Fatal(err)
+	}
+
 	ls2, err := NewStore(ls.(*layerStore).store, ls.(*layerStore).driver)
 	if err != nil {
 		t.Fatal(err)
@@ -326,6 +352,35 @@ func TestStoreRestore(t *testing.T) {
 	}
 
 	assertLayerEqual(t, layer3b, layer3)
+
+	// Mount again with same name, should already be loaded
+	m2, err := ls.Mount("some-mount_name", layer3b.ID(), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path2, err := m2.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := ioutil.ReadFile(filepath.Join(path2, "testfile.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expected := "nothing here"; string(b) != expected {
+		t.Fatalf("Unexpected content %q, expected %q", string(b), expected)
+	}
+
+	if err := ls.Unmount("some-mount_name"); err != nil {
+		t.Fatal(err)
+	}
+
+	if metadata, err := ls2.DeleteMount("some-mount_name"); err != nil {
+		t.Fatal(err)
+	} else if len(metadata) != 0 {
+		t.Fatalf("Unexpectedly deleted layers: %#v", metadata)
+	}
 
 	releaseAndCheckDeleted(t, ls2, layer3b, layer3, layer2, layer1)
 }

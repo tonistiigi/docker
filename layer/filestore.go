@@ -37,6 +37,13 @@ func (fms *fileMetadataStore) getLayerFilename(layer ID, filename string) string
 	return filepath.Join(fms.getLayerDirectory(layer), filename)
 }
 
+func (fms *fileMetadataStore) getMountDirectory(mount string) string {
+	return filepath.Join(fms.root, "mounts", mount)
+}
+
+func (fms *fileMetadataStore) getMountFilename(mount, filename string) string {
+	return filepath.Join(fms.getMountDirectory(mount), filename)
+}
 func (fms *fileMetadataStore) SetSize(layer ID, size int64) error {
 	if err := os.MkdirAll(fms.getLayerDirectory(layer), 0755); err != nil {
 		return err
@@ -142,26 +149,116 @@ func (fms *fileMetadataStore) GetTarSplit(layer ID) (io.ReadCloser, error) {
 	return os.Open(fms.getLayerFilename(layer, "tar-split.json.gz"))
 }
 
+func (fms *fileMetadataStore) SetMountID(mount string, mountID string) error {
+	if err := os.MkdirAll(fms.getMountDirectory(mount), 0755); err != nil {
+		return err
+	}
+	return ioutil.WriteFile(fms.getMountFilename(mount, "mount-id"), []byte(mountID), 0644)
+}
+
+func (fms *fileMetadataStore) SetInitID(mount string, init string) error {
+	if err := os.MkdirAll(fms.getMountDirectory(mount), 0755); err != nil {
+		return err
+	}
+	return ioutil.WriteFile(fms.getMountFilename(mount, "init-id"), []byte(init), 0644)
+}
+
+func (fms *fileMetadataStore) SetMountParent(mount string, parent ID) error {
+	if err := os.MkdirAll(fms.getMountDirectory(mount), 0755); err != nil {
+		return err
+	}
+	return ioutil.WriteFile(fms.getMountFilename(mount, "parent"), []byte(digest.Digest(parent).String()), 0644)
+}
+
+func (fms *fileMetadataStore) GetMountID(mount string) (string, error) {
+	content, err := ioutil.ReadFile(fms.getMountFilename(mount, "mount-id"))
+	if err != nil {
+		return "", err
+	}
+
+	if !stringIDRegexp.MatchString(string(content)) {
+		return "", errors.New("invalid mount id value")
+	}
+
+	return string(content), nil
+}
+
+func (fms *fileMetadataStore) GetInitID(mount string) (string, error) {
+	content, err := ioutil.ReadFile(fms.getMountFilename(mount, "init-id"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+
+	if !stringIDRegexp.MatchString(string(content)) {
+		return "", errors.New("invalid init id value")
+	}
+
+	return string(content), nil
+}
+
+func (fms *fileMetadataStore) GetMountParent(mount string) (ID, error) {
+	content, err := ioutil.ReadFile(fms.getMountFilename(mount, "parent"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+
+	dgst, err := digest.ParseDigest(string(content))
+	if err != nil {
+		return "", err
+	}
+
+	return ID(dgst), nil
+}
+
 func (fms *fileMetadataStore) List() ([]ID, []string, error) {
 	fileInfos, err := ioutil.ReadDir(fms.root)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return []ID{}, []string{}, nil
+		}
 		return nil, nil, err
 	}
 
 	var ids []ID
-	var mounts []string
 	for _, fi := range fileInfos {
-		if fi.IsDir() {
+		if fi.IsDir() && fi.Name() != "mounts" {
 			dgst, err := digest.ParseDigest(fi.Name())
 			if err == nil {
 				ids = append(ids, ID(dgst))
-			} else if stringIDRegexp.MatchString(fi.Name()) {
-				mounts = append(mounts, fi.Name())
 			} else {
 				logrus.Debugf("Ignoring invalid directory %s", fi.Name())
 			}
 		}
 	}
 
+	fileInfos, err = ioutil.ReadDir(filepath.Join(fms.root, "mounts"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ids, []string{}, nil
+		}
+		return nil, nil, err
+	}
+
+	var mounts []string
+	for _, fi := range fileInfos {
+		if fi.IsDir() {
+			mounts = append(mounts, fi.Name())
+		}
+	}
+
 	return ids, mounts, nil
+}
+
+func (fms *fileMetadataStore) Remove(layer ID) error {
+	return os.RemoveAll(fms.getLayerDirectory(layer))
+}
+
+func (fms *fileMetadataStore) RemoveMount(mount string) error {
+	return os.RemoveAll(fms.getMountDirectory(mount))
 }

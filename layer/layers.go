@@ -31,6 +31,19 @@ var (
 	// ErrLayerDoesNotExist is used when an operation is
 	// attempted on a layer which does not exist.
 	ErrLayerDoesNotExist = errors.New("layer does not exist")
+
+	// ErrMountDoesNotExist is used when an operation is
+	// attempted on a mount layer which does not exist.
+	ErrMountDoesNotExist = errors.New("mount does not exist")
+
+	// ErrActiveMount is used when an operation on a
+	// mount is attempted but the layer is still
+	// mounted and the operation cannot be performed.
+	ErrActiveMount = errors.New("mount still active")
+
+	// ErrNotMounted is used when requesting an active
+	// mount but the layer is not mounted.
+	ErrNotMounted = errors.New("not mounted")
 )
 
 // ID is the content-addressable ID of a layer.
@@ -91,6 +104,7 @@ type Store interface {
 
 	Mount(id string, parent ID, label string, init MountInit) (RWLayer, error)
 	Unmount(id string) error
+	DeleteMount(id string) ([]Metadata, error)
 }
 
 // MetadataStore represents a backend for persisting
@@ -109,7 +123,20 @@ type MetadataStore interface {
 	GetCacheID(ID) (string, error)
 	GetTarSplit(ID) (io.ReadCloser, error)
 
+	SetMountID(string, string) error
+	SetInitID(string, string) error
+	SetMountParent(string, ID) error
+
+	GetMountID(string) (string, error)
+	GetInitID(string) (string, error)
+	GetMountParent(string) (ID, error)
+
+	// List returns the full list of referened
+	// read-only and read-write layers
 	List() ([]ID, []string, error)
+
+	Remove(ID) error
+	RemoveMount(string) error
 }
 
 type tarStreamer func() (io.Reader, error)
@@ -147,7 +174,9 @@ func (cl *cacheLayer) Size() (int64, error) {
 
 type mountedLayer struct {
 	tarStreamer
+	name    string
 	mountID string
+	initID  string
 	parent  *cacheLayer
 	path    string
 }
@@ -157,6 +186,9 @@ func (ml *mountedLayer) TarStream() (io.Reader, error) {
 }
 
 func (ml *mountedLayer) Path() (string, error) {
+	if ml.path == "" {
+		return "", ErrNotMounted
+	}
 	return ml.path, nil
 }
 
@@ -199,8 +231,12 @@ func NewStore(store MetadataStore, driver graphdriver.Driver) (Store, error) {
 		}
 	}
 
-	// TODO: Load mounts
-	logrus.Debugf("Existing mounts: %#v", mounts)
+	for _, mount := range mounts {
+		if err := ls.loadMount(mount); err != nil {
+			// TODO warn with bad mounts, don't error out
+			return nil, err
+		}
+	}
 
 	return ls, nil
 }
@@ -258,6 +294,56 @@ func (ls *layerStore) loadLayer(layer ID) (*cacheLayer, error) {
 	ls.layerMap[cl.address] = cl
 
 	return cl, nil
+}
+
+func (ls *layerStore) loadMount(mount string) error {
+	if _, ok := ls.mounts[mount]; ok {
+		return nil
+	}
+
+	mountID, err := ls.store.GetMountID(mount)
+	if err != nil {
+		return err
+	}
+
+	initID, err := ls.store.GetInitID(mount)
+	if err != nil {
+		return err
+	}
+
+	parent, err := ls.store.GetMountParent(mount)
+	if err != nil {
+		return err
+	}
+
+	ml := &mountedLayer{
+		name:    mount,
+		mountID: mountID,
+		initID:  initID,
+	}
+
+	if parent != "" {
+		p, err := ls.loadLayer(parent)
+		if err != nil {
+			return err
+		}
+		ml.parent = p
+
+		ls.retainLayer(p)
+	}
+	var pid string
+	if ml.parent != nil {
+		pid = ml.parent.cacheID
+	}
+
+	ml.tarStreamer = func() (io.Reader, error) {
+		archiver, err := ls.driver.Diff(ml.mountID, pid)
+		return io.Reader(archiver), err
+	}
+
+	ls.mounts[ml.name] = ml
+
+	return nil
 }
 
 func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
@@ -394,10 +480,11 @@ func (ls *layerStore) retainLayer(layer *cacheLayer) {
 	}
 }
 
-func (ls *layerStore) releaseLayer(layer *cacheLayer) {
+func (ls *layerStore) releaseLayer(layer *cacheLayer) error {
+	var nonRetained bool
 	for l := layer; ; l = l.parent {
-		if l.referenceCount < 2 {
-			l.referenceCount = 0
+		if l.referenceCount == 0 {
+			nonRetained = true
 		} else {
 			l.referenceCount--
 		}
@@ -405,6 +492,10 @@ func (ls *layerStore) releaseLayer(layer *cacheLayer) {
 			break
 		}
 	}
+	if nonRetained {
+		return errors.New("releasing non-retained layer")
+	}
+	return nil
 }
 
 func (ls *layerStore) cleanup() ([]Metadata, error) {
@@ -442,19 +533,28 @@ func (ls *layerStore) cleanup() ([]Metadata, error) {
 
 	// Sweep
 	metadata := make([]Metadata, len(layers))
-	var lastErr error
+	var firstErr error
 	for i, layer := range layers {
 		metadata[i].DiffID = layer.digest
 		metadata[i].LayerID = layer.address
 		metadata[i].Size = layer.size
 		if err := ls.driver.Remove(layer.cacheID); err != nil {
-			// TODO: Should this continue, log and return last?
-			lastErr = err
+			logrus.Errorf("Error removing cache layer %s: %s", layer.address, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
-		// TODO: Delete from storage
+
+		if err := ls.store.Remove(layer.address); err != nil {
+			logrus.Errorf("Error removing layer metadata %s: %s", layer.address, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
 	}
 
-	return metadata, lastErr
+	return metadata, firstErr
 }
 
 func (ls *layerStore) Release(l Layer) ([]Metadata, error) {
@@ -465,85 +565,218 @@ func (ls *layerStore) Release(l Layer) ([]Metadata, error) {
 		return []Metadata{}, nil
 	}
 
-	ls.releaseLayer(layer)
+	if err := ls.releaseLayer(layer); err != nil {
+		return nil, err
+	}
 
 	return ls.cleanup()
 }
 
-func (ls *layerStore) Mount(id string, parent ID, mountLabel string, initFunc MountInit) (RWLayer, error) {
-	ls.mountL.Lock()
-	defer ls.mountL.Unlock()
-	if m, ok := ls.mounts[id]; ok {
-		return m, nil
+func (ls *layerStore) mount(m *mountedLayer, mountLabel string) error {
+	dir, err := ls.driver.Get(m.mountID, mountLabel)
+	if err != nil {
+		return err
 	}
+	m.path = dir
 
-	//TODO: Call get to fully retain
-	ls.layerL.Lock()
-	defer ls.layerL.Unlock()
+	return nil
+}
 
+func (ls *layerStore) saveMount(mount *mountedLayer) error {
 	var pid string
-	var p *cacheLayer
-	if string(parent) != "" {
-		l, ok := ls.layerMap[parent]
-		if !ok {
-			return nil, ErrLayerDoesNotExist
-		}
-		p = l
-		pid = l.cacheID
+	if mount.parent != nil {
+		pid = mount.parent.cacheID
 	}
-
-	mount := &mountedLayer{
-		parent:  p,
-		mountID: stringid.GenerateRandomID(),
-	}
-
-	if err := ls.driver.Create(mount.mountID, pid); err != nil {
-		return nil, err
-	}
-
 	mount.tarStreamer = func() (io.Reader, error) {
 		archiver, err := ls.driver.Diff(mount.mountID, pid)
 		return io.Reader(archiver), err
 	}
 
-	dir, err := ls.driver.Get(mount.mountID, "")
-	if err != nil {
-		// TODO: Cleanup
+	if err := ls.store.SetMountID(mount.name, mount.mountID); err != nil {
+		return err
+	}
+
+	if mount.initID != "" {
+		if err := ls.store.SetInitID(mount.name, mount.initID); err != nil {
+			return err
+		}
+	}
+
+	if mount.parent != nil {
+		if err := ls.store.SetMountParent(mount.name, mount.parent.address); err != nil {
+			return err
+		}
+	}
+
+	ls.mounts[mount.name] = mount
+
+	return nil
+}
+
+func (ls *layerStore) getAndRetainLayer(layer ID) *cacheLayer {
+	l, ok := ls.layerMap[layer]
+	if !ok {
+		return nil
+	}
+
+	ls.retainLayer(l)
+
+	return l
+}
+
+func (ls *layerStore) Mount(name string, parent ID, mountLabel string, initFunc MountInit) (RWLayer, error) {
+	ls.mountL.Lock()
+	defer ls.mountL.Unlock()
+	m, ok := ls.mounts[name]
+	if ok {
+		// Check if has path
+		if err := ls.mount(m, mountLabel); err != nil {
+			return nil, err
+		}
+		return m, nil
+	}
+
+	var pid string
+	var p *cacheLayer
+	if string(parent) != "" {
+		ls.layerL.Lock()
+		p = ls.getAndRetainLayer(parent)
+		ls.layerL.Unlock()
+		if p == nil {
+			return nil, ErrLayerDoesNotExist
+		}
+		pid = p.cacheID
+
+	}
+
+	m = &mountedLayer{
+		name:    name,
+		parent:  p,
+		mountID: stringid.GenerateRandomID(),
+	}
+
+	if err := ls.driver.Create(m.mountID, pid); err != nil {
 		return nil, err
 	}
-	mount.path = dir
 
-	ls.mounts[id] = mount
+	if err := ls.saveMount(m); err != nil {
+		return nil, err
+	}
 
-	// TODO: Persist mapping update to disk
+	if err := ls.mount(m, mountLabel); err != nil {
+		return nil, err
+	}
 
-	return mount, nil
+	return m, nil
 }
 
-func (ls *layerStore) MountByGraphID(id string, graphID string, parent ID) (RWLayer, error) {
-	// mount by already known driver ID
-	// keep the mount in the array so it can be reused
-	// FIXME
-	ls.mounts[id] = &mountedLayer{}
+func (ls *layerStore) MountByGraphID(name string, graphID string, parent ID) (RWLayer, error) {
+	ls.mountL.Lock()
+	defer ls.mountL.Unlock()
+	m, ok := ls.mounts[name]
+	if ok {
+		if m.parent.address != parent {
+			return nil, errors.New("name conflict, mismatched parent")
+		}
+		if m.mountID != graphID {
+			return nil, errors.New("mount already exists")
+		}
+		return m, nil
+	}
 
-	return nil, nil
+	if ls.driver.Exists(graphID) {
+		return nil, errors.New("graph ID does not exist")
+	}
+
+	var p *cacheLayer
+	if string(parent) != "" {
+		ls.layerL.Lock()
+		p = ls.getAndRetainLayer(parent)
+		ls.layerL.Unlock()
+		if p == nil {
+			return nil, ErrLayerDoesNotExist
+		}
+	}
+
+	// TODO: Ensure graphID has correct parent
+
+	m = &mountedLayer{
+		name:    name,
+		parent:  p,
+		mountID: graphID,
+	}
+
+	if err := ls.saveMount(m); err != nil {
+		return nil, err
+	}
+
+	// TODO: provide a mount label
+	if err := ls.mount(m, ""); err != nil {
+		return nil, err
+	}
+
+	return m, nil
 }
 
-func (ls *layerStore) Unmount(id string) error {
+func (ls *layerStore) Unmount(name string) error {
 	ls.mountL.Lock()
 	defer ls.mountL.Unlock()
 
-	m := ls.mounts[id]
+	m := ls.mounts[name]
 	if m == nil {
-		return errors.New("mount does not exist")
+		return ErrMountDoesNotExist
 	}
 
-	// FIXME: unmount should not delete the reference, needed for remount
-	delete(ls.mounts, id)
+	if m.path != "" {
+		if err := ls.driver.Put(m.mountID); err != nil {
+			return err
+		}
+		m.path = ""
+	}
 
-	// TODO: Issue cleanup to remove mount layer and any unretained ancestors
+	return nil
+}
 
-	return ls.driver.Put(m.mountID)
+func (ls *layerStore) DeleteMount(name string) ([]Metadata, error) {
+	ls.mountL.Lock()
+	defer ls.mountL.Unlock()
+
+	m := ls.mounts[name]
+	if m == nil {
+		return nil, ErrMountDoesNotExist
+	}
+	if m.path != "" {
+		return nil, ErrActiveMount
+	}
+
+	delete(ls.mounts, name)
+
+	if err := ls.driver.Remove(m.mountID); err != nil {
+		logrus.Errorf("Error removing mounted layer %s: %s", m.name, err)
+		return nil, err
+	}
+
+	if m.initID != "" {
+		if err := ls.driver.Remove(m.initID); err != nil {
+			logrus.Errorf("Error removing init layer %s: %s", m.name, err)
+			return nil, err
+		}
+	}
+
+	if err := ls.store.RemoveMount(m.name); err != nil {
+		logrus.Errorf("Error removing mount metadata: %s: %s", m.name, err)
+		return nil, err
+	}
+
+	ls.layerL.Lock()
+	defer ls.layerL.Unlock()
+	if m.parent != nil {
+		if err := ls.releaseLayer(m.parent); err != nil {
+			return nil, err
+		}
+	}
+
+	return ls.cleanup()
 }
 
 func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile string) (Layer, error) {
