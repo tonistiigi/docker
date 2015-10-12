@@ -17,6 +17,10 @@ var validHex = regexp.MustCompile(`^([a-f0-9]{64})$`)
 // ID is the content-addressable ID of an image.
 type ID digest.Digest
 
+func (id ID) String() string {
+	return string(id)
+}
+
 // ImageV1 stores the V1 image configuration.
 type ImageV1 struct {
 	// ID a unique 64 character identifier of the image
