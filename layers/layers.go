@@ -1,8 +1,11 @@
 package layers
 
 import (
+	"compress/gzip"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"sync"
 
 	"github.com/Sirupsen/logrus"
@@ -10,13 +13,19 @@ import (
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/stringid"
+
+	"github.com/vbatts/tar-split/tar/asm"
+	"github.com/vbatts/tar-split/tar/storage"
 )
 
 var (
 	ErrLayerDoesNotExist = errors.New("layer does not exist")
 )
 
-type LayerAddress digest.Digest
+// ID is the content-addressable ID of a layer.
+type LayerAddress digest.Digest // change ID
+// LayerDigest is the hash of an individual layer tar.
+type LayerDigest digest.Digest
 
 type TarStreamer interface {
 	TarStream() (io.Reader, error)
@@ -45,6 +54,9 @@ type LayerStore interface {
 
 	Mount(id string, parent LayerAddress) (RWLayer, error)
 	Unmount(id string) error
+
+	Retain(LayerAddress, string) error
+	Release(LayerAddress, string) error
 }
 
 type tarStreamer func() (io.Reader, error)
@@ -161,17 +173,10 @@ func (ls *layerStore) Register(ts io.Reader, parent LayerAddress) (Layer, error)
 		return io.Reader(archiver), err
 	}
 
-	var layerHash digest.Digest
-	if layer.parent == nil {
-		layerHash = digester.Digest()
-	} else {
-		layerHashParts := digester.Digest().String() + " " + digest.Digest(layer.parent.address).String()
-		layerHash, err = digest.FromBytes([]byte(layerHashParts))
-		if err != nil {
-			return nil, err
-		}
+	layer.address, err = LayerID(layer.parent.address, LayerDigest(digester.Digest()))
+	if err != nil {
+		return nil, err
 	}
-	layer.address = LayerAddress(layerHash)
 
 	ls.layerL.Lock()
 	defer ls.layerL.Unlock()
@@ -270,4 +275,120 @@ func (ls *layerStore) Unmount(id string) error {
 	delete(ls.mounts, id)
 
 	return ls.driver.Remove(m.mountID)
+}
+
+func (ls *layerStore) Retain(id LayerAddress, key string) error {
+	// todo:
+	logrus.Debugf("retain %v %v", id, key)
+	return nil
+}
+func (ls *layerStore) Release(id LayerAddress, key string) error {
+	// todo:
+	logrus.Debugf("release %v %v", id, key)
+	return nil
+}
+
+func (ls *layerStore) RegisterOnDisk(cacheID string, parent LayerAddress, tarDataFile string) (Layer, LayerDigest, error) {
+	var p *cacheLayer
+	if string(parent) != "" {
+		l, ok := ls.layerMap[parent]
+		if !ok {
+			return nil, "", ErrLayerDoesNotExist
+		}
+		p = l
+	}
+
+	// Create new cacheLayer
+	layer := &cacheLayer{
+		parent:  p,
+		cacheID: cacheID,
+	}
+
+	tar, err := ls.assembleTar(cacheID, tarDataFile)
+	if err != nil {
+		return nil, "", err
+	}
+
+	digester := digest.Canonical.New()
+	if _, err := io.Copy(digester.Hash(), tar); err != nil {
+		return nil, "", err
+	}
+	diffID := LayerDigest(digester.Digest())
+
+	layer.address, err = LayerID(parent, diffID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	ls.layerL.Lock()
+	defer ls.layerL.Unlock()
+
+	if existingLayer, ok := ls.layerMap[layer.address]; ok {
+		// Set error for cleanup, but do not return
+		err = errors.New("layer already exists")
+		return existingLayer, "", nil
+	}
+
+	ls.layerMap[layer.address] = layer
+
+	return layer, diffID, nil
+}
+
+func (ls *layerStore) assembleTar(cacheID, tarDataFile string) (io.Reader, error) {
+	mf, err := os.Open(tarDataFile)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			// todo: recreation
+		}
+		return nil, err
+	}
+	pR, pW := io.Pipe()
+	// this will need to be in a goroutine, as we are returning the stream of a
+	// tar archive, but can not close the metadata reader early (when this
+	// function returns)...
+	go func() {
+		defer mf.Close()
+		// let's reassemble!
+		logrus.Debugf("[graph] TarLayer with reassembly: %s", cacheID)
+		mfz, err := gzip.NewReader(mf)
+		if err != nil {
+			pW.CloseWithError(fmt.Errorf("[graph] error with %s:  %s", tarDataFile, err))
+			return
+		}
+		defer mfz.Close()
+
+		// get our relative path to the container
+		fsLayer, err := ls.driver.Get(cacheID, "")
+		if err != nil {
+			pW.CloseWithError(err)
+			return
+		}
+		defer ls.driver.Put(cacheID)
+
+		metaUnpacker := storage.NewJSONUnpacker(mfz)
+		fileGetter := storage.NewPathFileGetter(fsLayer)
+		logrus.Debugf("[graph] %s is at %q", cacheID, fsLayer)
+		ots := asm.NewOutputTarStream(fileGetter, metaUnpacker)
+		defer ots.Close()
+		if _, err := io.Copy(pW, ots); err != nil {
+			pW.CloseWithError(err)
+			return
+		}
+		pW.Close()
+	}()
+	return pR, nil
+}
+
+func LayerID(parent LayerAddress, dgsts ...LayerDigest) (LayerAddress, error) {
+	if len(dgsts) == 0 {
+		return parent, nil
+	}
+	if parent == "" {
+		return LayerID(LayerAddress(dgsts[0]), dgsts[1:]...)
+	}
+	dgst, err := digest.FromBytes([]byte(string(parent) + " " + string(dgsts[0]))) // todo: backwards in prototype
+	if err != nil {
+		return "", err
+	}
+	return LayerID(LayerAddress(dgst), dgsts[1:]...)
 }
