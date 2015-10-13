@@ -1,4 +1,4 @@
-// +build daemon
+// +build linux windows
 
 package vfs
 
