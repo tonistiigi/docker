@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/daemon/graphdriver/vfs"
 	"github.com/docker/docker/pkg/archive"
+	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/stringid"
 )
 
@@ -23,7 +24,22 @@ func newTestGraphDriver(t *testing.T) (graphdriver.Driver, func()) {
 		t.Fatal(err)
 	}
 
-	driver, err := graphdriver.GetDriver("vfs", td, nil, nil, nil)
+	uidMap := []idtools.IDMap{
+		{
+			ContainerID: 0,
+			HostID:      os.Getuid(),
+			Size:        1,
+		},
+	}
+	gidMap := []idtools.IDMap{
+		{
+			ContainerID: 0,
+			HostID:      os.Getgid(),
+			Size:        1,
+		},
+	}
+
+	driver, err := graphdriver.GetDriver("vfs", td, nil, uidMap, gidMap)
 	if err != nil {
 		t.Fatal(err)
 	}
