@@ -52,14 +52,22 @@ type ImageV1 struct {
 // Image stores the image configuration
 type Image struct {
 	ImageV1
-	ID      ID             `json:"id,omitempty"`
-	DiffIDs []layer.DiffID `json:"diff_ids,omitempty"`
-	History []History      `json:"history,omitempty"`
+	ID      ID        `json:"id,omitempty"`
+	RootFS  *RootFS   `json:"rootfs,omitempty"`
+	History []History `json:"history,omitempty"`
 
 	// rawJSON caches the immutable JSON associated with this image.
 	rawJSON []byte
 	// back reference to a managing Store
 	store *store
+}
+
+// RootFS describes images root filesystem
+// This is currently a placeholder that only supports layers. In the future
+// this can be made into a interface that supports different implementaions.
+type RootFS struct {
+	Type    string         `json:"type"`
+	DiffIDs []layer.DiffID `json:"diff_ids,omitempty"`
 }
 
 // RawJSON returns the immutable JSON associated with the image.
@@ -72,7 +80,7 @@ func (img *Image) GetTopLayer() (layer.Layer, error) {
 	if img.store == nil {
 		return nil, errors.New("image not referenced by store")
 	}
-	layerID, err := layer.CreateID("", img.DiffIDs...)
+	layerID, err := layer.CreateID("", img.RootFS.DiffIDs...)
 	if err != nil {
 		return nil, err
 	}

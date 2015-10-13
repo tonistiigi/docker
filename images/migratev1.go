@@ -205,7 +205,7 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 			return err
 		}
 
-		layerDigests = parentImg.DiffIDs
+		layerDigests = parentImg.RootFS.DiffIDs
 		history = parentImg.History
 	}
 
@@ -291,7 +291,7 @@ func ConfigFromV1Config(imageJSON []byte, layerDigests []layer.DiffID, history [
 	delete(c, "parent_id")
 	delete(c, "layer_id")
 
-	c["diff_ids"] = rawJSON(layerDigests)
+	c["rootfs"] = rawJSON(&RootFS{Type: "layers", DiffIDs: layerDigests})
 	c["history"] = rawJSON(history)
 
 	return json.Marshal(c)

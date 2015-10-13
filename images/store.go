@@ -59,7 +59,7 @@ func (is *store) restore() error {
 			logrus.Errorf("invalid image %v, %v", id, err)
 			return nil
 		}
-		layerID, err := layer.CreateID("", img.DiffIDs...)
+		layerID, err := layer.CreateID("", img.RootFS.DiffIDs...)
 		if err != nil {
 			return err
 		}
@@ -93,7 +93,7 @@ func (is *store) Create(config []byte) (ID, error) {
 		return imageID, nil
 	}
 
-	layerID, err := layer.CreateID("", img.DiffIDs...)
+	layerID, err := layer.CreateID("", img.RootFS.DiffIDs...)
 	if err != nil {
 		return "", err
 	}
