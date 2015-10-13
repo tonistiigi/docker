@@ -23,7 +23,7 @@ func newTestGraphDriver(t *testing.T) (graphdriver.Driver, func()) {
 		t.Fatal(err)
 	}
 
-	driver, err := graphdriver.GetDriver("vfs", td, nil)
+	driver, err := graphdriver.GetDriver("vfs", td, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
