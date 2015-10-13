@@ -284,9 +284,9 @@ func Commit(container *daemon.Container, d *daemon.Daemon, c *CommitConfig) (str
 		Config:  newConfig,
 	}
 
-	img, err := d.Commit(container, commitCfg)
+	imgID, err := d.Commit(container, commitCfg)
 	if err != nil {
 		return "", err
 	}
-	return img.ID, nil
+	return imgID, nil
 }

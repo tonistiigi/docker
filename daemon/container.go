@@ -21,6 +21,7 @@ import (
 	"github.com/docker/docker/daemon/network"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/broadcaster"
 	"github.com/docker/docker/pkg/fileutils"
@@ -57,6 +58,7 @@ type CommonContainer struct {
 	*State          `json:"State"` // Needed for remote api version <= 1.11
 	root            string         // Path to the "home" of the container, including metadata.
 	basefs          string         // Path to the graphdriver mountpoint
+	rwlayer         layer.RWLayer
 	ID              string
 	Created         time.Time
 	Path            string
@@ -232,13 +234,17 @@ func (container *Container) exportContainerRw() (archive.Archive, error) {
 	if container.daemon == nil {
 		return nil, derr.ErrorCodeUnregisteredContainer.WithArgs(container.ID)
 	}
-	archive, err := container.daemon.diff(container)
+
+	if err := container.daemon.Mount(container); err != nil {
+		return nil, err
+	}
+
+	archive, err := container.rwlayer.TarStream()
 	if err != nil {
 		return nil, err
 	}
 	return ioutils.NewReadCloserWrapper(archive, func() error {
-			err := archive.Close()
-			return err
+			return container.daemon.layerStore.Unmount(container.ID) // FIXME
 		}),
 		nil
 }

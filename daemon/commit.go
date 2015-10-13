@@ -1,7 +1,13 @@
 package daemon
 
 import (
-	"github.com/docker/docker/image"
+	"encoding/json"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/docker/docker/autogen/dockerversion"
+	"github.com/docker/docker/images"
 	"github.com/docker/docker/runconfig"
 )
 
@@ -18,7 +24,7 @@ type ContainerCommitConfig struct {
 
 // Commit creates a new filesystem image from the current state of a container.
 // The image can optionally be tagged into a repository.
-func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (*image.Image, error) {
+func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (string, error) { // change type to images.ID
 	if c.Pause && !container.isPaused() {
 		container.pause()
 		defer container.unpause()
@@ -26,7 +32,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (*i
 
 	rwTar, err := container.exportContainerRw()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer func() {
 		if rwTar != nil {
@@ -34,18 +40,70 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (*i
 		}
 	}()
 
-	// Create a new image from the container's base layers + a new layer from container changes
-	img, err := daemon.graph.Create(rwTar, container.ID, container.ImageID, c.Comment, c.Author, container.Config, c.Config)
+	img, err := daemon.imageStore.Get(images.ID(container.ImageID))
 	if err != nil {
-		return nil, err
+		return "", err
+	}
+	layerID, err := img.GetTopLayerID()
+	if err != nil {
+		return "", err
+	}
+	layer, err := daemon.layerStore.Register(rwTar, layerID)
+	if err != nil {
+		return "", err
+	}
+	defer daemon.layerStore.Release(layer)
+
+	diffIDs := append(img.RootFS.DiffIDs, layer.DiffID())
+
+	h := images.History{}
+	h.Author = c.Author
+	h.Created = time.Now().UTC()
+	h.Description = strings.Join(container.Config.Cmd.Slice(), " ")
+
+	if len(c.Comment) > 0 {
+		h.Description += "(" + c.Comment + ")"
 	}
 
-	// Register the image if needed
-	if c.Repo != "" {
-		if err := daemon.repositories.Tag(c.Repo, c.Tag, img.ID, true); err != nil {
-			return img, err
-		}
+	history := append(img.History, h)
+
+	config, err := json.Marshal(&images.Image{
+		ImageV1: images.ImageV1{
+			DockerVersion:   dockerversion.VERSION,
+			Config:          container.Config,
+			Architecture:    runtime.GOARCH,
+			OS:              runtime.GOOS,
+			Container:       container.ID,
+			ContainerConfig: *container.Config,
+		},
+		RootFS: &images.RootFS{
+			Type:    "layers",
+			DiffIDs: diffIDs,
+		},
+		History: history,
+	})
+
+	if err != nil {
+		return "", err
 	}
+
+	id, err := daemon.imageStore.Create(config)
+	if err != nil {
+		return "", err
+	}
+
 	container.logEvent("commit")
-	return img, nil
+
+	// FIXME: tagging
+
+	return id.String(), nil
+
+	// // Register the image if needed
+	// if c.Repo != "" {
+	// 	if err := daemon.repositories.Tag(c.Repo, c.Tag, img.ID, true); err != nil {
+	// 		return img, err
+	// 	}
+	// }
+	// container.logEvent("commit")
+	// return img, nil
 }

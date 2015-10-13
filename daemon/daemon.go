@@ -967,7 +967,8 @@ func (daemon *Daemon) Mount(container *Container) error {
 	// 			daemon.driver, container.ID, container.basefs, dir)
 	// 	}
 	// }
-	container.basefs = dir // FIXME: store rwlayer so we can access tarstream
+	container.basefs = dir      // FIXME: store rwlayer so we can access tarstream
+	container.rwlayer = rwlayer // FIXME: double mount/unmount
 	return nil
 }
 

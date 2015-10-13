@@ -89,13 +89,13 @@ func (b *Builder) commit(id string, autoCmd *stringutils.StrSlice, comment strin
 	}
 
 	// Commit the container
-	image, err := b.docker.Commit(container, commitCfg)
+	imageID, err := b.docker.Commit(container, commitCfg)
 	if err != nil {
 		return err
 	}
-	b.docker.Retain(b.id, image.ID)
-	b.activeImages = append(b.activeImages, image.ID)
-	b.image = image.ID
+	b.docker.Retain(b.id, imageID)
+	b.activeImages = append(b.activeImages, imageID)
+	b.image = imageID
 	return nil
 }
 
