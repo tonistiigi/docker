@@ -143,12 +143,12 @@ func (is *store) migrateV1Containers(imageMappings map[string]ID) error {
 			return err
 		}
 
-		layer, err := img.GetTopLayer()
+		layerID, err := img.GetTopLayerID()
 		if err != nil {
 			return err
 		}
 
-		_, err = migratoryLayerStore.MountByGraphID(id, id, layer.ID())
+		_, err = migratoryLayerStore.MountByGraphID(id, id, layerID)
 		if err != nil {
 			return err
 		}

@@ -939,15 +939,11 @@ func (daemon *Daemon) Mount(container *Container) error {
 	if err != nil {
 		return err
 	}
-	layer, err := img.GetTopLayer()
+	layerID, err := img.GetTopLayerID()
 	if err != nil {
 		return err
 	}
-	rwlayer, err := daemon.layerStore.Mount(container.ID, layer.ID(), "", daemon.setupInitLayer) // FIXME: init
-	if err != nil {
-		return err
-	}
-	_, err = daemon.layerStore.Release(layer)
+	rwlayer, err := daemon.layerStore.Mount(container.ID, layerID, "", daemon.setupInitLayer) // FIXME: init
 	if err != nil {
 		return err
 	}

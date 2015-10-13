@@ -2,7 +2,6 @@ package images
 
 import (
 	"encoding/json"
-	"errors"
 	"regexp"
 	"time"
 
@@ -58,8 +57,6 @@ type Image struct {
 
 	// rawJSON caches the immutable JSON associated with this image.
 	rawJSON []byte
-	// back reference to a managing Store
-	store *store
 }
 
 // RootFS describes images root filesystem
@@ -76,15 +73,8 @@ func (img *Image) RawJSON() []byte {
 }
 
 // GetTopLayer returns the top Layer object for this image.
-func (img *Image) GetTopLayer() (layer.Layer, error) {
-	if img.store == nil {
-		return nil, errors.New("image not referenced by store")
-	}
-	layerID, err := layer.CreateID("", img.RootFS.DiffIDs...)
-	if err != nil {
-		return nil, err
-	}
-	return img.store.ls.Get(layerID)
+func (img *Image) GetTopLayerID() (layer.ID, error) {
+	return layer.CreateID("", img.RootFS.DiffIDs...)
 }
 
 // History stores build commands that were used to create an image

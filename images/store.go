@@ -123,7 +123,6 @@ func (is *store) Get(id ID) (*Image, error) {
 
 	img.ID = id
 	img.rawJSON = config
-	img.store = is
 
 	return &img, nil
 }
