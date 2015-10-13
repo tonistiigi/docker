@@ -943,7 +943,7 @@ func (daemon *Daemon) Mount(container *Container) error {
 	if err != nil {
 		return err
 	}
-	rwlayer, err := daemon.layerStore.Mount(container.ID, layer.ID(), "", nil) // FIXME: init
+	rwlayer, err := daemon.layerStore.Mount(container.ID, layer.ID(), "", daemon.setupInitLayer) // FIXME: init
 	if err != nil {
 		return err
 	}
@@ -1203,6 +1203,11 @@ func (daemon *Daemon) setHostConfig(container *Container, hostConfig *runconfig.
 	container.hostConfig = hostConfig
 	container.toDisk()
 	return nil
+}
+
+func (daemon *Daemon) setupInitLayer(initPath string) error {
+	rootUID, rootGID := daemon.GetRemappedUIDGID()
+	return setupInitLayer(initPath, rootUID, rootGID)
 }
 
 func setDefaultMtu(config *Config) {
