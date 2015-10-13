@@ -62,7 +62,7 @@ type CommonContainer struct {
 	Path            string
 	Args            []string
 	Config          *runconfig.Config
-	ImageID         string `json:"Image"`
+	ImageID         string `json:"Image"` // FIXME: change type to ImageID
 	NetworkSettings *network.Settings
 	LogPath         string
 	Name            string
@@ -117,6 +117,13 @@ func (container *Container) toDisk() error {
 
 	pth, err := container.jsonPath()
 	if err != nil {
+		return err
+	}
+
+	// todo: where was this handled before
+	dir := filepath.Dir(pth)
+
+	if err := os.MkdirAll(dir, 0600); err != nil {
 		return err
 	}
 

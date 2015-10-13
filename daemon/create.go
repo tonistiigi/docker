@@ -56,14 +56,14 @@ func (daemon *Daemon) Create(config *runconfig.Config, hostConfig *runconfig.Hos
 	)
 
 	if config.Image != "" {
-		img, err = daemon.repositories.LookupImage(config.Image)
-		if err != nil {
-			return nil, err
-		}
-		if err = daemon.graph.CheckDepth(img); err != nil {
-			return nil, err
-		}
-		imgID = img.ID
+		// img, err = daemon.repositories.LookupImage(config.Image)
+		// if err != nil {
+		// 	return nil, err
+		// }
+		// if err = daemon.graph.CheckDepth(img); err != nil {
+		// 	return nil, err
+		// }
+		imgID = config.Image // FIXME
 	}
 
 	if err := daemon.mergeAndVerifyConfig(config, img); err != nil {
@@ -91,9 +91,6 @@ func (daemon *Daemon) Create(config *runconfig.Config, hostConfig *runconfig.Hos
 	}()
 
 	if err := daemon.Register(container); err != nil {
-		return nil, err
-	}
-	if err := daemon.createRootfs(container); err != nil {
 		return nil, err
 	}
 	if err := daemon.setHostConfig(container, hostConfig); err != nil {

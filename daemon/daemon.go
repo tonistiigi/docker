@@ -32,6 +32,8 @@ import (
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/graph"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/images"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/broadcaster"
 	"github.com/docker/docker/pkg/discovery"
@@ -123,6 +125,8 @@ type Daemon struct {
 	shutdown         bool
 	uidMaps          []idtools.IDMap
 	gidMaps          []idtools.IDMap
+	layerStore       layer.Store
+	imageStore       images.Store
 }
 
 // Get looks for a container using the provided information, which could be
@@ -715,6 +719,21 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 		return nil, err
 	}
 
+	if err := os.MkdirAll(filepath.Join(config.Root, "layers"), 0600); err != nil {
+		return nil, err
+	}
+	fms := layer.NewFileMetadataStore(filepath.Join(config.Root, "layers"))
+
+	d.layerStore, err = layer.NewStore(fms, d.driver)
+	if err != nil {
+		return nil, err
+	}
+
+	d.imageStore, err = images.NewImageStore(config.Root, d.layerStore)
+	if err != nil {
+		return nil, err
+	}
+
 	logrus.Debug("Creating images graph")
 	g, err := graph.NewGraph(filepath.Join(config.Root, "graph"), d.driver, uidMaps, gidMaps)
 	if err != nil {
@@ -916,22 +935,43 @@ func (daemon *Daemon) Shutdown() error {
 // Mount sets container.basefs
 // (is it not set coming in? why is it unset?)
 func (daemon *Daemon) Mount(container *Container) error {
-	dir, err := daemon.driver.Get(container.ID, container.getMountLabel())
+	img, err := daemon.imageStore.Get(images.ID(container.ImageID))
 	if err != nil {
-		return fmt.Errorf("Error getting container %s from driver %s: %s", container.ID, daemon.driver, err)
+		return err
 	}
-
-	if container.basefs != dir {
-		// The mount path reported by the graph driver should always be trusted on Windows, since the
-		// volume path for a given mounted layer may change over time.  This should only be an error
-		// on non-Windows operating systems.
-		if container.basefs != "" && runtime.GOOS != "windows" {
-			daemon.driver.Put(container.ID)
-			return fmt.Errorf("Error: driver %s is returning inconsistent paths for container %s ('%s' then '%s')",
-				daemon.driver, container.ID, container.basefs, dir)
-		}
+	layer, err := img.GetTopLayer()
+	if err != nil {
+		return err
 	}
-	container.basefs = dir
+	rwlayer, err := daemon.layerStore.Mount(container.ID, layer.ID(), "", nil) // FIXME: init
+	if err != nil {
+		return err
+	}
+	_, err = daemon.layerStore.Release(layer)
+	if err != nil {
+		return err
+	}
+	dir, err := rwlayer.Path()
+	if err != nil {
+		return err
+	}
+	logrus.Debugf("container mounted via layerStore: %v", dir)
+	// dir, err := daemon.driver.Get(container.ID, container.getMountLabel())
+	// if err != nil {
+	// 	return fmt.Errorf("Error getting container %s from driver %s: %s", container.ID, daemon.driver, err)
+	// }
+	//
+	// if container.basefs != dir {
+	// 	// The mount path reported by the graph driver should always be trusted on Windows, since the
+	// 	// volume path for a given mounted layer may change over time.  This should only be an error
+	// 	// on non-Windows operating systems.
+	// 	if container.basefs != "" && runtime.GOOS != "windows" {
+	// 		daemon.driver.Put(container.ID)
+	// 		return fmt.Errorf("Error: driver %s is returning inconsistent paths for container %s ('%s' then '%s')",
+	// 			daemon.driver, container.ID, container.basefs, dir)
+	// 	}
+	// }
+	container.basefs = dir // FIXME: store rwlayer so we can access tarstream
 	return nil
 }
 
@@ -976,40 +1016,6 @@ func (daemon *Daemon) changes(container *Container) ([]archive.Change, error) {
 func (daemon *Daemon) diff(container *Container) (archive.Archive, error) {
 	initID := fmt.Sprintf("%s-init", container.ID)
 	return daemon.driver.Diff(container.ID, initID)
-}
-
-func (daemon *Daemon) createRootfs(container *Container) error {
-	// Step 1: create the container directory.
-	// This doubles as a barrier to avoid race conditions.
-	rootUID, rootGID, err := idtools.GetRootUIDGID(daemon.uidMaps, daemon.gidMaps)
-	if err != nil {
-		return err
-	}
-	if err := idtools.MkdirAs(container.root, 0700, rootUID, rootGID); err != nil {
-		return err
-	}
-	initID := fmt.Sprintf("%s-init", container.ID)
-	if err := daemon.driver.Create(initID, container.ImageID); err != nil {
-		return err
-	}
-	initPath, err := daemon.driver.Get(initID, "")
-	if err != nil {
-		return err
-	}
-
-	if err := setupInitLayer(initPath, rootUID, rootGID); err != nil {
-		daemon.driver.Put(initID)
-		return err
-	}
-
-	// We want to unmount init layer before we take snapshot of it
-	// for the actual container.
-	daemon.driver.Put(initID)
-
-	if err := daemon.driver.Create(container.ID, initID); err != nil {
-		return err
-	}
-	return nil
 }
 
 // Graph needs to be removed.
