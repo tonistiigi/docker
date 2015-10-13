@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/registry"
 )
 
@@ -38,39 +38,52 @@ func (s *TagStore) ImageExport(names []string, outStream io.Writer) error {
 		}
 	}
 	for _, name := range names {
-		name = registry.NormalizeLocalName(name)
-		logrus.Debugf("Serializing %s", name)
-		rootRepo := s.Repositories[name]
-		if rootRepo != nil {
-			// this is a base repo name, like 'busybox'
-			for tag, id := range rootRepo {
-				addKey(name, tag, id)
-				if err := s.exportImage(id, tempdir); err != nil {
+		ref, err := reference.Parse(name)
+		if err != nil {
+			return err
+		}
+		named, isNamed := ref.(reference.Named)
+		if !isNamed {
+			return fmt.Errorf("reference %s has no name", ref.String())
+		}
+		tagged, isTagged := ref.(reference.Tagged)
+		named = registry.NormalizeLocalName(named)
+		logrus.Debugf("Serializing %s", ref.String())
+		if !isTagged {
+			rootRepo := s.Repositories[named.Name()]
+			if rootRepo != nil {
+				// this is a base repo name, like 'busybox'
+				for tag, id := range rootRepo {
+					addKey(named.Name(), tag, id)
+					if err := s.exportImage(id, tempdir); err != nil {
+						return err
+					}
+				}
+			} else {
+				// this must be an ID that didn't get looked up just right?
+				if err := s.exportImage(named.Name(), tempdir); err != nil {
 					return err
 				}
 			}
 		} else {
-			img, err := s.LookupImage(name)
+			ref, err = reference.WithTag(named, tagged.Tag())
+			if err != nil {
+				return err
+			}
+			img, err := s.LookupImage(ref.String())
 			if err != nil {
 				return err
 			}
 
 			if img != nil {
-				// This is a named image like 'busybox:latest'
-				repoName, repoTag := parsers.ParseRepositoryTag(name)
-
-				// check this length, because a lookup of a truncated has will not have a tag
-				// and will not need to be added to this map
-				if len(repoTag) > 0 {
-					addKey(repoName, repoTag, img.ID)
-				}
+				addKey(named.Name(), tagged.Tag(), img.ID)
 				if err := s.exportImage(img.ID, tempdir); err != nil {
 					return err
 				}
 
 			} else {
 				// this must be an ID that didn't get looked up just right?
-				if err := s.exportImage(name, tempdir); err != nil {
+				if err := s.exportImage(ref.String(), tempdir); err != nil {
 					return err
 				}
 			}

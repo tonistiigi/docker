@@ -13,9 +13,9 @@ import (
 	"sync"
 
 	"github.com/docker/distribution/digest"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/graph/tags"
 	"github.com/docker/docker/image"
-	"github.com/docker/docker/pkg/broadcaster"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/registry"
@@ -209,7 +209,11 @@ func (store *TagStore) Delete(repoName, ref string) (bool, error) {
 		return false, err
 	}
 
-	repoName = registry.NormalizeLocalName(repoName)
+	named, err := reference.ParseNamed(repoName)
+	if err != nil {
+		return false, err
+	}
+	repoName = registry.NormalizeLocalName(named).Name()
 
 	if ref == "" {
 		// Delete the whole repository.
@@ -269,7 +273,11 @@ func (store *TagStore) setLoad(repoName, tag, imageName string, force bool, out 
 		return err
 	}
 	var repo Repository
-	repoName = registry.NormalizeLocalName(repoName)
+	named, err := reference.ParseNamed(repoName)
+	if err != nil {
+		return err
+	}
+	repoName = registry.NormalizeLocalName(named).Name()
 	if r, exists := store.Repositories[repoName]; exists {
 		repo = r
 		if old, exists := store.Repositories[repoName][tag]; exists {
@@ -313,7 +321,11 @@ func (store *TagStore) SetDigest(repoName, digest, imageName string) error {
 		return err
 	}
 
-	repoName = registry.NormalizeLocalName(repoName)
+	named, err := reference.ParseNamed(repoName)
+	if err != nil {
+		return err
+	}
+	repoName = registry.NormalizeLocalName(named).Name()
 	repoRefs, exists := store.Repositories[repoName]
 	if !exists {
 		repoRefs = Repository{}
@@ -333,7 +345,11 @@ func (store *TagStore) Get(repoName string) (Repository, error) {
 	if err := store.reload(); err != nil {
 		return nil, err
 	}
-	repoName = registry.NormalizeLocalName(repoName)
+	named, err := reference.ParseNamed(repoName)
+	if err != nil {
+		return nil, err
+	}
+	repoName = registry.NormalizeLocalName(named).Name()
 	if r, exists := store.Repositories[repoName]; exists {
 		return r, nil
 	}
