@@ -480,81 +480,52 @@ func (ls *layerStore) retainLayer(layer *cacheLayer) {
 	}
 }
 
-func (ls *layerStore) releaseLayer(layer *cacheLayer) error {
-	var nonRetained bool
-	for l := layer; ; l = l.parent {
-		if l.referenceCount == 0 {
-			nonRetained = true
-		} else {
-			l.referenceCount--
-		}
-		if l.parent == nil {
-			break
-		}
+func (ls *layerStore) deleteLayer(layer *cacheLayer, metadata *Metadata) error {
+	if err := ls.driver.Remove(layer.cacheID); err != nil {
+		return err
 	}
-	if nonRetained {
-		return errors.New("releasing non-retained layer")
+
+	if err := ls.store.Remove(layer.address); err != nil {
+		return err
 	}
+	metadata.DiffID = layer.digest
+	metadata.LayerID = layer.address
+	metadata.Size = layer.size
+
 	return nil
 }
 
-func (ls *layerStore) cleanup() ([]Metadata, error) {
-	// Mark
-	layers := []*cacheLayer{}
-	for id, layer := range ls.layerMap {
-		if layer.referenceCount == 0 {
-			layers = append(layers, layer)
-			delete(ls.layerMap, id)
+func (ls *layerStore) releaseLayers(l *cacheLayer, removed *[]Metadata, depth int) error {
+	if l.referenceCount == 0 {
+		return errors.New("layer not retained")
+	}
+	l.referenceCount--
+	if l.referenceCount == 0 {
+		if len(*removed) == 0 && depth > 0 {
+			return errors.New("cannot remove parent with child")
+		}
+		var metadata Metadata
+		if err := ls.deleteLayer(l, &metadata); err != nil {
+			return err
+		}
+
+		delete(ls.layerMap, l.address)
+		*removed = append(*removed, metadata)
+	}
+
+	if l.parent != nil {
+		if err := ls.releaseLayers(l.parent, removed, depth+1); err != nil {
+			return err
 		}
 	}
 
-	// Order
-	// if is parent, order after, since
-	// loops are not possible due to linking
-	// by content hash, this will always
-	// converge and complete
-	for i := 0; i < len(layers); {
-		layer := layers[i]
-		newPosition := i
-		for j := i + 1; j < len(layers); j++ {
-			if layers[j].parent == layer {
-				newPosition = j
-			}
-		}
-		if newPosition > i {
-			// Shift and continue at same index
-			copy(layers[i:newPosition], layers[i+1:newPosition+1])
-			layers[newPosition] = layer
-		} else {
-			// Properly ordered, move to next
-			i++
-		}
-	}
+	return nil
+}
 
-	// Sweep
-	metadata := make([]Metadata, len(layers))
-	var firstErr error
-	for i, layer := range layers {
-		metadata[i].DiffID = layer.digest
-		metadata[i].LayerID = layer.address
-		metadata[i].Size = layer.size
-		if err := ls.driver.Remove(layer.cacheID); err != nil {
-			logrus.Errorf("Error removing cache layer %s: %s", layer.address, err)
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
-
-		if err := ls.store.Remove(layer.address); err != nil {
-			logrus.Errorf("Error removing layer metadata %s: %s", layer.address, err)
-			if firstErr == nil {
-				firstErr = err
-			}
-		}
-	}
-
-	return metadata, firstErr
+func (ls *layerStore) releaseLayer(layer *cacheLayer) ([]Metadata, error) {
+	removed := []Metadata{}
+	err := ls.releaseLayers(layer, &removed, 0)
+	return removed, err
 }
 
 func (ls *layerStore) Release(l Layer) ([]Metadata, error) {
@@ -565,11 +536,7 @@ func (ls *layerStore) Release(l Layer) ([]Metadata, error) {
 		return []Metadata{}, nil
 	}
 
-	if err := ls.releaseLayer(layer); err != nil {
-		return nil, err
-	}
-
-	return ls.cleanup()
+	return ls.releaseLayer(layer)
 }
 
 func (ls *layerStore) mount(m *mountedLayer, mountLabel string) error {
@@ -771,12 +738,10 @@ func (ls *layerStore) DeleteMount(name string) ([]Metadata, error) {
 	ls.layerL.Lock()
 	defer ls.layerL.Unlock()
 	if m.parent != nil {
-		if err := ls.releaseLayer(m.parent); err != nil {
-			return nil, err
-		}
+		return ls.releaseLayer(m.parent)
 	}
 
-	return ls.cleanup()
+	return []Metadata{}, nil
 }
 
 func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile string) (Layer, error) {
