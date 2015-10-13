@@ -14,14 +14,16 @@ import (
 type Store interface {
 	Create(config []byte) (ID, error)
 	Get(id ID) (*Image, error)
+	Search(string) (ID, error)
 }
 
 type store struct {
 	sync.Mutex
-	ls   layer.Store
-	root string
-	ids  map[ID]layer.Layer
-	fs   StoreBackend
+	ls        layer.Store
+	root      string
+	ids       map[ID]layer.Layer
+	fs        StoreBackend
+	digestSet *digest.Set
 }
 
 const imagesDirName = "images"
@@ -34,10 +36,11 @@ func NewImageStore(root string, ls layer.Store) (Store, error) {
 	}
 
 	is := &store{
-		root: root,
-		ls:   ls,
-		ids:  make(map[ID]layer.Layer),
-		fs:   fs,
+		root:      root,
+		ls:        ls,
+		ids:       make(map[ID]layer.Layer),
+		fs:        fs,
+		digestSet: digest.NewSet(),
 	}
 
 	// load all current images and retain layers
@@ -68,6 +71,10 @@ func (is *store) restore() error {
 			return err
 		}
 		is.ids[ID(id)] = layer
+		if err := is.digestSet.Add(id); err != nil {
+			delete(is.ids, ID(id))
+			return err
+		}
 
 		return nil
 	})
@@ -102,9 +109,23 @@ func (is *store) Create(config []byte) (ID, error) {
 		return "", err
 	}
 
+	is.Lock()
+	defer is.Unlock()
 	is.ids[imageID] = layer
+	if err := is.digestSet.Add(digest.Digest(imageID)); err != nil {
+		delete(is.ids, imageID)
+		return "", err
+	}
 
 	return imageID, nil
+}
+
+func (is *store) Search(term string) (ID, error) {
+	dgst, err := is.digestSet.Lookup(term)
+	if err != nil {
+		return "", err
+	}
+	return ID(dgst), nil
 }
 
 func (is *store) Get(id ID) (*Image, error) {

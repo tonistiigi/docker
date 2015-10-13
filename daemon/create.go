@@ -63,7 +63,11 @@ func (daemon *Daemon) Create(config *runconfig.Config, hostConfig *runconfig.Hos
 		// if err = daemon.graph.CheckDepth(img); err != nil {
 		// 	return nil, err
 		// }
-		imgID = config.Image // FIXME
+		id, err := daemon.imageStore.Search(config.Image)
+		if err != nil {
+			return nil, err
+		}
+		imgID = id.String() // FIXME
 	}
 
 	if err := daemon.mergeAndVerifyConfig(config, img); err != nil {
