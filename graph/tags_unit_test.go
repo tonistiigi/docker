@@ -10,8 +10,8 @@ import (
 
 	"github.com/docker/docker/daemon/graphdriver"
 	_ "github.com/docker/docker/daemon/graphdriver/vfs" // import the vfs driver so it is used in the tests
-	"github.com/docker/docker/graph/tags"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/tag"
 	"github.com/docker/docker/utils"
 )
 
@@ -64,7 +64,7 @@ func mkTestTagStore(root string, t *testing.T) *TagStore {
 	tagCfg := &TagStoreConfig{
 		Graph: graph,
 	}
-	store, err := NewTagStore(path.Join(root, "tags"), tagCfg)
+	store, err := NewTagStore(path.Join(root, "tag"), tagCfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,17 +111,17 @@ func TestLookupImage(t *testing.T) {
 		testOfficialImageName + ":" + testOfficialImageID,
 		testOfficialImageName + ":" + testOfficialImageIDShort,
 		testOfficialImageName,
-		testOfficialImageName + ":" + tags.DefaultTag,
+		testOfficialImageName + ":" + tag.DefaultTag,
 		"docker.io/" + testOfficialImageName,
-		"docker.io/" + testOfficialImageName + ":" + tags.DefaultTag,
+		"docker.io/" + testOfficialImageName + ":" + tag.DefaultTag,
 		"index.docker.io/" + testOfficialImageName,
-		"index.docker.io/" + testOfficialImageName + ":" + tags.DefaultTag,
+		"index.docker.io/" + testOfficialImageName + ":" + tag.DefaultTag,
 		"library/" + testOfficialImageName,
-		"library/" + testOfficialImageName + ":" + tags.DefaultTag,
+		"library/" + testOfficialImageName + ":" + tag.DefaultTag,
 		"docker.io/library/" + testOfficialImageName,
-		"docker.io/library/" + testOfficialImageName + ":" + tags.DefaultTag,
+		"docker.io/library/" + testOfficialImageName + ":" + tag.DefaultTag,
 		"index.docker.io/library/" + testOfficialImageName,
-		"index.docker.io/library/" + testOfficialImageName + ":" + tags.DefaultTag,
+		"index.docker.io/library/" + testOfficialImageName + ":" + tag.DefaultTag,
 	}
 
 	privateLookups := []string{
@@ -130,7 +130,7 @@ func TestLookupImage(t *testing.T) {
 		testPrivateImageName + ":" + testPrivateImageID,
 		testPrivateImageName + ":" + testPrivateImageIDShort,
 		testPrivateImageName,
-		testPrivateImageName + ":" + tags.DefaultTag,
+		testPrivateImageName + ":" + tag.DefaultTag,
 	}
 
 	invalidLookups := []string{

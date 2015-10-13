@@ -6,10 +6,10 @@ import (
 
 	"github.com/docker/docker/api/types"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/graph/tags"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/stringid"
+	tagpkg "github.com/docker/docker/tag"
 	"github.com/docker/docker/utils"
 )
 
@@ -139,7 +139,7 @@ func (daemon *Daemon) getContainerUsingImage(imageID string) *Container {
 func (daemon *Daemon) removeImageRef(repositoryRef string) (string, error) {
 	repository, ref := parsers.ParseRepositoryTag(repositoryRef)
 	if ref == "" {
-		ref = tags.DefaultTag
+		ref = tagpkg.DefaultTag
 	}
 
 	// Ignore the boolean value returned, as far as we're concerned, this

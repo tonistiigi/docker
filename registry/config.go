@@ -311,7 +311,7 @@ func (config *ServiceConfig) NewRepositoryInfo(reposName reference.Named, bySear
 	repoInfo := &RepositoryInfo{}
 
 	var err error
-	repoInfo.RemoteName, err = reference.ParseNamed(remoteName)
+	repoInfo.RemoteName, err = reference.WithName(remoteName)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +328,7 @@ func (config *ServiceConfig) NewRepositoryInfo(reposName reference.Named, bySear
 			normalizedName = strings.SplitN(normalizedName, "/", 2)[1]
 		}
 
-		repoInfo.LocalName, err = reference.ParseNamed(normalizedName)
+		repoInfo.LocalName, err = reference.WithName(normalizedName)
 		if err != nil {
 			return nil, err
 		}
@@ -339,18 +339,18 @@ func (config *ServiceConfig) NewRepositoryInfo(reposName reference.Named, bySear
 		if strings.IndexRune(normalizedName, '/') == -1 {
 			repoInfo.Official = true
 			// Fix up remote name for official repos.
-			repoInfo.RemoteName, err = reference.ParseNamed("library/" + normalizedName)
+			repoInfo.RemoteName, err = reference.WithName("library/" + normalizedName)
 			if err != nil {
 				return nil, err
 			}
 		}
 
-		repoInfo.CanonicalName, err = reference.ParseNamed("docker.io/" + repoInfo.RemoteName.Name())
+		repoInfo.CanonicalName, err = reference.WithName("docker.io/" + repoInfo.RemoteName.Name())
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		repoInfo.LocalName, err = reference.ParseNamed(repoInfo.Index.Name + "/" + repoInfo.RemoteName.Name())
+		repoInfo.LocalName, err = reference.WithName(repoInfo.Index.Name + "/" + repoInfo.RemoteName.Name())
 		if err != nil {
 			return nil, err
 		}

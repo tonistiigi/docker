@@ -38,35 +38,31 @@ func (s *TagStore) ImageExport(names []string, outStream io.Writer) error {
 		}
 	}
 	for _, name := range names {
-		ref, err := reference.Parse(name)
+		ref, err := reference.ParseNamed(name)
 		if err != nil {
 			return err
 		}
-		named, isNamed := ref.(reference.Named)
-		if !isNamed {
-			return fmt.Errorf("reference %s has no name", ref.String())
-		}
 		tagged, isTagged := ref.(reference.Tagged)
-		named = registry.NormalizeLocalName(named)
+		ref = registry.NormalizeLocalName(ref)
 		logrus.Debugf("Serializing %s", ref.String())
 		if !isTagged {
-			rootRepo := s.Repositories[named.Name()]
+			rootRepo := s.Repositories[ref.Name()]
 			if rootRepo != nil {
 				// this is a base repo name, like 'busybox'
 				for tag, id := range rootRepo {
-					addKey(named.Name(), tag, id)
+					addKey(ref.Name(), tag, id)
 					if err := s.exportImage(id, tempdir); err != nil {
 						return err
 					}
 				}
 			} else {
 				// this must be an ID that didn't get looked up just right?
-				if err := s.exportImage(named.Name(), tempdir); err != nil {
+				if err := s.exportImage(ref.Name(), tempdir); err != nil {
 					return err
 				}
 			}
 		} else {
-			ref, err = reference.WithTag(named, tagged.Tag())
+			ref, err = reference.WithTag(ref, tagged.Tag())
 			if err != nil {
 				return err
 			}
@@ -76,7 +72,7 @@ func (s *TagStore) ImageExport(names []string, outStream io.Writer) error {
 			}
 
 			if img != nil {
-				addKey(named.Name(), tagged.Tag(), img.ID)
+				addKey(ref.Name(), tagged.Tag(), img.ID)
 				if err := s.exportImage(img.ID, tempdir); err != nil {
 					return err
 				}

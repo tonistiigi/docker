@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/docker/distribution/reference"
 	Cli "github.com/docker/docker/cli"
 	flag "github.com/docker/docker/pkg/mflag"
 	"github.com/docker/docker/pkg/parsers"
@@ -22,8 +23,13 @@ func (cli *DockerCli) CmdPush(args ...string) error {
 
 	remote, tag := parsers.ParseRepositoryTag(cmd.Arg(0))
 
+	ref, err := reference.ParseNamed(cmd.Arg(0))
+	if err != nil {
+		return err
+	}
+
 	// Resolve the Repository name from fqn to RepositoryInfo
-	repoInfo, err := registry.ParseRepositoryInfo(remote)
+	repoInfo, err := registry.ParseRepositoryInfo(ref)
 	if err != nil {
 		return err
 	}

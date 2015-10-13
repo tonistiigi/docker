@@ -26,9 +26,6 @@ type ImagePushConfig struct {
 	// AuthConfig holds authentication credentials for authenticating with
 	// the registry.
 	AuthConfig *cliconfig.AuthConfig
-	// Reference is the specific variant of the image to be pushed.
-	// If no tag is provided, all tags will be pushed.
-	Reference reference.Reference
 	// OutStream is the output writer for showing the status of the push
 	// operation.
 	OutStream io.Writer
@@ -71,17 +68,18 @@ type Repository map[string]string
 // whether a v1 or v2 pusher will be created. The other parameters are passed
 // through to the underlying pusher implementation for use during the actual
 // push operation.
-func NewPusher(endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo, imagePushConfig *ImagePushConfig, sf *streamformatter.StreamFormatter) (Pusher, error) {
+func NewPusher(ref reference.Named, endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo, imagePushConfig *ImagePushConfig, sf *streamformatter.StreamFormatter) (Pusher, error) {
 	switch endpoint.Version {
 	case registry.APIVersion2:
 		return &v2Pusher{
 			blobSumLookupService:  metadata.NewBlobSumLookupService(imagePushConfig.MetadataStore),
 			blobSumStorageService: metadata.NewBlobSumStorageService(imagePushConfig.MetadataStore),
-			endpoint:              endpoint,
-			repoInfo:              repoInfo,
-			config:                imagePushConfig,
-			sf:                    sf,
-			layersPushed:          make(map[digest.Digest]bool),
+			ref:          ref,
+			endpoint:     endpoint,
+			repoInfo:     repoInfo,
+			config:       imagePushConfig,
+			sf:           sf,
+			layersPushed: make(map[digest.Digest]bool),
 		}, nil
 	case registry.APIVersion1:
 		// FIXME
@@ -89,6 +87,7 @@ func NewPusher(endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo,
 		/*
 			return &v1Pusher{
 				v1IDService: metadata.NewV1IDService(metadataStore),
+				ref: reference,
 				endpoint:    endpoint,
 				repoInfo:    repoInfo,
 				config:      imagePushConfig,
@@ -99,18 +98,15 @@ func NewPusher(endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo,
 }
 
 // Push initiates a push operation on the repository named localName.
-func Push(imagePushConfig *ImagePushConfig) error {
+// ref is the specific variant of the image to be pushed.
+// If no tag is provided, all tags will be pushed.
+func Push(ref reference.Named, imagePushConfig *ImagePushConfig) error {
 	// FIXME: Allow to interrupt current push when new push of same image is done.
 
 	var sf = streamformatter.NewJSONStreamFormatter()
 
-	named, isNamed := imagePushConfig.Reference.(reference.Named)
-	if !isNamed {
-		return fmt.Errorf("Specified reference %s has no name", imagePushConfig.Reference.String())
-	}
-
 	// Resolve the Repository name from fqn to RepositoryInfo
-	repoInfo, err := imagePushConfig.RegistryService.ResolveRepository(named)
+	repoInfo, err := imagePushConfig.RegistryService.ResolveRepository(ref)
 	if err != nil {
 		return err
 	}
@@ -131,7 +127,7 @@ func Push(imagePushConfig *ImagePushConfig) error {
 	for _, endpoint := range endpoints {
 		logrus.Debugf("Trying to push %s to %s %s", repoInfo.CanonicalName, endpoint.URL, endpoint.Version)
 
-		pusher, err := NewPusher(endpoint, repoInfo, imagePushConfig, sf)
+		pusher, err := NewPusher(ref, endpoint, repoInfo, imagePushConfig, sf)
 		if err != nil {
 			lastErr = err
 			continue

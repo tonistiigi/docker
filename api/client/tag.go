@@ -1,11 +1,12 @@
 package client
 
 import (
+	"fmt"
 	"net/url"
 
+	"github.com/docker/distribution/reference"
 	Cli "github.com/docker/docker/cli"
 	flag "github.com/docker/docker/pkg/mflag"
-	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/registry"
 )
 
@@ -19,17 +20,23 @@ func (cli *DockerCli) CmdTag(args ...string) error {
 
 	cmd.ParseFlags(args, true)
 
-	var (
-		repository, tag = parsers.ParseRepositoryTag(cmd.Arg(1))
-		v               = url.Values{}
-	)
-
-	//Check if the given image name can be resolved
-	if err := registry.ValidateRepositoryName(repository); err != nil {
+	v := url.Values{}
+	ref, err := reference.ParseNamed(cmd.Arg(1))
+	if err != nil {
 		return err
 	}
-	v.Set("repo", repository)
-	v.Set("tag", tag)
+
+	tagged, isTagged := ref.(reference.Tagged)
+	if !isTagged {
+		return fmt.Errorf("reference %s has no tag", ref.String())
+	}
+
+	//Check if the given image name can be resolved
+	if err := registry.ValidateRepositoryName(ref); err != nil {
+		return err
+	}
+	v.Set("repo", ref.Name())
+	v.Set("tag", tagged.Tag())
 
 	if *force {
 		v.Set("force", "1")

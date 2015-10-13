@@ -50,7 +50,7 @@ type Puller interface {
 	// Pull tries to pull the image referenced by `tag`
 	// Pull returns an error if any, as well as a boolean that determines whether to retry Pull on the next configured endpoint.
 	//
-	Pull(ref reference.Reference) (fallback bool, err error)
+	Pull(ref reference.Named) (fallback bool, err error)
 }
 
 // NewPuller returns a Puller interface that will pull from either a v1 or v2
@@ -85,16 +85,11 @@ func NewPuller(endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo,
 
 // Pull initiates a pull operation. image is the repository name to pull, and
 // tag may be either empty, or indicate a specific tag to pull.
-func Pull(ref reference.Reference, metadataDir string, imagePullConfig *ImagePullConfig) error {
+func Pull(ref reference.Named, imagePullConfig *ImagePullConfig) error {
 	var sf = streamformatter.NewJSONStreamFormatter()
 
-	named, isNamed := ref.(reference.Named)
-	if !isNamed {
-		return fmt.Errorf("Specified reference %s has no name", ref.String())
-	}
-
 	// Resolve the Repository name from fqn to RepositoryInfo
-	repoInfo, err := imagePullConfig.RegistryService.ResolveRepository(named)
+	repoInfo, err := imagePullConfig.RegistryService.ResolveRepository(ref)
 	if err != nil {
 		return err
 	}
@@ -109,7 +104,7 @@ func Pull(ref reference.Reference, metadataDir string, imagePullConfig *ImagePul
 		return err
 	}
 
-	var logName reference.Reference = repoInfo.LocalName
+	logName := repoInfo.LocalName
 	if tagged, isTagged := ref.(reference.Tagged); isTagged {
 		if logName, err = reference.WithTag(repoInfo.LocalName, tagged.Tag()); err != nil {
 			return err
@@ -160,7 +155,7 @@ func Pull(ref reference.Reference, metadataDir string, imagePullConfig *ImagePul
 	}
 
 	if lastErr == nil {
-		lastErr = fmt.Errorf("no endpoints found for %s", named.Name())
+		lastErr = fmt.Errorf("no endpoints found for %s", ref.Name())
 	}
 	return lastErr
 }

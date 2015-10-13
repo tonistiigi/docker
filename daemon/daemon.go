@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/cliconfig"
@@ -29,6 +30,8 @@ import (
 	_ "github.com/docker/docker/daemon/graphdriver/vfs" // register vfs
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/daemon/network"
+	"github.com/docker/docker/distribution"
+	dmetadata "github.com/docker/docker/distribution/metadata"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/graph"
 	"github.com/docker/docker/image"
@@ -52,10 +55,12 @@ import (
 	"github.com/docker/docker/pkg/truncindex"
 	"github.com/docker/docker/registry"
 	"github.com/docker/docker/runconfig"
+	"github.com/docker/docker/tag"
 	volumedrivers "github.com/docker/docker/volume/drivers"
 	"github.com/docker/docker/volume/local"
 	"github.com/docker/docker/volume/store"
 	"github.com/docker/libnetwork"
+	"github.com/docker/libtrust"
 )
 
 var (
@@ -102,31 +107,35 @@ func (c *contStore) List() []*Container {
 
 // Daemon holds information about the Docker daemon.
 type Daemon struct {
-	ID               string
-	repository       string
-	sysInitPath      string
-	containers       *contStore
-	execCommands     *execStore
-	graph            *graph.Graph
-	repositories     *graph.TagStore
-	idIndex          *truncindex.TruncIndex
-	configStore      *Config
-	containerGraphDB *graphdb.Database
-	driver           graphdriver.Driver
-	execDriver       execdriver.Driver
-	statsCollector   *statsCollector
-	defaultLogConfig runconfig.LogConfig
-	RegistryService  *registry.Service
-	EventsService    *events.Events
-	netController    libnetwork.NetworkController
-	volumes          *store.VolumeStore
-	discoveryWatcher discovery.Watcher
-	root             string
-	shutdown         bool
-	uidMaps          []idtools.IDMap
-	gidMaps          []idtools.IDMap
-	layerStore       layer.Store
-	imageStore       images.Store
+	ID                        string
+	repository                string
+	sysInitPath               string
+	containers                *contStore
+	execCommands              *execStore
+	graph                     *graph.Graph    // FIXME remove
+	repositories              *graph.TagStore // FIXME remove
+	tagStore                  tag.Store
+	distributionPool          *distribution.Pool
+	distributionMetadataStore dmetadata.Store
+	trustKey                  libtrust.PrivateKey
+	idIndex                   *truncindex.TruncIndex
+	configStore               *Config
+	containerGraphDB          *graphdb.Database
+	driver                    graphdriver.Driver
+	execDriver                execdriver.Driver
+	statsCollector            *statsCollector
+	defaultLogConfig          runconfig.LogConfig
+	RegistryService           *registry.Service
+	EventsService             *events.Events
+	netController             libnetwork.NetworkController
+	volumes                   *store.VolumeStore
+	discoveryWatcher          discovery.Watcher
+	root                      string
+	shutdown                  bool
+	uidMaps                   []idtools.IDMap
+	gidMaps                   []idtools.IDMap
+	layerStore                layer.Store
+	imageStore                images.Store
 }
 
 // Get looks for a container using the provided information, which could be
@@ -729,6 +738,8 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 		return nil, err
 	}
 
+	distributionPool := distribution.NewPool()
+
 	d.imageStore, err = images.NewImageStore(config.Root, d.layerStore)
 	if err != nil {
 		return nil, err
@@ -757,15 +768,16 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 		return nil, err
 	}
 
+	distributionMetadataStore := dmetadata.NewFSMetadataStore(filepath.Join(config.Root, "distribution"))
+
 	eventsService := events.New()
 	logrus.Debug("Creating repository list")
-	tagCfg := &graph.TagStoreConfig{
-		Graph:    g,
-		Key:      trustKey,
-		Registry: registryService,
-		Events:   eventsService,
-	}
+	tagCfg := &graph.TagStoreConfig{}
 	repositories, err := graph.NewTagStore(filepath.Join(config.Root, "repositories-"+d.driver.String()), tagCfg)
+	if err != nil {
+		return nil, fmt.Errorf("Couldn't create Tag store repositories-%s: %s", d.driver.String(), err)
+	}
+	tagStore, err := tag.NewTagStore(filepath.Join(config.Root, "repositories-"+d.driver.String()))
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't create Tag store repositories-%s: %s", d.driver.String(), err)
 	}
@@ -824,6 +836,10 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 	d.repository = daemonRepo
 	d.containers = &contStore{s: make(map[string]*Container)}
 	d.execCommands = newExecStore()
+	d.tagStore = tagStore
+	d.distributionPool = distributionPool
+	d.distributionMetadataStore = distributionMetadataStore
+	d.trustKey = trustKey
 	d.graph = g
 	d.repositories = repositories
 	d.idIndex = truncindex.NewTruncIndex([]string{})
@@ -1028,14 +1044,27 @@ func (daemon *Daemon) Graph() *graph.Graph {
 // TagImage creates a tag in the repository reponame, pointing to the image named
 // imageName. If force is true, an existing tag with the same name may be
 // overwritten.
-func (daemon *Daemon) TagImage(repoName, tag, imageName string, force bool) error {
-	return daemon.repositories.Tag(repoName, tag, imageName, force)
+func (daemon *Daemon) TagImage(ref reference.NamedTagged, imageName string, force bool) error {
+	return daemon.repositories.Tag(ref.Name(), ref.Tag(), imageName, force)
 }
 
 // PullImage initiates a pull operation. image is the repository name to pull, and
 // tag may be either empty, or indicate a specific tag to pull.
-func (daemon *Daemon) PullImage(image string, tag string, imagePullConfig *graph.ImagePullConfig) error {
-	return daemon.repositories.Pull(image, tag, imagePullConfig)
+func (daemon *Daemon) PullImage(ref reference.Named, metaHeaders map[string][]string, authConfig *cliconfig.AuthConfig, outStream io.Writer) error {
+	imagePullConfig := &distribution.ImagePullConfig{
+		MetaHeaders:     metaHeaders,
+		AuthConfig:      authConfig,
+		OutStream:       outStream,
+		RegistryService: daemon.RegistryService,
+		EventsService:   daemon.EventsService,
+		MetadataStore:   daemon.distributionMetadataStore,
+		LayerStore:      daemon.layerStore,
+		ImageStore:      daemon.imageStore,
+		TagStore:        daemon.tagStore,
+		Pool:            daemon.distributionPool,
+	}
+
+	return distribution.Pull(ref, imagePullConfig)
 }
 
 // ImportImage imports an image, getting the archived layer data either from
@@ -1056,8 +1085,22 @@ func (daemon *Daemon) ExportImage(names []string, outStream io.Writer) error {
 }
 
 // PushImage initiates a push operation on the repository named localName.
-func (daemon *Daemon) PushImage(localName string, imagePushConfig *graph.ImagePushConfig) error {
-	return daemon.repositories.Push(localName, imagePushConfig)
+func (daemon *Daemon) PushImage(ref reference.Named, metaHeaders map[string][]string, authConfig *cliconfig.AuthConfig, outStream io.Writer) error {
+	imagePushConfig := &distribution.ImagePushConfig{
+		MetaHeaders:     metaHeaders,
+		AuthConfig:      authConfig,
+		OutStream:       outStream,
+		RegistryService: daemon.RegistryService,
+		EventsService:   daemon.EventsService,
+		MetadataStore:   daemon.distributionMetadataStore,
+		LayerStore:      daemon.layerStore,
+		ImageStore:      daemon.imageStore,
+		TagStore:        daemon.tagStore,
+		Pool:            daemon.distributionPool,
+		TrustKey:        daemon.trustKey,
+	}
+
+	return distribution.Push(ref, imagePushConfig)
 }
 
 // LookupImage looks up an image by name and returns it as an ImageInspect

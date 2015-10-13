@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/images"
 )
@@ -47,7 +46,7 @@ func TestLoad(t *testing.T) {
 	}
 
 	for refStr, expectedID := range saveLoadTestCases {
-		ref, err := reference.Parse(refStr)
+		ref, err := reference.ParseNamed(refStr)
 		if err != nil {
 			t.Fatalf("failed to parse reference: %v", err)
 		}
@@ -76,7 +75,7 @@ func TestSave(t *testing.T) {
 	}
 
 	for refStr, id := range saveLoadTestCases {
-		ref, err := reference.Parse(refStr)
+		ref, err := reference.ParseNamed(refStr)
 		if err != nil {
 			t.Fatalf("failed to parse reference: %v", err)
 		}
@@ -126,13 +125,8 @@ func TestAddDeleteGet(t *testing.T) {
 	testImageID2 := images.ID("sha256:9655aef5fd742a1b4e1b7b163aa9f1c76c186304bf39102283d80927c916ca9d")
 	testImageID3 := images.ID("sha256:9655aef5fd742a1b4e1b7b163aa9f1c76c186304bf39102283d80927c916ca9e")
 
-	// Try adding a reference that doesn't include a name
-	if err = store.Add(digest.Digest(""), testImageID1, false); err != ErrNoName {
-		t.Fatalf("expected ErrNoName, got %v", err)
-	}
-
 	// Try adding a reference with no tag or digest
-	nameOnly, err := reference.ParseNamed("username/repo")
+	nameOnly, err := reference.WithName("username/repo")
 	if err != nil {
 		t.Fatalf("could not parse reference: %v", err)
 	}
@@ -141,7 +135,7 @@ func TestAddDeleteGet(t *testing.T) {
 	}
 
 	// Add a few references
-	ref1, err := reference.Parse("username/repo1:latest")
+	ref1, err := reference.ParseNamed("username/repo1:latest")
 	if err != nil {
 		t.Fatalf("could not parse reference: %v", err)
 	}
@@ -149,7 +143,7 @@ func TestAddDeleteGet(t *testing.T) {
 		t.Fatalf("error adding to store: %v", err)
 	}
 
-	ref2, err := reference.Parse("username/repo1:old")
+	ref2, err := reference.ParseNamed("username/repo1:old")
 	if err != nil {
 		t.Fatalf("could not parse reference: %v", err)
 	}
@@ -157,7 +151,7 @@ func TestAddDeleteGet(t *testing.T) {
 		t.Fatalf("error adding to store: %v", err)
 	}
 
-	ref3, err := reference.Parse("username/repo1:alias")
+	ref3, err := reference.ParseNamed("username/repo1:alias")
 	if err != nil {
 		t.Fatalf("could not parse reference: %v", err)
 	}
@@ -165,7 +159,7 @@ func TestAddDeleteGet(t *testing.T) {
 		t.Fatalf("error adding to store: %v", err)
 	}
 
-	ref4, err := reference.Parse("username/repo2:latest")
+	ref4, err := reference.ParseNamed("username/repo2:latest")
 	if err != nil {
 		t.Fatalf("could not parse reference: %v", err)
 	}
@@ -173,7 +167,7 @@ func TestAddDeleteGet(t *testing.T) {
 		t.Fatalf("error adding to store: %v", err)
 	}
 
-	ref5, err := reference.Parse("username/repo3@sha256:58153dfb11794fad694460162bf0cb0a4fa710cfa3f60979c177d920813e267c")
+	ref5, err := reference.ParseNamed("username/repo3@sha256:58153dfb11794fad694460162bf0cb0a4fa710cfa3f60979c177d920813e267c")
 	if err != nil {
 		t.Fatalf("could not parse reference: %v", err)
 	}
@@ -231,13 +225,8 @@ func TestAddDeleteGet(t *testing.T) {
 		t.Fatalf("id mismatch: got %s instead of %s", id.String(), testImageID3.String())
 	}
 
-	// Get should fail on a reference without a name
-	if _, err = store.Get(digest.Digest(ref1.String())); err != ErrNoName {
-		t.Fatal("expected ErrNoName from Get")
-	}
-
 	// Get should return ErrDoesNotExist for a nonexistent repo
-	nonExistRepo, err := reference.Parse("username/nonexistrepo:latest")
+	nonExistRepo, err := reference.ParseNamed("username/nonexistrepo:latest")
 	if err != nil {
 		t.Fatalf("could not parse reference: %v", err)
 	}
@@ -246,7 +235,7 @@ func TestAddDeleteGet(t *testing.T) {
 	}
 
 	// Get should return ErrDoesNotExist for a nonexistent tag
-	nonExistTag, err := reference.Parse("username/repo1:nonexist")
+	nonExistTag, err := reference.ParseNamed("username/repo1:nonexist")
 	if err != nil {
 		t.Fatalf("could not parse reference: %v", err)
 	}
@@ -268,7 +257,7 @@ func TestAddDeleteGet(t *testing.T) {
 	}
 
 	// Check ReferencesByName
-	repoName, err := reference.ParseNamed("username/repo1")
+	repoName, err := reference.WithName("username/repo1")
 	if err != nil {
 		t.Fatalf("could not parse reference: %v", err)
 	}

@@ -6,11 +6,11 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/graph/tags"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/runconfig"
+	tagpkg "github.com/docker/docker/tag"
 	"github.com/docker/docker/volume"
 	"github.com/opencontainers/runc/libcontainer/label"
 )
@@ -36,7 +36,7 @@ func (daemon *Daemon) ContainerCreate(name string, config *runconfig.Config, hos
 			}
 			img, tag := parsers.ParseRepositoryTag(config.Image)
 			if tag == "" {
-				tag = tags.DefaultTag
+				tag = tagpkg.DefaultTag
 			}
 			return types.ContainerCreateResponse{"", warnings}, derr.ErrorCodeNoSuchImageTag.WithArgs(img, tag)
 		}

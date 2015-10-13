@@ -36,7 +36,7 @@ type v2Puller struct {
 	sessionID             string
 }
 
-func (p *v2Puller) Pull(ref reference.Reference) (fallback bool, err error) {
+func (p *v2Puller) Pull(ref reference.Named) (fallback bool, err error) {
 	// TODO(tiborvass): was ReceiveTimeout
 	p.repo, err = NewV2Repository(p.repoInfo, p.endpoint, p.config.MetaHeaders, p.config.AuthConfig, "pull")
 	if err != nil {
@@ -56,10 +56,10 @@ func (p *v2Puller) Pull(ref reference.Reference) (fallback bool, err error) {
 	return false, nil
 }
 
-func (p *v2Puller) pullV2Repository(ref reference.Reference) (err error) {
-	var refs []reference.Reference
+func (p *v2Puller) pullV2Repository(ref reference.Named) (err error) {
+	var refs []reference.Named
 	if _, isTagged := ref.(reference.Tagged); isTagged {
-		refs = []reference.Reference{ref}
+		refs = []reference.Named{ref}
 	} else {
 		var err error
 
@@ -187,7 +187,7 @@ func (p *v2Puller) download(di *downloadInfo) {
 	di.err <- nil
 }
 
-func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Reference) (tagUpdated bool, err error) {
+func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated bool, err error) {
 	tagged, isTagged := ref.(reference.Tagged)
 	if !isTagged {
 		return false, fmt.Errorf("reference %s has no tag", ref.String())

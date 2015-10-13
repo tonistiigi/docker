@@ -9,16 +9,15 @@ import (
 	"strings"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/cliconfig"
 	"github.com/docker/docker/daemon"
-	"github.com/docker/docker/graph"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/httputils"
 	"github.com/docker/docker/pkg/ioutils"
-	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/progressreader"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/pkg/urlutil"
@@ -44,15 +43,24 @@ func (d Docker) LookupImage(name string) (*image.Image, error) {
 
 // Pull tells Docker to pull image referenced by `name`.
 func (d Docker) Pull(name string) (*image.Image, error) {
-	remote, tag := parsers.ParseRepositoryTag(name)
-	if tag == "" {
-		tag = "latest"
+	ref, err := reference.ParseNamed(name)
+	if err != nil {
+		return nil, err
+	}
+	switch ref.(type) {
+	case reference.Tagged:
+	case reference.Digested:
+	default:
+		ref, err = reference.WithTag(ref, "latest")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	pullRegistryAuth := &cliconfig.AuthConfig{}
 	if len(d.AuthConfigs) > 0 {
 		// The request came with a full auth config file, we prefer to use that
-		repoInfo, err := d.Daemon.RegistryService.ResolveRepository(remote)
+		repoInfo, err := d.Daemon.RegistryService.ResolveRepository(ref)
 		if err != nil {
 			return nil, err
 		}
@@ -64,12 +72,7 @@ func (d Docker) Pull(name string) (*image.Image, error) {
 		pullRegistryAuth = &resolvedConfig
 	}
 
-	imagePullConfig := &graph.ImagePullConfig{
-		AuthConfig: pullRegistryAuth,
-		OutStream:  ioutils.NopWriteCloser(d.OutOld),
-	}
-
-	if err := d.Daemon.PullImage(remote, tag, imagePullConfig); err != nil {
+	if err := d.Daemon.PullImage(ref, nil, pullRegistryAuth, ioutils.NopWriteCloser(d.OutOld)); err != nil {
 		return nil, err
 	}
 

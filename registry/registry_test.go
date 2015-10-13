@@ -316,7 +316,7 @@ func TestValidateRepositoryName(t *testing.T) {
 	}
 
 	for _, name := range invalidRepoNames {
-		named, err := reference.ParseNamed(name)
+		named, err := reference.WithName(name)
 		if err == nil {
 			err := ValidateRepositoryName(named)
 			assertNotEqual(t, err, nil, "Expected invalid repo name: "+name)
@@ -324,7 +324,7 @@ func TestValidateRepositoryName(t *testing.T) {
 	}
 
 	for _, name := range validRepoNames {
-		named, err := reference.ParseNamed(name)
+		named, err := reference.WithName(name)
 		if err != nil {
 			t.Fatalf("could not parse valid name: %s", name)
 		}
@@ -334,8 +334,8 @@ func TestValidateRepositoryName(t *testing.T) {
 }
 
 func TestParseRepositoryInfo(t *testing.T) {
-	parseNamed := func(name string) reference.Named {
-		named, err := reference.ParseNamed(name)
+	withName := func(name string) reference.Named {
+		named, err := reference.WithName(name)
 		if err != nil {
 			t.Fatal("could not parse reference %s", name)
 		}
@@ -348,9 +348,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     IndexName,
 				Official: true,
 			},
-			RemoteName:    parseNamed("fooo/bar"),
-			LocalName:     parseNamed("fooo/bar"),
-			CanonicalName: parseNamed("docker.io/fooo/bar"),
+			RemoteName:    withName("fooo/bar"),
+			LocalName:     withName("fooo/bar"),
+			CanonicalName: withName("docker.io/fooo/bar"),
 			Official:      false,
 		},
 		"library/ubuntu": {
@@ -358,9 +358,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     IndexName,
 				Official: true,
 			},
-			RemoteName:    parseNamed("library/ubuntu"),
-			LocalName:     parseNamed("ubuntu"),
-			CanonicalName: parseNamed("docker.io/library/ubuntu"),
+			RemoteName:    withName("library/ubuntu"),
+			LocalName:     withName("ubuntu"),
+			CanonicalName: withName("docker.io/library/ubuntu"),
 			Official:      true,
 		},
 		"nonlibrary/ubuntu": {
@@ -368,9 +368,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     IndexName,
 				Official: true,
 			},
-			RemoteName:    parseNamed("nonlibrary/ubuntu"),
-			LocalName:     parseNamed("nonlibrary/ubuntu"),
-			CanonicalName: parseNamed("docker.io/nonlibrary/ubuntu"),
+			RemoteName:    withName("nonlibrary/ubuntu"),
+			LocalName:     withName("nonlibrary/ubuntu"),
+			CanonicalName: withName("docker.io/nonlibrary/ubuntu"),
 			Official:      false,
 		},
 		"ubuntu": {
@@ -378,9 +378,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     IndexName,
 				Official: true,
 			},
-			RemoteName:    parseNamed("library/ubuntu"),
-			LocalName:     parseNamed("ubuntu"),
-			CanonicalName: parseNamed("docker.io/library/ubuntu"),
+			RemoteName:    withName("library/ubuntu"),
+			LocalName:     withName("ubuntu"),
+			CanonicalName: withName("docker.io/library/ubuntu"),
 			Official:      true,
 		},
 		"other/library": {
@@ -388,9 +388,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     IndexName,
 				Official: true,
 			},
-			RemoteName:    parseNamed("other/library"),
-			LocalName:     parseNamed("other/library"),
-			CanonicalName: parseNamed("docker.io/other/library"),
+			RemoteName:    withName("other/library"),
+			LocalName:     withName("other/library"),
+			CanonicalName: withName("docker.io/other/library"),
 			Official:      false,
 		},
 		"127.0.0.1:8000/private/moonbase": {
@@ -398,9 +398,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     "127.0.0.1:8000",
 				Official: false,
 			},
-			RemoteName:    parseNamed("private/moonbase"),
-			LocalName:     parseNamed("127.0.0.1:8000/private/moonbase"),
-			CanonicalName: parseNamed("127.0.0.1:8000/private/moonbase"),
+			RemoteName:    withName("private/moonbase"),
+			LocalName:     withName("127.0.0.1:8000/private/moonbase"),
+			CanonicalName: withName("127.0.0.1:8000/private/moonbase"),
 			Official:      false,
 		},
 		"127.0.0.1:8000/privatebase": {
@@ -408,9 +408,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     "127.0.0.1:8000",
 				Official: false,
 			},
-			RemoteName:    parseNamed("privatebase"),
-			LocalName:     parseNamed("127.0.0.1:8000/privatebase"),
-			CanonicalName: parseNamed("127.0.0.1:8000/privatebase"),
+			RemoteName:    withName("privatebase"),
+			LocalName:     withName("127.0.0.1:8000/privatebase"),
+			CanonicalName: withName("127.0.0.1:8000/privatebase"),
 			Official:      false,
 		},
 		"localhost:8000/private/moonbase": {
@@ -418,9 +418,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     "localhost:8000",
 				Official: false,
 			},
-			RemoteName:    parseNamed("private/moonbase"),
-			LocalName:     parseNamed("localhost:8000/private/moonbase"),
-			CanonicalName: parseNamed("localhost:8000/private/moonbase"),
+			RemoteName:    withName("private/moonbase"),
+			LocalName:     withName("localhost:8000/private/moonbase"),
+			CanonicalName: withName("localhost:8000/private/moonbase"),
 			Official:      false,
 		},
 		"localhost:8000/privatebase": {
@@ -428,9 +428,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     "localhost:8000",
 				Official: false,
 			},
-			RemoteName:    parseNamed("privatebase"),
-			LocalName:     parseNamed("localhost:8000/privatebase"),
-			CanonicalName: parseNamed("localhost:8000/privatebase"),
+			RemoteName:    withName("privatebase"),
+			LocalName:     withName("localhost:8000/privatebase"),
+			CanonicalName: withName("localhost:8000/privatebase"),
 			Official:      false,
 		},
 		"example.com/private/moonbase": {
@@ -438,9 +438,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     "example.com",
 				Official: false,
 			},
-			RemoteName:    parseNamed("private/moonbase"),
-			LocalName:     parseNamed("example.com/private/moonbase"),
-			CanonicalName: parseNamed("example.com/private/moonbase"),
+			RemoteName:    withName("private/moonbase"),
+			LocalName:     withName("example.com/private/moonbase"),
+			CanonicalName: withName("example.com/private/moonbase"),
 			Official:      false,
 		},
 		"example.com/privatebase": {
@@ -448,9 +448,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     "example.com",
 				Official: false,
 			},
-			RemoteName:    parseNamed("privatebase"),
-			LocalName:     parseNamed("example.com/privatebase"),
-			CanonicalName: parseNamed("example.com/privatebase"),
+			RemoteName:    withName("privatebase"),
+			LocalName:     withName("example.com/privatebase"),
+			CanonicalName: withName("example.com/privatebase"),
 			Official:      false,
 		},
 		"example.com:8000/private/moonbase": {
@@ -458,9 +458,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     "example.com:8000",
 				Official: false,
 			},
-			RemoteName:    parseNamed("private/moonbase"),
-			LocalName:     parseNamed("example.com:8000/private/moonbase"),
-			CanonicalName: parseNamed("example.com:8000/private/moonbase"),
+			RemoteName:    withName("private/moonbase"),
+			LocalName:     withName("example.com:8000/private/moonbase"),
+			CanonicalName: withName("example.com:8000/private/moonbase"),
 			Official:      false,
 		},
 		"example.com:8000/privatebase": {
@@ -468,9 +468,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     "example.com:8000",
 				Official: false,
 			},
-			RemoteName:    parseNamed("privatebase"),
-			LocalName:     parseNamed("example.com:8000/privatebase"),
-			CanonicalName: parseNamed("example.com:8000/privatebase"),
+			RemoteName:    withName("privatebase"),
+			LocalName:     withName("example.com:8000/privatebase"),
+			CanonicalName: withName("example.com:8000/privatebase"),
 			Official:      false,
 		},
 		"localhost/private/moonbase": {
@@ -478,9 +478,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     "localhost",
 				Official: false,
 			},
-			RemoteName:    parseNamed("private/moonbase"),
-			LocalName:     parseNamed("localhost/private/moonbase"),
-			CanonicalName: parseNamed("localhost/private/moonbase"),
+			RemoteName:    withName("private/moonbase"),
+			LocalName:     withName("localhost/private/moonbase"),
+			CanonicalName: withName("localhost/private/moonbase"),
 			Official:      false,
 		},
 		"localhost/privatebase": {
@@ -488,9 +488,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     "localhost",
 				Official: false,
 			},
-			RemoteName:    parseNamed("privatebase"),
-			LocalName:     parseNamed("localhost/privatebase"),
-			CanonicalName: parseNamed("localhost/privatebase"),
+			RemoteName:    withName("privatebase"),
+			LocalName:     withName("localhost/privatebase"),
+			CanonicalName: withName("localhost/privatebase"),
 			Official:      false,
 		},
 		IndexName + "/public/moonbase": {
@@ -498,9 +498,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     IndexName,
 				Official: true,
 			},
-			RemoteName:    parseNamed("public/moonbase"),
-			LocalName:     parseNamed("public/moonbase"),
-			CanonicalName: parseNamed("docker.io/public/moonbase"),
+			RemoteName:    withName("public/moonbase"),
+			LocalName:     withName("public/moonbase"),
+			CanonicalName: withName("docker.io/public/moonbase"),
 			Official:      false,
 		},
 		"index." + IndexName + "/public/moonbase": {
@@ -508,9 +508,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     IndexName,
 				Official: true,
 			},
-			RemoteName:    parseNamed("public/moonbase"),
-			LocalName:     parseNamed("public/moonbase"),
-			CanonicalName: parseNamed("docker.io/public/moonbase"),
+			RemoteName:    withName("public/moonbase"),
+			LocalName:     withName("public/moonbase"),
+			CanonicalName: withName("docker.io/public/moonbase"),
 			Official:      false,
 		},
 		"ubuntu-12.04-base": {
@@ -518,9 +518,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     IndexName,
 				Official: true,
 			},
-			RemoteName:    parseNamed("library/ubuntu-12.04-base"),
-			LocalName:     parseNamed("ubuntu-12.04-base"),
-			CanonicalName: parseNamed("docker.io/library/ubuntu-12.04-base"),
+			RemoteName:    withName("library/ubuntu-12.04-base"),
+			LocalName:     withName("ubuntu-12.04-base"),
+			CanonicalName: withName("docker.io/library/ubuntu-12.04-base"),
 			Official:      true,
 		},
 		IndexName + "/ubuntu-12.04-base": {
@@ -528,9 +528,9 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     IndexName,
 				Official: true,
 			},
-			RemoteName:    parseNamed("library/ubuntu-12.04-base"),
-			LocalName:     parseNamed("ubuntu-12.04-base"),
-			CanonicalName: parseNamed("docker.io/library/ubuntu-12.04-base"),
+			RemoteName:    withName("library/ubuntu-12.04-base"),
+			LocalName:     withName("ubuntu-12.04-base"),
+			CanonicalName: withName("docker.io/library/ubuntu-12.04-base"),
 			Official:      true,
 		},
 		"index." + IndexName + "/ubuntu-12.04-base": {
@@ -538,15 +538,15 @@ func TestParseRepositoryInfo(t *testing.T) {
 				Name:     IndexName,
 				Official: true,
 			},
-			RemoteName:    parseNamed("library/ubuntu-12.04-base"),
-			LocalName:     parseNamed("ubuntu-12.04-base"),
-			CanonicalName: parseNamed("docker.io/library/ubuntu-12.04-base"),
+			RemoteName:    withName("library/ubuntu-12.04-base"),
+			LocalName:     withName("ubuntu-12.04-base"),
+			CanonicalName: withName("docker.io/library/ubuntu-12.04-base"),
 			Official:      true,
 		},
 	}
 
 	for reposName, expectedRepoInfo := range expectedRepoInfos {
-		named, err := reference.ParseNamed(reposName)
+		named, err := reference.WithName(reposName)
 		if err != nil {
 			t.Error(err)
 		}
@@ -706,7 +706,7 @@ func TestMirrorEndpointLookup(t *testing.T) {
 	}
 	s := Service{Config: makeServiceConfig([]string{"my.mirror"}, nil)}
 
-	imageName, err := reference.ParseNamed(IndexName + "/test/image")
+	imageName, err := reference.WithName(IndexName + "/test/image")
 	if err != nil {
 		t.Error(err)
 	}

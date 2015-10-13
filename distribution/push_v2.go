@@ -25,6 +25,7 @@ import (
 type v2Pusher struct {
 	blobSumLookupService  *metadata.BlobSumLookupService
 	blobSumStorageService *metadata.BlobSumStorageService
+	ref                   reference.Named
 	endpoint              registry.APIEndpoint
 	repoInfo              *registry.RepositoryInfo
 	config                *ImagePushConfig
@@ -38,10 +39,6 @@ type v2Pusher struct {
 }
 
 func (p *v2Pusher) Push() (fallback bool, err error) {
-	named, isNamed := p.config.Reference.(reference.Named)
-	if !isNamed {
-		return false, fmt.Errorf("reference %s has no name", p.config.Reference.String())
-	}
 	p.repo, err = NewV2Repository(p.repoInfo, p.endpoint, p.config.MetaHeaders, p.config.AuthConfig, "push", "pull")
 	if err != nil {
 		logrus.Debugf("Error getting v2 registry: %v", err)
@@ -55,21 +52,21 @@ func (p *v2Pusher) Push() (fallback bool, err error) {
 	defer p.config.Pool.remove("push", localName)
 
 	var associations []tag.Association
-	if _, isTagged := p.config.Reference.(reference.Tagged); isTagged {
-		imageID, err := p.config.TagStore.Get(p.config.Reference)
+	if _, isTagged := p.ref.(reference.Tagged); isTagged {
+		imageID, err := p.config.TagStore.Get(p.ref)
 		if err != nil {
-			return false, fmt.Errorf("tag does not exist: %s", p.config.Reference.String())
+			return false, fmt.Errorf("tag does not exist: %s", p.ref.String())
 		}
 
 		associations = []tag.Association{
 			tag.Association{
-				Ref:     p.config.Reference,
+				Ref:     p.ref,
 				ImageID: imageID,
 			},
 		}
 	} else {
 		// Pull all tags
-		associations = p.config.TagStore.ReferencesByName(named)
+		associations = p.config.TagStore.ReferencesByName(p.ref)
 	}
 	if err != nil {
 		return false, fmt.Errorf("error getting tags for %s: %s", localName, err)

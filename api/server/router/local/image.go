@@ -10,14 +10,14 @@ import (
 	"strings"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/digest"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/server/httputils"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile"
 	"github.com/docker/docker/cliconfig"
 	"github.com/docker/docker/daemon/daemonbuilder"
-	"github.com/docker/docker/graph"
-	"github.com/docker/docker/graph/tags"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/ioutils"
@@ -109,8 +109,21 @@ func (s *router) postImagesCreate(ctx context.Context, w http.ResponseWriter, r 
 	w.Header().Set("Content-Type", "application/json")
 
 	if image != "" { //pull
-		if tag == "" {
-			image, tag = parsers.ParseRepositoryTag(image)
+		ref, err := reference.ParseNamed(image)
+		if err != nil {
+			return err
+		}
+		if tag != "" {
+			// The "tag" could actually be a digest.
+			dgst, err := digest.ParseDigest(tag)
+			if err == nil {
+				ref, err = reference.WithDigest(ref, dgst)
+			} else {
+				ref, err = reference.WithTag(ref, tag)
+			}
+			if err != nil {
+				return err
+			}
 		}
 		metaHeaders := map[string][]string{}
 		for k, v := range r.Header {
@@ -119,13 +132,7 @@ func (s *router) postImagesCreate(ctx context.Context, w http.ResponseWriter, r 
 			}
 		}
 
-		imagePullConfig := &graph.ImagePullConfig{
-			MetaHeaders: metaHeaders,
-			AuthConfig:  authConfig,
-			OutStream:   output,
-		}
-
-		err = s.daemon.PullImage(image, tag, imagePullConfig)
+		err = s.daemon.PullImage(ref, metaHeaders, authConfig, output)
 	} else { //import
 		if tag == "" {
 			repo, tag = parsers.ParseRepositoryTag(repo)
@@ -186,18 +193,24 @@ func (s *router) postImagesPush(ctx context.Context, w http.ResponseWriter, r *h
 		}
 	}
 
-	name := vars["name"]
-	output := ioutils.NewWriteFlusher(w)
-	imagePushConfig := &graph.ImagePushConfig{
-		MetaHeaders: metaHeaders,
-		AuthConfig:  authConfig,
-		Tag:         r.Form.Get("tag"),
-		OutStream:   output,
+	ref, err := reference.ParseNamed(vars["name"])
+	if err != nil {
+		return err
 	}
+	tag := r.Form.Get("tag")
+	if tag != "" {
+		// Push by digest is not supported, so only tags are supported.
+		ref, err = reference.WithTag(ref, tag)
+		if err != nil {
+			return err
+		}
+	}
+
+	output := ioutils.NewWriteFlusher(w)
 
 	w.Header().Set("Content-Type", "application/json")
 
-	if err := s.daemon.PushImage(name, imagePushConfig); err != nil {
+	if err := s.daemon.PushImage(ref, metaHeaders, authConfig, output); err != nil {
 		if !output.Flushed() {
 			return err
 		}
@@ -322,13 +335,13 @@ func (s *router) postBuild(ctx context.Context, w http.ResponseWriter, r *http.R
 		buildConfig.Pull = true
 	}
 
-	repoName, tag := parsers.ParseRepositoryTag(r.FormValue("t"))
-	if repoName != "" {
-		if err := registry.ValidateRepositoryName(repoName); err != nil {
-			return errf(err)
-		}
-		if len(tag) > 0 {
-			if err := tags.ValidateTagName(tag); err != nil {
+	isNamedTagged := false
+	var namedTagged reference.NamedTagged
+	ref, err := reference.ParseNamed(r.FormValue("t"))
+	if err == nil {
+		namedTagged, isNamedTagged = ref.(reference.NamedTagged)
+		if isNamedTagged {
+			if err := registry.ValidateRepositoryName(namedTagged); err != nil {
 				return errf(err)
 			}
 		}
@@ -383,7 +396,6 @@ func (s *router) postBuild(ctx context.Context, w http.ResponseWriter, r *http.R
 	var (
 		context        builder.ModifiableContext
 		dockerfileName string
-		err            error
 	)
 	context, dockerfileName, err = daemonbuilder.DetectContextFromRemoteURL(r.Body, remoteURL, pReader)
 	if err != nil {
@@ -432,8 +444,8 @@ func (s *router) postBuild(ctx context.Context, w http.ResponseWriter, r *http.R
 		return errf(err)
 	}
 
-	if repoName != "" {
-		if err := s.daemon.TagImage(repoName, tag, string(imgID), true); err != nil {
+	if isNamedTagged {
+		if err := s.daemon.TagImage(namedTagged, string(imgID), true); err != nil {
 			return errf(err)
 		}
 	}
@@ -480,8 +492,16 @@ func (s *router) postImagesTag(ctx context.Context, w http.ResponseWriter, r *ht
 	repo := r.Form.Get("repo")
 	tag := r.Form.Get("tag")
 	name := vars["name"]
+	named, err := reference.WithName(name)
+	if err != nil {
+		return err
+	}
+	ref, err := reference.WithTag(named, tag)
+	if err != nil {
+		return err
+	}
 	force := httputils.BoolValue(r, "force")
-	if err := s.daemon.TagImage(repo, tag, name, force); err != nil {
+	if err := s.daemon.TagImage(ref, name, force); err != nil {
 		return err
 	}
 	s.daemon.EventsService.Log("tag", utils.ImageReference(repo, tag), "")

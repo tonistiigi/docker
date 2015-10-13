@@ -55,7 +55,7 @@ func (s *Service) Auth(authConfig *cliconfig.AuthConfig) (string, error) {
 // Search queries the public registry for images matching the specified
 // search terms, and returns the results.
 func (s *Service) Search(term string, authConfig *cliconfig.AuthConfig, headers map[string][]string) (*SearchResults, error) {
-	termNamed, err := reference.ParseNamed(term)
+	termNamed, err := reference.WithName(term)
 	if err != nil {
 		return nil, err
 	}

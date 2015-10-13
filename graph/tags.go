@@ -14,11 +14,11 @@ import (
 
 	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/reference"
-	"github.com/docker/docker/graph/tags"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/registry"
+	tagpkg "github.com/docker/docker/tag"
 	"github.com/docker/docker/utils"
 )
 
@@ -117,7 +117,7 @@ func (store *TagStore) LookupImage(name string) (*image.Image, error) {
 	// (so we can pass all errors here)
 	repoName, ref := parsers.ParseRepositoryTag(name)
 	if ref == "" {
-		ref = tags.DefaultTag
+		ref = tagpkg.DefaultTag
 	}
 	var (
 		err error
@@ -209,7 +209,7 @@ func (store *TagStore) Delete(repoName, ref string) (bool, error) {
 		return false, err
 	}
 
-	named, err := reference.ParseNamed(repoName)
+	named, err := reference.WithName(repoName)
 	if err != nil {
 		return false, err
 	}
@@ -254,26 +254,16 @@ func (store *TagStore) setLoad(repoName, tag, imageName string, force bool, out 
 		return err
 	}
 	if tag == "" {
-		tag = tags.DefaultTag
+		tag = tagpkg.DefaultTag
 	}
 	if err := validateRepoName(repoName); err != nil {
 		return err
-	}
-	if err := tags.ValidateTagName(tag); err != nil {
-		if _, formatError := err.(tags.ErrTagInvalidFormat); !formatError {
-			return err
-		}
-		if _, dErr := digest.ParseDigest(tag); dErr != nil {
-			// Still return the tag validation error.
-			// It's more likely to be a user generated issue.
-			return err
-		}
 	}
 	if err := store.reload(); err != nil {
 		return err
 	}
 	var repo Repository
-	named, err := reference.ParseNamed(repoName)
+	named, err := reference.WithName(repoName)
 	if err != nil {
 		return err
 	}
@@ -321,7 +311,7 @@ func (store *TagStore) SetDigest(repoName, digest, imageName string) error {
 		return err
 	}
 
-	named, err := reference.ParseNamed(repoName)
+	named, err := reference.WithName(repoName)
 	if err != nil {
 		return err
 	}
@@ -345,7 +335,7 @@ func (store *TagStore) Get(repoName string) (Repository, error) {
 	if err := store.reload(); err != nil {
 		return nil, err
 	}
-	named, err := reference.ParseNamed(repoName)
+	named, err := reference.WithName(repoName)
 	if err != nil {
 		return nil, err
 	}

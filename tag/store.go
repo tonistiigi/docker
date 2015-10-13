@@ -13,10 +13,10 @@ import (
 	"github.com/docker/docker/images"
 )
 
+// DefaultTag defines the default tag used when performing images related actions and no tag string is specified
+const DefaultTag = "latest"
+
 var (
-	// ErrNoName is returned if a reference.Reference variable does not
-	// implement Name.
-	ErrNoName = errors.New("reference has no name")
 	// ErrDoesNotExist is returned if a reference is not found in the
 	// store.
 	ErrDoesNotExist = errors.New("reference does not exist")
@@ -35,9 +35,9 @@ type Association struct {
 type Store interface {
 	References(id images.ID) []reference.Reference
 	ReferencesByName(ref reference.Named) []Association
-	Add(ref reference.Reference, id images.ID, force bool) error
-	Delete(ref reference.Reference) (bool, error)
-	Get(ref reference.Reference) (images.ID, error)
+	Add(ref reference.Named, id images.ID, force bool) error
+	Delete(ref reference.Named) (bool, error)
+	Get(ref reference.Named) (images.ID, error)
 }
 
 type store struct {
@@ -76,13 +76,8 @@ func NewTagStore(jsonPath string) (Store, error) {
 
 // Add adds a tag or digest to the store. If force is set to true, existing
 // references can be overwritten. This only works for tags, not digests.
-func (store *store) Add(ref reference.Reference, id images.ID, force bool) error {
+func (store *store) Add(ref reference.Named, id images.ID, force bool) error {
 	// Reference must include a name and a tag or digest
-	named, isNamed := ref.(reference.Named)
-	if !isNamed {
-		return ErrNoName
-	}
-
 	switch ref.(type) {
 	case reference.Tagged:
 	case reference.Digested:
@@ -94,10 +89,10 @@ func (store *store) Add(ref reference.Reference, id images.ID, force bool) error
 	store.Lock()
 	defer store.Unlock()
 
-	repository, exists := store.Repositories[named.Name()]
+	repository, exists := store.Repositories[ref.Name()]
 	if !exists || repository == nil {
 		repository = make(map[string]images.ID)
-		store.Repositories[named.Name()] = repository
+		store.Repositories[ref.Name()] = repository
 	}
 
 	refStr := ref.String()
@@ -121,17 +116,11 @@ func (store *store) Add(ref reference.Reference, id images.ID, force bool) error
 
 // Delete deletes a reference from the store. It returns true if a deletion
 // happened, or false otherwise.
-func (store *store) Delete(ref reference.Reference) (bool, error) {
-	// Reference must include a name
-	named, isNamed := ref.(reference.Named)
-	if !isNamed {
-		return false, ErrNoName
-	}
-
+func (store *store) Delete(ref reference.Named) (bool, error) {
 	store.Lock()
 	defer store.Unlock()
 
-	repoName := named.Name()
+	repoName := ref.Name()
 
 	repository, exists := store.Repositories[repoName]
 	if !exists {
@@ -160,16 +149,11 @@ func (store *store) Delete(ref reference.Reference) (bool, error) {
 }
 
 // Get retrieves an item from the store by reference.
-func (store *store) Get(ref reference.Reference) (images.ID, error) {
-	named, isNamed := ref.(reference.Named)
-	if !isNamed {
-		return "", ErrNoName
-	}
-
+func (store *store) Get(ref reference.Named) (images.ID, error) {
 	store.RLock()
 	defer store.RUnlock()
 
-	repository, exists := store.Repositories[named.Name()]
+	repository, exists := store.Repositories[ref.Name()]
 	if !exists || repository == nil {
 		return "", ErrDoesNotExist
 	}

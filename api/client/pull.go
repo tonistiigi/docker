@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/docker/distribution/reference"
 	Cli "github.com/docker/docker/cli"
-	"github.com/docker/docker/graph/tags"
 	flag "github.com/docker/docker/pkg/mflag"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/registry"
+	tagpkg "github.com/docker/docker/tag"
 )
 
 // CmdPull pulls an image or a repository from the registry.
@@ -25,7 +26,7 @@ func (cli *DockerCli) CmdPull(args ...string) error {
 
 	taglessRemote, tag := parsers.ParseRepositoryTag(remote)
 	if tag == "" && !*allTags {
-		tag = tags.DefaultTag
+		tag = tagpkg.DefaultTag
 		fmt.Fprintf(cli.out, "Using default tag: %s\n", tag)
 	} else if tag != "" && *allTags {
 		return fmt.Errorf("tag can't be used with --all-tags/-a")
@@ -33,8 +34,12 @@ func (cli *DockerCli) CmdPull(args ...string) error {
 
 	ref := registry.ParseReference(tag)
 
+	distributionRef, err := reference.ParseNamed(remote)
+	if err != nil {
+		return err
+	}
 	// Resolve the Repository name from fqn to RepositoryInfo
-	repoInfo, err := registry.ParseRepositoryInfo(taglessRemote)
+	repoInfo, err := registry.ParseRepositoryInfo(distributionRef)
 	if err != nil {
 		return err
 	}

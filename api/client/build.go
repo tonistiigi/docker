@@ -18,16 +18,15 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api"
 	Cli "github.com/docker/docker/cli"
-	"github.com/docker/docker/graph/tags"
 	"github.com/docker/docker/opts"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/httputils"
 	"github.com/docker/docker/pkg/jsonmessage"
 	flag "github.com/docker/docker/pkg/mflag"
-	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/progressreader"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/ulimit"
@@ -35,6 +34,7 @@ import (
 	"github.com/docker/docker/pkg/urlutil"
 	"github.com/docker/docker/registry"
 	"github.com/docker/docker/runconfig"
+	tagpkg "github.com/docker/docker/tag"
 	"github.com/docker/docker/utils"
 )
 
@@ -212,14 +212,12 @@ func (cli *DockerCli) CmdBuild(args ...string) error {
 
 	//Check if the given image name can be resolved
 	if *tag != "" {
-		repository, tag := parsers.ParseRepositoryTag(*tag)
-		if err := registry.ValidateRepositoryName(repository); err != nil {
+		ref, err := reference.ParseNamed(*tag)
+		if err != nil {
 			return err
 		}
-		if len(tag) > 0 {
-			if err := tags.ValidateTagName(tag); err != nil {
-				return err
-			}
+		if err := registry.ValidateRepositoryName(ref); err != nil {
+			return err
 		}
 	}
 
@@ -316,7 +314,7 @@ func (cli *DockerCli) CmdBuild(args ...string) error {
 	// Since the build was successful, now we must tag any of the resolved
 	// images from the above Dockerfile rewrite.
 	for _, resolved := range resolvedTags {
-		if err := cli.tagTrusted(resolved.repoInfo, resolved.digestRef, resolved.tagRef); err != nil {
+		if err := cli.tagTrusted(resolved.digestRef, resolved.tagRef); err != nil {
 			return err
 		}
 	}
@@ -540,15 +538,16 @@ func (td *trustedDockerfile) Close() error {
 // resolvedTag records the repository, tag, and resolved digest reference
 // from a Dockerfile rewrite.
 type resolvedTag struct {
-	repoInfo          *registry.RepositoryInfo
-	digestRef, tagRef registry.Reference
+	repoInfo  *registry.RepositoryInfo
+	digestRef reference.Canonical
+	tagRef    reference.NamedTagged
 }
 
 // rewriteDockerfileFrom rewrites the given Dockerfile by resolving images in
 // "FROM <image>" instructions to a digest reference. `translator` is a
 // function that takes a repository name and tag reference and returns a
 // trusted digest reference.
-func rewriteDockerfileFrom(dockerfileName string, translator func(string, registry.Reference) (registry.Reference, error)) (newDockerfile *trustedDockerfile, resolvedTags []*resolvedTag, err error) {
+func rewriteDockerfileFrom(dockerfileName string, translator func(reference.NamedTagged) (reference.Canonical, error)) (newDockerfile *trustedDockerfile, resolvedTags []*resolvedTag, err error) {
 	dockerfile, err := os.Open(dockerfileName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to open Dockerfile: %v", err)
@@ -582,29 +581,39 @@ func rewriteDockerfileFrom(dockerfileName string, translator func(string, regist
 		matches := dockerfileFromLinePattern.FindStringSubmatch(line)
 		if matches != nil && matches[1] != "scratch" {
 			// Replace the line with a resolved "FROM repo@digest"
-			repo, tag := parsers.ParseRepositoryTag(matches[1])
-			if tag == "" {
-				tag = tags.DefaultTag
+			ref, err := reference.ParseNamed(matches[1])
+			if err != nil {
+				return nil, nil, err
 			}
 
-			repoInfo, err := registry.ParseRepositoryInfo(repo)
+			digested := false
+			switch ref.(type) {
+			case reference.Tagged:
+			case reference.Digested:
+				digested = true
+			default:
+				ref, err = reference.WithTag(ref, tagpkg.DefaultTag)
+				if err != nil {
+					return nil, nil, err
+				}
+			}
+
+			repoInfo, err := registry.ParseRepositoryInfo(ref)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to parse repository info: %v", err)
 			}
 
-			ref := registry.ParseReference(tag)
-
-			if !ref.HasDigest() && isTrusted() {
-				trustedRef, err := translator(repo, ref)
+			if !digested && isTrusted() {
+				trustedRef, err := translator(ref.(reference.NamedTagged))
 				if err != nil {
 					return nil, nil, err
 				}
 
-				line = dockerfileFromLinePattern.ReplaceAllLiteralString(line, fmt.Sprintf("FROM %s", trustedRef.ImageName(repo)))
+				line = dockerfileFromLinePattern.ReplaceAllLiteralString(line, fmt.Sprintf("FROM %s", trustedRef.String()))
 				resolvedTags = append(resolvedTags, &resolvedTag{
 					repoInfo:  repoInfo,
 					digestRef: trustedRef,
-					tagRef:    ref,
+					tagRef:    ref.(reference.NamedTagged),
 				})
 			}
 		}
