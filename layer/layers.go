@@ -684,7 +684,7 @@ func (ls *layerStore) MountByGraphID(name string, graphID string, parent ID) (RW
 		return m, nil
 	}
 
-	if ls.driver.Exists(graphID) {
+	if !ls.driver.Exists(graphID) {
 		return nil, errors.New("graph ID does not exist")
 	}
 
