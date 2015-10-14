@@ -100,7 +100,11 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 
 	var fsLayers []manifest.FSLayer
 
-	l, err := img.GetTopLayer()
+	layerID, err := img.GetTopLayerID()
+	if err != nil {
+		return fmt.Errorf("failed to get top layer from image: %v", err)
+	}
+	l, err := p.config.LayerStore.Get(layerID)
 	if err != nil {
 		return fmt.Errorf("failed to get top layer from image: %v", err)
 	}
