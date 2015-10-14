@@ -1,6 +1,7 @@
 package layer
 
 import (
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -12,12 +13,18 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
+	"github.com/docker/docker/pkg/ioutils"
 )
 
 var stringIDRegexp = regexp.MustCompile(`^([a-f0-9]{64})$`)
 
 type fileMetadataStore struct {
 	root string
+}
+
+type fileMetadataTransaction struct {
+	store *fileMetadataStore
+	root  string
 }
 
 // NewFileMetadataStore returns an instance of a metadata store
@@ -44,47 +51,61 @@ func (fms *fileMetadataStore) getMountDirectory(mount string) string {
 func (fms *fileMetadataStore) getMountFilename(mount, filename string) string {
 	return filepath.Join(fms.getMountDirectory(mount), filename)
 }
-func (fms *fileMetadataStore) SetSize(layer ID, size int64) error {
-	if err := os.MkdirAll(fms.getLayerDirectory(layer), 0755); err != nil {
-		return err
-	}
-	content := fmt.Sprintf("%d", size)
-	return ioutil.WriteFile(fms.getLayerFilename(layer, "size"), []byte(content), 0644)
-}
 
-func (fms *fileMetadataStore) SetParent(layer, parent ID) error {
-	if err := os.MkdirAll(fms.getLayerDirectory(layer), 0755); err != nil {
-		return err
+func (fms *fileMetadataStore) StartTransaction() (MetadataTransaction, error) {
+	tmpDir := filepath.Join(fms.root, "tmp")
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		return nil, err
 	}
-	return ioutil.WriteFile(fms.getLayerFilename(layer, "parent"), []byte(digest.Digest(parent).String()), 0644)
-}
 
-func (fms *fileMetadataStore) SetDiffID(layer ID, diff DiffID) error {
-	if err := os.MkdirAll(fms.getLayerDirectory(layer), 0755); err != nil {
-		return err
-	}
-	return ioutil.WriteFile(fms.getLayerFilename(layer, "diff"), []byte(digest.Digest(diff).String()), 0644)
-}
-
-func (fms *fileMetadataStore) SetCacheID(layer ID, cacheID string) error {
-	if err := os.MkdirAll(fms.getLayerDirectory(layer), 0755); err != nil {
-		return err
-	}
-	return ioutil.WriteFile(fms.getLayerFilename(layer, "cache-id"), []byte(cacheID), 0644)
-}
-
-func (fms *fileMetadataStore) SetTarSplit(layer ID, content io.Reader) error {
-	if err := os.MkdirAll(fms.getLayerDirectory(layer), 0755); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(fms.getLayerFilename(layer, "tar-split.json.gz"), os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+	td, err := ioutil.TempDir(tmpDir, "layer-")
 	if err != nil {
-		return err
+		return nil, err
+	}
+	// Create a new tempdir
+	return &fileMetadataTransaction{
+		store: fms,
+		root:  td,
+	}, nil
+}
+
+func (fm *fileMetadataTransaction) SetSize(size int64) error {
+	content := fmt.Sprintf("%d", size)
+	return ioutil.WriteFile(filepath.Join(fm.root, "size"), []byte(content), 0644)
+}
+
+func (fm *fileMetadataTransaction) SetParent(parent ID) error {
+	return ioutil.WriteFile(filepath.Join(fm.root, "parent"), []byte(digest.Digest(parent).String()), 0644)
+}
+
+func (fm *fileMetadataTransaction) SetDiffID(diff DiffID) error {
+	return ioutil.WriteFile(filepath.Join(fm.root, "diff"), []byte(digest.Digest(diff).String()), 0644)
+}
+
+func (fm *fileMetadataTransaction) SetCacheID(cacheID string) error {
+	return ioutil.WriteFile(filepath.Join(fm.root, "cache-id"), []byte(cacheID), 0644)
+}
+
+func (fm *fileMetadataTransaction) TarSplitWriter() (io.WriteCloser, error) {
+	f, err := os.OpenFile(filepath.Join(fm.root, "tar-split.json.gz"), os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
 	}
 
-	_, err = io.Copy(f, content)
+	fz := gzip.NewWriter(f)
 
-	return err
+	return ioutils.NewWriteCloserWrapper(fz, func() error {
+		fz.Close()
+		return f.Close()
+	}), nil
+}
+
+func (fm *fileMetadataTransaction) Commit(layer ID) error {
+	return os.Rename(fm.root, fm.store.getLayerDirectory(layer))
+}
+
+func (fm *fileMetadataTransaction) Cancel() error {
+	return os.RemoveAll(fm.root)
 }
 
 func (fms *fileMetadataStore) GetSize(layer ID) (int64, error) {
@@ -145,8 +166,20 @@ func (fms *fileMetadataStore) GetCacheID(layer ID) (string, error) {
 	return string(content), nil
 }
 
-func (fms *fileMetadataStore) GetTarSplit(layer ID) (io.ReadCloser, error) {
-	return os.Open(fms.getLayerFilename(layer, "tar-split.json.gz"))
+func (fms *fileMetadataStore) TarSplitReader(layer ID) (io.ReadCloser, error) {
+	fz, err := os.Open(fms.getLayerFilename(layer, "tar-split.json.gz"))
+	if err != nil {
+		return nil, err
+	}
+	f, err := gzip.NewReader(fz)
+	if err != nil {
+		return nil, err
+	}
+
+	return ioutils.NewReadCloserWrapper(f, func() error {
+		f.Close()
+		return fz.Close()
+	}), nil
 }
 
 func (fms *fileMetadataStore) SetMountID(mount string, mountID string) error {

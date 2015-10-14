@@ -1,11 +1,14 @@
 package layer
 
 import (
+	"bytes"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/daemon/graphdriver/vfs"
 	"github.com/docker/docker/pkg/archive"
@@ -399,4 +402,171 @@ func TestStoreRestore(t *testing.T) {
 	}
 
 	releaseAndCheckDeleted(t, ls2, layer3b, layer3, layer2, layer1)
+}
+
+func TestTarStreamStability(t *testing.T) {
+	ls, cleanup := newTestStore(t)
+	defer cleanup()
+
+	files1 := []FileApplier{
+		newTestFile("/etc/hosts", []byte("mydomain 10.0.0.1"), 0644),
+		newTestFile("/etc/profile", []byte("PATH=/usr/bin"), 0644),
+	}
+	addedFile := newTestFile("/etc/shadow", []byte("root:::::::"), 0644)
+	files2 := []FileApplier{
+		newTestFile("/etc/hosts", []byte("mydomain 10.0.0.2"), 0644),
+		newTestFile("/etc/profile", []byte("PATH=/usr/bin"), 0664),
+		newTestFile("/root/.bashrc", []byte("PATH=/usr/sbin:/usr/bin"), 0644),
+	}
+
+	tar1, err := tarFromFiles(files1...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tar2, err := tarFromFiles(files2...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer1, err := ls.Register(bytes.NewReader(tar1), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// hack layer to add file
+	p, err := ls.(*layerStore).driver.Get(layer1.(*cacheLayer).cacheID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := addedFile.ApplyFile(p); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ls.(*layerStore).driver.Put(layer1.(*cacheLayer).cacheID); err != nil {
+		t.Fatal(err)
+	}
+
+	layer2, err := ls.Register(bytes.NewReader(tar2), layer1.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	id1 := layer1.ID()
+	t.Logf("Layer 1: %s", layer1.ID())
+	t.Logf("Layer 2: %s", layer2.ID())
+
+	if _, err := ls.Release(layer1); err != nil {
+		t.Fatal(err)
+	}
+
+	assertLayerDiff(t, tar2, layer2)
+
+	layer1b, err := ls.Get(id1)
+	if err != nil {
+		t.Logf("Content of layer map: %#v", ls.(*layerStore).layerMap)
+		t.Fatal(err)
+	}
+
+	if _, err := ls.Release(layer2); err != nil {
+		t.Fatal(err)
+	}
+
+	assertLayerDiff(t, tar1, layer1b)
+
+	if _, err := ls.Release(layer1b); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertLayerDiff(t *testing.T, expected []byte, layer Layer) {
+	expectedDigest, err := digest.FromBytes(expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if digest.Digest(layer.DiffID()) != expectedDigest {
+		t.Fatalf("Mismatched diff id for %s, got %s, expected %s", layer.ID(), layer.DiffID(), expected)
+	}
+
+	ts, err := layer.TarStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	actual, err := ioutil.ReadAll(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(actual) != len(expected) {
+		logByteDiff(t, actual, expected)
+		t.Fatalf("Mismatched tar stream size for %s, got %d, expected %d", layer.ID(), len(actual), len(expected))
+	}
+
+	actualDigest, err := digest.FromBytes(actual)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if actualDigest != expectedDigest {
+		logByteDiff(t, actual, expected)
+		t.Fatalf("Wrong digest of tar stream, got %s, expected %s", actualDigest, expectedDigest)
+	}
+}
+
+const maxByteLog = 4 * 1024
+
+func logByteDiff(t *testing.T, actual, expected []byte) {
+	d1, d2 := byteDiff(actual, expected)
+	if len(d1) == 0 && len(d2) == 0 {
+		return
+	}
+
+	prefix := len(actual) - len(d1)
+	if len(d1) > maxByteLog || len(d2) > maxByteLog {
+		t.Logf("Byte diff after %d matching bytes", prefix)
+	} else {
+		t.Logf("Byte diff after %d matching bytes\nActual bytes after prefix:\n%x\nExpected bytes after prefix:\n%x", prefix, d1, d2)
+	}
+}
+
+// byteDiff returns the differing bytes after the matching prefix
+func byteDiff(b1, b2 []byte) ([]byte, []byte) {
+	i := 0
+	for i < len(b1) && i < len(b2) {
+		if b1[i] != b2[i] {
+			break
+		}
+		i++
+	}
+
+	return b1[i:], b2[i:]
+}
+
+func tarFromFiles(files ...FileApplier) ([]byte, error) {
+	td, err := ioutil.TempDir("", "tar-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(td)
+
+	for _, f := range files {
+		if err := f.ApplyFile(td); err != nil {
+			return nil, err
+		}
+	}
+
+	r, err := archive.Tar(td, archive.Uncompressed)
+	if err != nil {
+		return nil, err
+	}
+
+	buf := bytes.NewBuffer(nil)
+	if _, err := io.Copy(buf, r); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }

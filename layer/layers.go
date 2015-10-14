@@ -10,11 +10,9 @@
 package layer
 
 import (
-	"compress/gzip"
 	"errors"
-	"fmt"
 	"io"
-	"os"
+	"io/ioutil"
 	"sync"
 
 	"github.com/Sirupsen/logrus"
@@ -118,21 +116,30 @@ type Store interface {
 	DeleteMount(id string) ([]Metadata, error)
 }
 
+type MetadataTransaction interface {
+	SetSize(int64) error
+	SetParent(parent ID) error
+	SetDiffID(DiffID) error
+	SetCacheID(string) error
+	TarSplitWriter() (io.WriteCloser, error)
+
+	Commit(ID) error
+	Cancel() error
+}
+
 // MetadataStore represents a backend for persisting
 // metadata about layers and providing the metadata
 // for restoring a Store.
 type MetadataStore interface {
-	SetSize(ID, int64) error
-	SetParent(layer, parent ID) error
-	SetDiffID(ID, DiffID) error
-	SetCacheID(ID, string) error
-	SetTarSplit(ID, io.Reader) error
+	// StartTransaction starts an update for new metadata
+	// which will be used to represent an ID on commit.
+	StartTransaction() (MetadataTransaction, error)
 
 	GetSize(ID) (int64, error)
 	GetParent(ID) (ID, error)
 	GetDiffID(ID) (DiffID, error)
 	GetCacheID(ID) (string, error)
-	GetTarSplit(ID) (io.ReadCloser, error)
+	TarSplitReader(ID) (io.ReadCloser, error)
 
 	SetMountID(string, string) error
 	SetInitID(string, string) error
@@ -300,15 +307,8 @@ func (ls *layerStore) loadLayer(layer ID) (*cacheLayer, error) {
 		}
 		cl.parent = p
 	}
-	var pid string
-	if cl.parent != nil {
-		pid = cl.parent.cacheID
-	}
 
-	cl.tarStreamer = func() (io.Reader, error) {
-		archiver, err := ls.driver.Diff(cl.cacheID, pid)
-		return io.Reader(archiver), err
-	}
+	cl.tarStreamer = ls.layerTarStreamer(cl)
 
 	ls.layerMap[cl.address] = cl
 
@@ -365,6 +365,50 @@ func (ls *layerStore) loadMount(mount string) error {
 	return nil
 }
 
+func (ls *layerStore) applyTar(tx MetadataTransaction, ts io.Reader, parent string, layer *cacheLayer) error {
+	digester := digest.Canonical.New()
+	tr := io.TeeReader(ts, digester.Hash())
+
+	tsw, err := tx.TarSplitWriter()
+	if err != nil {
+		return err
+	}
+	metaPacker := storage.NewJSONPacker(tsw)
+	defer tsw.Close()
+
+	// we're passing nil here for the file putter, because the ApplyDiff will
+	// handle the extraction of the archive
+	rdr, err := asm.NewInputTarStream(tr, metaPacker, nil)
+	if err != nil {
+		return err
+	}
+
+	layer.size, err = ls.driver.ApplyDiff(layer.cacheID, parent, archive.Reader(rdr))
+	if err != nil {
+		return err
+	}
+
+	// Discard trailing data but ensure metadata is picked up to reconstruct stream
+	if _, err := io.Copy(ioutil.Discard, rdr); err != nil {
+		return err
+	}
+
+	layer.digest = DiffID(digester.Digest())
+
+	return nil
+}
+
+func (ls *layerStore) layerTarStreamer(layer *cacheLayer) func() (io.Reader, error) {
+	return func() (io.Reader, error) {
+		r, err := ls.store.TarSplitReader(layer.address)
+		if err != nil {
+			return nil, err
+		}
+
+		return ls.assembleTar(layer.cacheID, r)
+	}
+}
+
 func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 	var err error
 	var pid string
@@ -406,20 +450,16 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 		}
 	}()
 
-	digester := digest.Canonical.New()
-	tr := io.TeeReader(ts, digester.Hash())
-
-	layer.size, err = ls.driver.ApplyDiff(layer.cacheID, pid, archive.Reader(tr))
+	tx, err := ls.store.StartTransaction()
 	if err != nil {
 		return nil, err
 	}
 
-	layer.tarStreamer = func() (io.Reader, error) {
-		archiver, err := ls.driver.Diff(layer.cacheID, pid)
-		return io.Reader(archiver), err
+	if err = ls.applyTar(tx, ts, pid, layer); err != nil {
+		return nil, err
 	}
 
-	layer.digest = DiffID(digester.Digest())
+	layer.tarStreamer = ls.layerTarStreamer(layer)
 
 	if layer.parent == nil {
 		layer.address = ID(layer.digest)
@@ -428,6 +468,10 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	if err = storeLayer(tx, layer); err != nil {
+		return nil, err
 	}
 
 	ls.layerL.Lock()
@@ -439,28 +483,27 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 		return existingLayer, nil
 	}
 
-	if err = ls.storeLayer(layer); err != nil {
+	if err = tx.Commit(layer.address); err != nil {
 		return nil, err
 	}
-	// TODO: Set tarsplit data
 
 	ls.layerMap[layer.address] = layer
 
 	return layer, nil
 }
 
-func (ls *layerStore) storeLayer(layer *cacheLayer) error {
-	if err := ls.store.SetDiffID(layer.address, layer.digest); err != nil {
+func storeLayer(tx MetadataTransaction, layer *cacheLayer) error {
+	if err := tx.SetDiffID(layer.digest); err != nil {
 		return err
 	}
-	if err := ls.store.SetSize(layer.address, layer.size); err != nil {
+	if err := tx.SetSize(layer.size); err != nil {
 		return err
 	}
-	if err := ls.store.SetCacheID(layer.address, layer.cacheID); err != nil {
+	if err := tx.SetCacheID(layer.cacheID); err != nil {
 		return err
 	}
 	if layer.parent != nil {
-		if err := ls.store.SetParent(layer.address, layer.parent.address); err != nil {
+		if err := tx.SetParent(layer.parent.address); err != nil {
 			return err
 		}
 	}
@@ -657,54 +700,6 @@ func (ls *layerStore) Mount(name string, parent ID, mountLabel string, initFunc 
 	return m, nil
 }
 
-func (ls *layerStore) MountByGraphID(name string, graphID string, parent ID) (RWLayer, error) {
-	ls.mountL.Lock()
-	defer ls.mountL.Unlock()
-	m, ok := ls.mounts[name]
-	if ok {
-		if m.parent.address != parent {
-			return nil, errors.New("name conflict, mismatched parent")
-		}
-		if m.mountID != graphID {
-			return nil, errors.New("mount already exists")
-		}
-		return m, nil
-	}
-
-	if !ls.driver.Exists(graphID) {
-		return nil, errors.New("graph ID does not exist")
-	}
-
-	var p *cacheLayer
-	if string(parent) != "" {
-		ls.layerL.Lock()
-		p = ls.getAndRetainLayer(parent)
-		ls.layerL.Unlock()
-		if p == nil {
-			return nil, ErrLayerDoesNotExist
-		}
-	}
-
-	// TODO: Ensure graphID has correct parent
-
-	m = &mountedLayer{
-		name:    name,
-		parent:  p,
-		mountID: graphID,
-	}
-
-	if err := ls.saveMount(m); err != nil {
-		return nil, err
-	}
-
-	// TODO: provide a mount label
-	if err := ls.mount(m, ""); err != nil {
-		return nil, err
-	}
-
-	return m, nil
-}
-
 func (ls *layerStore) Unmount(name string) error {
 	ls.mountL.Lock()
 	defer ls.mountL.Unlock()
@@ -764,102 +759,25 @@ func (ls *layerStore) DeleteMount(name string) ([]Metadata, error) {
 	return []Metadata{}, nil
 }
 
-func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile string) (Layer, error) {
-	var err error
-	var p *cacheLayer
-	if string(parent) != "" {
-		p = ls.get(parent)
-		if p == nil {
-			return nil, ErrLayerDoesNotExist
-		}
-
-		// Release parent chain if error
-		defer func() {
-			if err != nil {
-				ls.layerL.Lock()
-				ls.releaseLayer(p)
-				ls.layerL.Unlock()
-			}
-		}()
-	}
-
-	// Create new cacheLayer
-	layer := &cacheLayer{
-		parent:         p,
-		cacheID:        graphID,
-		referenceCount: 1,
-		layerStore:     ls,
-	}
-
-	tar, err := ls.assembleTar(graphID, tarDataFile)
+func (ls *layerStore) assembleTar(graphID string, metadata io.ReadCloser) (io.Reader, error) {
+	// get our relative path to the container
+	fsPath, err := ls.driver.Get(graphID, "")
 	if err != nil {
+		metadata.Close()
 		return nil, err
 	}
 
-	digester := digest.Canonical.New()
-	_, err = io.Copy(digester.Hash(), tar)
-	if err != nil {
-		return nil, err
-	}
-	layer.digest = DiffID(digester.Digest())
-
-	layer.address, err = CreateID(parent, layer.digest)
-	if err != nil {
-		return nil, err
-	}
-
-	ls.layerL.Lock()
-	defer ls.layerL.Unlock()
-
-	if existingLayer, ok := ls.layerMap[layer.address]; ok {
-		// Set error for cleanup, but do not return
-		err = errors.New("layer already exists")
-		return existingLayer, nil
-	}
-
-	if err = ls.storeLayer(layer); err != nil {
-		return nil, err
-	}
-
-	ls.layerMap[layer.address] = layer
-
-	return layer, nil
-}
-
-func (ls *layerStore) assembleTar(cacheID, tarDataFile string) (io.Reader, error) {
-	mf, err := os.Open(tarDataFile)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			// todo: recreation
-		}
-		return nil, err
-	}
 	pR, pW := io.Pipe()
 	// this will need to be in a goroutine, as we are returning the stream of a
 	// tar archive, but can not close the metadata reader early (when this
 	// function returns)...
 	go func() {
-		defer mf.Close()
-		// let's reassemble!
-		logrus.Debugf("[graph] TarLayer with reassembly: %s", cacheID)
-		mfz, err := gzip.NewReader(mf)
-		if err != nil {
-			pW.CloseWithError(fmt.Errorf("[graph] error with %s:  %s", tarDataFile, err))
-			return
-		}
-		defer mfz.Close()
+		defer ls.driver.Put(graphID)
+		defer metadata.Close()
 
-		// get our relative path to the container
-		fsLayer, err := ls.driver.Get(cacheID, "")
-		if err != nil {
-			pW.CloseWithError(err)
-			return
-		}
-		defer ls.driver.Put(cacheID)
-
-		metaUnpacker := storage.NewJSONUnpacker(mfz)
-		fileGetter := storage.NewPathFileGetter(fsLayer)
-		logrus.Debugf("[graph] %s is at %q", cacheID, fsLayer)
+		metaUnpacker := storage.NewJSONUnpacker(metadata)
+		fileGetter := storage.NewPathFileGetter(fsPath)
+		logrus.Debugf("Assembling tar data for %s from %s", graphID, fsPath)
 		ots := asm.NewOutputTarStream(fileGetter, metaUnpacker)
 		defer ots.Close()
 		if _, err := io.Copy(pW, ots); err != nil {
