@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"encoding/json"
 	"runtime"
 	"strings"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"github.com/docker/docker/autogen/dockerversion"
 	"github.com/docker/docker/images"
 	"github.com/docker/docker/runconfig"
+	"github.com/jfrazelle/go/canonical/json"
 )
 
 // ContainerCommitConfig contains build configs for commit operation,
@@ -67,7 +67,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 
 	history := append(img.History, h)
 
-	config, err := json.Marshal(&images.Image{
+	config, err := json.MarshalCanonical(&images.Image{
 		ImageV1: images.ImageV1{
 			DockerVersion:   dockerversion.VERSION,
 			Config:          container.Config,

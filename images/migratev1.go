@@ -1,7 +1,6 @@
 package images
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -13,6 +12,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/layer"
+	"github.com/jfrazelle/go/canonical/json"
 )
 
 type migratoryLayerStore interface {
@@ -294,7 +294,7 @@ func ConfigFromV1Config(imageJSON []byte, layerDigests []layer.DiffID, history [
 	c["rootfs"] = rawJSON(&RootFS{Type: "layers", DiffIDs: layerDigests})
 	c["history"] = rawJSON(history)
 
-	return json.Marshal(c)
+	return json.MarshalCanonical(c)
 }
 
 func rawJSON(value interface{}) *json.RawMessage {
