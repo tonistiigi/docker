@@ -1122,7 +1122,63 @@ func (daemon *Daemon) PushImage(ref reference.Named, metaHeaders map[string][]st
 // LookupImage looks up an image by name and returns it as an ImageInspect
 // structure.
 func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
-	return daemon.repositories.Lookup(name)
+	imgID, err := daemon.GetImage(name)
+	if err != nil {
+		return nil, err
+	}
+	image, err := daemon.imageStore.Get(imgID)
+	if err != nil {
+		return nil, err
+	}
+
+	parent, _ := daemon.imageStore.GetParent(imgID) // probably better in lookupImage()
+
+	refs := daemon.tagStore.References(imgID)
+	var tags = make([]string, len(refs))
+	for i := range refs {
+		tags[i] = refs[i].String()
+	}
+
+	layerID, err := image.GetTopLayerID()
+	if err != nil {
+		return nil, err
+	}
+	layer, err := daemon.layerStore.Get(layerID)
+	if err != nil {
+		return nil, err
+	}
+	defer daemon.layerStore.Release(layer)
+
+	size, _ := layer.Size()
+
+	imageInspect := &types.ImageInspect{
+		ID:              imgID.String(),
+		Tags:            tags,
+		Parent:          string(parent),
+		Comment:         image.Comment,
+		Created:         image.Created.Format(time.RFC3339Nano),
+		Container:       image.Container,
+		ContainerConfig: &image.ContainerConfig,
+		DockerVersion:   image.DockerVersion,
+		Author:          image.Author,
+		Config:          image.Config,
+		Architecture:    image.Architecture,
+		Os:              image.OS,
+		Size:            size,
+		//VirtualSize:   s.graph.GetParentsSize(image) + image.Size, // FIXME: document removal
+	}
+
+	imageInspect.GraphDriver.Name = daemon.driver.String()
+
+	// FIXME: expose via layer
+	// graphDriverData, err := daemon.driver.GetMetadata(image.ID)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// imageInspect.GraphDriver.Data = graphDriverData
+	//
+
+	return imageInspect, nil
 }
 
 // LoadImage uploads a set of images into the repository. This is the
