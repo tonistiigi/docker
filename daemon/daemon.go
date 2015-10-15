@@ -772,7 +772,9 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 
 	eventsService := events.New()
 	logrus.Debug("Creating repository list")
-	tagCfg := &graph.TagStoreConfig{}
+	tagCfg := &graph.TagStoreConfig{
+		Graph: g,
+	}
 	repositories, err := graph.NewTagStore(filepath.Join(config.Root, "repositories-"+d.driver.String()), tagCfg)
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't create Tag store repositories-%s: %s", d.driver.String(), err)
