@@ -11,7 +11,9 @@ import (
 
 	"github.com/docker/docker/autogen/dockerversion"
 	"github.com/docker/docker/daemon/graphdriver"
+	"github.com/docker/docker/daemon/graphdriver/vfs"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/stringid"
 )
 
@@ -45,7 +47,6 @@ func TestMount(t *testing.T) {
 	if _, err := driver.Get(image.ID, ""); err != nil {
 		t.Fatal(err)
 	}
-
 }
 
 func TestInit(t *testing.T) {
@@ -287,6 +288,9 @@ func assertNImages(graph *Graph, t *testing.T, n int) {
 }
 
 func tempGraph(t *testing.T) (*Graph, graphdriver.Driver) {
+	graphdriver.ApplyUncompressedLayer = archive.UnpackLayer
+	vfs.CopyWithTar = archive.CopyWithTar
+
 	tmp, err := ioutil.TempDir("", "docker-graph-")
 	if err != nil {
 		t.Fatal(err)
