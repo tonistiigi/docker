@@ -785,7 +785,7 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't create Tag store repositories-%s: %s", d.driver.String(), err)
 	}
-	tagStore, err := tag.NewTagStore(filepath.Join(config.Root, "repositories-"+d.driver.String()))
+	tagStore, err := tag.NewTagStore(filepath.Join(config.Root, "repositories.v2-"+d.driver.String()))
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't create Tag store repositories-%s: %s", d.driver.String(), err)
 	}
@@ -796,7 +796,7 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 		}
 	}
 
-	if err := v1.Migrate(filepath.Join(config.Root), d.layerStore, d.imageStore, tagStore); err != nil {
+	if err := v1.Migrate(filepath.Join(config.Root), d.driver.String(), d.layerStore, d.imageStore, tagStore); err != nil {
 		return nil, err
 	}
 

@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/digest"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/images"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/tag"
@@ -22,19 +24,22 @@ type migratoryLayerStore interface {
 }
 
 const (
-	graphDirName         = "graph"
-	tarDataFileName      = "tar-data.json.gz"
-	migrationFileName    = "graph-to-images-migration.json"
-	containersDirName    = "containers"
-	configFileNameLegacy = "config.json"
-	configFileName       = "config.v2.json"
+	graphDirName                 = "graph"
+	tarDataFileName              = "tar-data.json.gz"
+	migrationFileName            = ".migration-v1-images.json"
+	migrationTagsFileName        = ".migration-v1-tags"
+	containersDirName            = "containers"
+	configFileNameLegacy         = "config.json"
+	configFileName               = "config.v2.json"
+	repositoriesFilePrefixLegacy = "repositories-"
+	repositoriesFilePrefix       = "repositories.v2-"
 )
 
 var (
 	errUnsupported = errors.New("migration is not supported")
 )
 
-func Migrate(root string, ls layer.Store, is images.Store, ts tag.Store) error {
+func Migrate(root, driverName string, ls layer.Store, is images.Store, ts tag.Store) error {
 	mappings := make(map[string]images.ID)
 
 	if err := migrateImages(root, ls, is, mappings); err != nil {
@@ -42,6 +47,10 @@ func Migrate(root string, ls layer.Store, is images.Store, ts tag.Store) error {
 	}
 
 	if err := migrateContainers(root, ls, is, mappings); err != nil {
+		return err
+	}
+
+	if err := migrateTags(root, driverName, ts, mappings); err != nil {
 		return err
 	}
 
@@ -179,9 +188,60 @@ func migrateContainers(root string, ls layer.Store, is images.Store, imageMappin
 	return nil
 }
 
-// func migrateTags(mappings map[string]images.ID) error {
-// 	return nil
-// }
+func migrateTags(root, driverName string, ts tag.Store, mappings map[string]images.ID) error {
+	migrationFile := filepath.Join(root, migrationTagsFileName)
+	if _, err := os.Lstat(migrationFile); !os.IsNotExist(err) {
+		return err
+	}
+
+	type repositories struct {
+		Repositories map[string]map[string]string
+	}
+
+	var repos repositories
+
+	f, err := os.Open(filepath.Join(root, repositoriesFilePrefixLegacy+driverName))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := json.NewDecoder(f).Decode(&repos); err != nil {
+		return err
+	}
+
+	for name, repo := range repos.Repositories {
+		for tag, id := range repo {
+			if strongID, exists := mappings[id]; exists {
+				ref, err := reference.WithName(name)
+				if err != nil {
+					return err
+				}
+				if dgst, err := digest.ParseDigest(tag); err == nil {
+					ref, err = reference.WithDigest(ref, dgst)
+					if err != nil {
+						return err
+					}
+				} else {
+					ref, err = reference.WithTag(ref, tag)
+					if err != nil {
+						return err
+					}
+				}
+				if err := ts.Add(ref, strongID, false); err != nil {
+					logrus.Errorf("can't migrate tag %q for %q, err: %q", ref.String(), strongID, err)
+				}
+			}
+		}
+	}
+
+	mf, err := os.Create(migrationFile)
+	if err != nil {
+		return err
+	}
+	mf.Close()
+
+	return nil
+}
 
 func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map[string]images.ID) (err error) {
 	defer func() {
