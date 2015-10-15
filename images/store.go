@@ -15,6 +15,8 @@ type Store interface {
 	Create(config []byte) (ID, error)
 	Get(id ID) (*Image, error)
 	Search(string) (ID, error)
+	SetParent(ID, ID) error
+	GetParent(ID) (ID, error)
 }
 
 type store struct {
@@ -45,10 +47,6 @@ func NewImageStore(root string, ls layer.Store) (Store, error) {
 
 	// load all current images and retain layers
 	if err := is.restore(); err != nil {
-		return nil, err
-	}
-
-	if err := is.migrateV1Images(); err != nil {
 		return nil, err
 	}
 
@@ -146,4 +144,16 @@ func (is *store) Get(id ID) (*Image, error) {
 	img.rawJSON = config
 
 	return &img, nil
+}
+
+func (is *store) SetParent(id, parent ID) error {
+	return is.fs.SetMetadata(digest.Digest(id), "parent", []byte(parent))
+}
+
+func (is *store) GetParent(id ID) (ID, error) {
+	d, err := is.fs.GetMetadata(digest.Digest(id), "parent")
+	if err != nil {
+		return "", err
+	}
+	return ID(d), nil // todo: validate?
 }

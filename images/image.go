@@ -1,7 +1,6 @@
 package images
 
 import (
-	"encoding/json"
 	"regexp"
 	"time"
 
@@ -88,15 +87,15 @@ type History struct {
 }
 
 // NewImgJSON creates an Image configuration from json.
-func NewImgJSON(src []byte) (*Image, error) {
-	ret := &Image{}
-
-	// FIXME: Is there a cleaner way to "purify" the input json?
-	if err := json.Unmarshal(src, ret); err != nil {
-		return nil, err
-	}
-	return ret, nil
-}
+// func NewImgJSON(src []byte) (*Image, error) {
+// 	ret := &Image{}
+//
+// 	// FIXME: Is there a cleaner way to "purify" the input json?
+// 	if err := json.Unmarshal(src, ret); err != nil {
+// 		return nil, err
+// 	}
+// 	return ret, nil
+// }
 
 // ValidateID checks whether an ID string is a valid image ID.
 func ValidateID(id string) error {

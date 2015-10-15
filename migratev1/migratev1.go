@@ -1,4 +1,6 @@
-package images
+package migratev1
+
+// FIXME: try moving this out of image package
 
 import (
 	"errors"
@@ -10,8 +12,9 @@ import (
 	"strings"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/distribution/digest"
+	"github.com/docker/docker/images"
 	"github.com/docker/docker/layer"
+	"github.com/docker/docker/tag"
 	"github.com/jfrazelle/go/canonical/json"
 )
 
@@ -29,15 +32,31 @@ const (
 	configFileName       = "config.v2.json"
 )
 
-func (is *store) migrateV1Images() error {
-	if _, ok := is.ls.(migratoryLayerStore); !ok {
-		return nil
+var (
+	errUnsupported = errors.New("migration is not supported")
+)
+
+func MigrateV1(root string, ls layer.Store, is images.Store, ts tag.Store) error {
+	mappings := make(map[string]images.ID)
+
+	if err := migrateV1Images(root, ls, is, mappings); err != nil {
+		return err
 	}
 
-	mfile := filepath.Join(is.root, migrationFileName)
-	graphDir := filepath.Join(is.root, graphDirName)
+	if err := migrateV1Containers(root, ls, is, mappings); err != nil {
+		return err
+	}
 
-	mappings := make(map[string]ID)
+	return nil
+}
+
+func migrateV1Images(root string, ls layer.Store, is images.Store, mappings map[string]images.ID) error {
+	if _, ok := ls.(migratoryLayerStore); !ok {
+		return errUnsupported
+	}
+
+	mfile := filepath.Join(root, migrationFileName)
+	graphDir := filepath.Join(root, graphDirName)
 
 	f, err := os.Open(mfile)
 	if err != nil && !os.IsNotExist(err) {
@@ -58,13 +77,13 @@ func (is *store) migrateV1Images() error {
 	// var ids = []string{}
 	for _, v := range dir {
 		v1ID := v.Name()
-		if err := ValidateID(v1ID); err != nil {
+		if err := images.ValidateID(v1ID); err != nil {
 			continue
 		}
 		if _, exists := mappings[v1ID]; exists {
 			continue
 		} else {
-			if err := is.migrateV1Image(v1ID, mappings); err != nil {
+			if err := migrateV1Image(v1ID, root, ls, is, mappings); err != nil {
 				// todo: fail or allow broken chains?b
 				continue
 			}
@@ -80,11 +99,11 @@ func (is *store) migrateV1Images() error {
 		return err
 	}
 
-	return is.migrateV1Containers(mappings)
+	return nil
 }
 
-func (is *store) migrateV1Containers(imageMappings map[string]ID) error {
-	containersDir := path.Join(is.root, containersDirName)
+func migrateV1Containers(root string, ls layer.Store, is images.Store, imageMappings map[string]images.ID) error {
+	containersDir := path.Join(root, containersDirName)
 	dir, err := ioutil.ReadDir(containersDir)
 	if err != nil {
 		return err
@@ -133,7 +152,7 @@ func (is *store) migrateV1Containers(imageMappings map[string]ID) error {
 			return err
 		}
 
-		migratoryLayerStore, exists := is.ls.(migratoryLayerStore)
+		migratoryLayerStore, exists := ls.(migratoryLayerStore)
 		if !exists {
 			return errors.New("migration not supported")
 		}
@@ -153,7 +172,7 @@ func (is *store) migrateV1Containers(imageMappings map[string]ID) error {
 			return err
 		}
 
-		err = is.ls.Unmount(id)
+		err = ls.Unmount(id)
 		if err != nil {
 			return err
 		}
@@ -162,14 +181,18 @@ func (is *store) migrateV1Containers(imageMappings map[string]ID) error {
 	return nil
 }
 
-func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
+// func migrateV1Tags(mappings map[string]images.ID) error {
+// 	return nil
+// }
+
+func migrateV1Image(id, root string, ls layer.Store, is images.Store, mappings map[string]images.ID) (err error) {
 	defer func() {
 		if err != nil {
 			logrus.Errorf("migration failed for %v, err: %v", id, err)
 		}
 	}()
 
-	jsonFile := filepath.Join(is.root, graphDirName, id, "json")
+	jsonFile := filepath.Join(root, graphDirName, id, "json")
 	imageJSON, err := ioutil.ReadFile(jsonFile)
 	if err != nil {
 		return err
@@ -179,11 +202,11 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 		return err
 	}
 
-	var parentID ID
+	var parentID images.ID
 	if parent.Parent != "" {
 		var exists bool
 		if parentID, exists = mappings[parent.Parent]; !exists {
-			if err := is.migrateV1Image(parent.Parent, mappings); err != nil {
+			if err := migrateV1Image(parent.Parent, root, ls, is, mappings); err != nil {
 				// todo: fail or allow broken chains?
 				return err
 			}
@@ -191,13 +214,13 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 		}
 	}
 
-	migratoryLayerStore, exists := is.ls.(migratoryLayerStore)
+	migratoryLayerStore, exists := ls.(migratoryLayerStore)
 	if !exists {
-		return errors.New("migration not supported")
+		return errUnsupported
 	}
 
 	var layerDigests []layer.DiffID
-	var history []History
+	var history []images.History
 
 	if parentID != "" {
 		parentImg, err := is.Get(parentID)
@@ -214,7 +237,7 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 		return err
 	}
 
-	layer, err := migratoryLayerStore.RegisterByGraphID(id, parentLayer, filepath.Join(filepath.Join(is.root, graphDirName, id, tarDataFileName)))
+	layer, err := migratoryLayerStore.RegisterByGraphID(id, parentLayer, filepath.Join(filepath.Join(root, graphDirName, id, tarDataFileName)))
 	if err != nil {
 		return err
 	}
@@ -244,13 +267,13 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 		return err
 	}
 
-	_, err = is.ls.Release(layer)
+	_, err = ls.Release(layer)
 	if err != nil {
 		return err
 	}
 
 	if parentID != "" {
-		if err := is.fs.SetMetadata(digest.Digest(strongID), "parent", []byte(parentID)); err != nil {
+		if err := is.SetParent(strongID, parentID); err != nil {
 			return err
 		}
 	}
@@ -260,9 +283,9 @@ func (is *store) migrateV1Image(id string, mappings map[string]ID) (err error) {
 }
 
 // HistoryFromV1Config creates a History struct from v1 configuration JSON
-func HistoryFromV1Config(imageJSON []byte) (History, error) {
-	h := History{}
-	var v1Image ImageV1
+func HistoryFromV1Config(imageJSON []byte) (images.History, error) {
+	h := images.History{}
+	var v1Image images.ImageV1
 	if err := json.Unmarshal(imageJSON, &v1Image); err != nil {
 		return h, err
 	}
@@ -279,7 +302,7 @@ func HistoryFromV1Config(imageJSON []byte) (History, error) {
 }
 
 // ConfigFromV1Config creates an image config from the legacy V1 config format.
-func ConfigFromV1Config(imageJSON []byte, layerDigests []layer.DiffID, history []History) ([]byte, error) {
+func ConfigFromV1Config(imageJSON []byte, layerDigests []layer.DiffID, history []images.History) ([]byte, error) {
 	var c map[string]*json.RawMessage
 	if err := json.Unmarshal(imageJSON, &c); err != nil {
 		return nil, err
@@ -291,7 +314,7 @@ func ConfigFromV1Config(imageJSON []byte, layerDigests []layer.DiffID, history [
 	delete(c, "parent_id")
 	delete(c, "layer_id")
 
-	c["rootfs"] = rawJSON(&RootFS{Type: "layers", DiffIDs: layerDigests})
+	c["rootfs"] = rawJSON(&images.RootFS{Type: "layers", DiffIDs: layerDigests})
 	c["history"] = rawJSON(history)
 
 	return json.MarshalCanonical(c)
