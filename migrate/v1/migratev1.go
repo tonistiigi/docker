@@ -1,6 +1,4 @@
-package migratev1
-
-// FIXME: try moving this out of image package
+package v1
 
 import (
 	"errors"
@@ -36,21 +34,21 @@ var (
 	errUnsupported = errors.New("migration is not supported")
 )
 
-func MigrateV1(root string, ls layer.Store, is images.Store, ts tag.Store) error {
+func Migrate(root string, ls layer.Store, is images.Store, ts tag.Store) error {
 	mappings := make(map[string]images.ID)
 
-	if err := migrateV1Images(root, ls, is, mappings); err != nil {
+	if err := migrateImages(root, ls, is, mappings); err != nil {
 		return err
 	}
 
-	if err := migrateV1Containers(root, ls, is, mappings); err != nil {
+	if err := migrateContainers(root, ls, is, mappings); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func migrateV1Images(root string, ls layer.Store, is images.Store, mappings map[string]images.ID) error {
+func migrateImages(root string, ls layer.Store, is images.Store, mappings map[string]images.ID) error {
 	if _, ok := ls.(migratoryLayerStore); !ok {
 		return errUnsupported
 	}
@@ -83,7 +81,7 @@ func migrateV1Images(root string, ls layer.Store, is images.Store, mappings map[
 		if _, exists := mappings[v1ID]; exists {
 			continue
 		} else {
-			if err := migrateV1Image(v1ID, root, ls, is, mappings); err != nil {
+			if err := migrateImage(v1ID, root, ls, is, mappings); err != nil {
 				// todo: fail or allow broken chains?b
 				continue
 			}
@@ -102,7 +100,7 @@ func migrateV1Images(root string, ls layer.Store, is images.Store, mappings map[
 	return nil
 }
 
-func migrateV1Containers(root string, ls layer.Store, is images.Store, imageMappings map[string]images.ID) error {
+func migrateContainers(root string, ls layer.Store, is images.Store, imageMappings map[string]images.ID) error {
 	containersDir := path.Join(root, containersDirName)
 	dir, err := ioutil.ReadDir(containersDir)
 	if err != nil {
@@ -181,11 +179,11 @@ func migrateV1Containers(root string, ls layer.Store, is images.Store, imageMapp
 	return nil
 }
 
-// func migrateV1Tags(mappings map[string]images.ID) error {
+// func migrateTags(mappings map[string]images.ID) error {
 // 	return nil
 // }
 
-func migrateV1Image(id, root string, ls layer.Store, is images.Store, mappings map[string]images.ID) (err error) {
+func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map[string]images.ID) (err error) {
 	defer func() {
 		if err != nil {
 			logrus.Errorf("migration failed for %v, err: %v", id, err)
@@ -206,7 +204,7 @@ func migrateV1Image(id, root string, ls layer.Store, is images.Store, mappings m
 	if parent.Parent != "" {
 		var exists bool
 		if parentID, exists = mappings[parent.Parent]; !exists {
-			if err := migrateV1Image(parent.Parent, root, ls, is, mappings); err != nil {
+			if err := migrateImage(parent.Parent, root, ls, is, mappings); err != nil {
 				// todo: fail or allow broken chains?
 				return err
 			}

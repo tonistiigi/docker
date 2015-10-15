@@ -37,7 +37,7 @@ import (
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/images"
 	"github.com/docker/docker/layer"
-	"github.com/docker/docker/migratev1"
+	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/broadcaster"
 	"github.com/docker/docker/pkg/discovery"
@@ -791,7 +791,7 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 		}
 	}
 
-	if err := migratev1.MigrateV1(filepath.Join(config.Root), d.layerStore, d.imageStore, tagStore); err != nil {
+	if err := v1.Migrate(filepath.Join(config.Root), d.layerStore, d.imageStore, tagStore); err != nil {
 		return nil, err
 	}
 
