@@ -1056,8 +1056,12 @@ func (daemon *Daemon) Graph() *graph.Graph {
 // TagImage creates a tag in the repository reponame, pointing to the image named
 // imageName. If force is true, an existing tag with the same name may be
 // overwritten.
-func (daemon *Daemon) TagImage(ref reference.NamedTagged, imageName string, force bool) error {
-	return daemon.repositories.Tag(ref.Name(), ref.Tag(), imageName, force)
+func (daemon *Daemon) TagImage(newTag reference.Named, imageName string, force bool) error {
+	imageID, err := daemon.GetImage(imageName)
+	if err != nil {
+		return err
+	}
+	return daemon.tagStore.Add(newTag, imageID, force)
 }
 
 // PullImage initiates a pull operation. image is the repository name to pull, and
@@ -1143,11 +1147,22 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 	return daemon.repositories.History(name)
 }
 
-// GetImage returns pointer to an Image struct corresponding to the given
-// name. The name can include an optional tag; otherwise the default tag will
-// be used.
-func (daemon *Daemon) GetImage(name string) (*image.Image, error) {
-	return daemon.repositories.LookupImage(name)
+// GetImage returns an image ID corresponding to the image referred to by
+// refOrID.
+func (daemon *Daemon) GetImage(refOrID string) (images.ID, error) {
+	// Treat it as a possible tag or digest reference
+	if ref, err := reference.ParseNamed(refOrID); err == nil {
+		if id, err := daemon.tagStore.Get(ref); err == nil {
+			return id, nil
+		}
+	}
+
+	// Search based on ID
+	if id, err := daemon.imageStore.Search(refOrID); err == nil {
+		return id, nil
+	}
+
+	return "", fmt.Errorf("image %s not found", refOrID)
 }
 
 func (daemon *Daemon) config() *Config {

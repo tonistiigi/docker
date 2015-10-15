@@ -130,8 +130,8 @@ func TestAddDeleteGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not parse reference: %v", err)
 	}
-	if err = store.Add(nameOnly, testImageID1, false); err != ErrNoTagOrDigest {
-		t.Fatalf("expected ErrNoTagOrDigest, got %v", err)
+	if err = store.Add(nameOnly, testImageID1, false); err != nil {
+		t.Fatalf("error adding to store: %v", err)
 	}
 
 	// Add a few references
@@ -185,7 +185,15 @@ func TestAddDeleteGet(t *testing.T) {
 	}
 
 	// Check references so far
-	id, err := store.Get(ref1)
+	id, err := store.Get(nameOnly)
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if id != testImageID1 {
+		t.Fatalf("id mismatch: got %s instead of %s", id.String(), testImageID1.String())
+	}
+
+	id, err = store.Get(ref1)
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
@@ -246,7 +254,7 @@ func TestAddDeleteGet(t *testing.T) {
 	// Check References
 	refs := store.References(testImageID1)
 	sort.Sort(LexicalRefs(refs))
-	if len(refs) != 2 {
+	if len(refs) != 3 {
 		t.Fatal("unexpected number of references")
 	}
 	if refs[0].String() != ref3.String() {
@@ -254,6 +262,9 @@ func TestAddDeleteGet(t *testing.T) {
 	}
 	if refs[1].String() != ref1.String() {
 		t.Fatalf("unexpected reference: %v", refs[1].String())
+	}
+	if refs[2].String() != nameOnly.String()+":latest" {
+		t.Fatalf("unexpected reference: %v", refs[2].String())
 	}
 
 	// Check ReferencesByName

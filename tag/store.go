@@ -20,9 +20,6 @@ var (
 	// ErrDoesNotExist is returned if a reference is not found in the
 	// store.
 	ErrDoesNotExist = errors.New("reference does not exist")
-	// ErrNoTagOrDigest is returned if a reference has neither a Tag nor
-	// a Digest.
-	ErrNoTagOrDigest = errors.New("reference has neither a tag nor a digest")
 )
 
 // An Association is a tuple associating a reference with an image ID.
@@ -51,6 +48,19 @@ type store struct {
 // including the repository name.
 type repository map[string]images.ID
 
+func defaultTagIfNameOnly(ref reference.Named) reference.Named {
+	switch ref.(type) {
+	case reference.Tagged:
+		return ref
+	case reference.Digested:
+		return ref
+	default:
+		// Should never fail
+		ref, _ = reference.WithTag(ref, DefaultTag)
+		return ref
+	}
+}
+
 // NewTagStore creates a new tag store, tied to a file path where the set of
 // tags is serialized in JSON format.
 func NewTagStore(jsonPath string) (Store, error) {
@@ -77,14 +87,7 @@ func NewTagStore(jsonPath string) (Store, error) {
 // Add adds a tag or digest to the store. If force is set to true, existing
 // references can be overwritten. This only works for tags, not digests.
 func (store *store) Add(ref reference.Named, id images.ID, force bool) error {
-	// Reference must include a name and a tag or digest
-	switch ref.(type) {
-	case reference.Tagged:
-	case reference.Digested:
-		break
-	default:
-		return ErrNoTagOrDigest
-	}
+	ref = defaultTagIfNameOnly(ref)
 
 	store.Lock()
 	defer store.Unlock()
@@ -117,6 +120,8 @@ func (store *store) Add(ref reference.Named, id images.ID, force bool) error {
 // Delete deletes a reference from the store. It returns true if a deletion
 // happened, or false otherwise.
 func (store *store) Delete(ref reference.Named) (bool, error) {
+	ref = defaultTagIfNameOnly(ref)
+
 	store.Lock()
 	defer store.Unlock()
 
@@ -150,6 +155,8 @@ func (store *store) Delete(ref reference.Named) (bool, error) {
 
 // Get retrieves an item from the store by reference.
 func (store *store) Get(ref reference.Named) (images.ID, error) {
+	ref = defaultTagIfNameOnly(ref)
+
 	store.RLock()
 	defer store.RUnlock()
 

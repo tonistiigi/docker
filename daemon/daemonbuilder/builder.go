@@ -38,7 +38,8 @@ var _ builder.Docker = Docker{}
 
 // LookupImage looks up a Docker image referenced by `name`.
 func (d Docker) LookupImage(name string) (*image.Image, error) {
-	return d.Daemon.GetImage(name)
+	//return d.Daemon.GetImage(name)
+	panic("needs to be updated for image store")
 }
 
 // Pull tells Docker to pull image referenced by `name`.
@@ -76,7 +77,8 @@ func (d Docker) Pull(name string) (*image.Image, error) {
 		return nil, err
 	}
 
-	return d.Daemon.GetImage(name)
+	//return d.Daemon.GetImage(name)
+	panic("needs to be updated for image store")
 }
 
 // Container looks up a Docker container referenced by `id`.

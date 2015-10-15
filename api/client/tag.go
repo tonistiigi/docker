@@ -1,7 +1,6 @@
 package client
 
 import (
-	"fmt"
 	"net/url"
 
 	"github.com/docker/distribution/reference"
@@ -26,9 +25,10 @@ func (cli *DockerCli) CmdTag(args ...string) error {
 		return err
 	}
 
+	tag := ""
 	tagged, isTagged := ref.(reference.Tagged)
-	if !isTagged {
-		return fmt.Errorf("reference %s has no tag", ref.String())
+	if isTagged {
+		tag = tagged.Tag()
 	}
 
 	//Check if the given image name can be resolved
@@ -36,7 +36,7 @@ func (cli *DockerCli) CmdTag(args ...string) error {
 		return err
 	}
 	v.Set("repo", ref.Name())
-	v.Set("tag", tagged.Tag())
+	v.Set("tag", tag)
 
 	if *force {
 		v.Set("force", "1")
