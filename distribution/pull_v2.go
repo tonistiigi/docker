@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker/images"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/migrate/v1"
+	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/broadcaster"
 	"github.com/docker/docker/pkg/progressreader"
 	"github.com/docker/docker/pkg/streamformatter"
@@ -245,7 +246,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 	var allBlobSums []digest.Digest
 
 	// Generate a slice of BlobSums, ordered from bottom-most to top-most
-	for i := len(verifiedManifest.FSLayers); i >= 0; i-- {
+	for i := len(verifiedManifest.FSLayers) - 1; i >= 0; i-- {
 		allBlobSums = append(allBlobSums, verifiedManifest.FSLayers[i].BlobSum)
 	}
 
@@ -331,7 +332,12 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 			Action:    "Extracting",
 		})
 
-		l, err := p.config.LayerStore.Register(reader, layerID)
+		inflatedLayerData, err := archive.DecompressStream(reader)
+		if err != nil {
+			return false, err
+		}
+
+		l, err := p.config.LayerStore.Register(inflatedLayerData, layerID)
 		if err != nil {
 			return false, err
 		}

@@ -109,10 +109,6 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 	var blobsums []digest.Digest
 
 	for l != nil {
-		if err != nil {
-			return err
-		}
-
 		logrus.Debugf("Pushing layer: %s", l.DiffID())
 
 		// Do we have any blobsums associated with this layer's DiffID?
@@ -170,7 +166,7 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 		return err
 	}
 
-	logrus.Infof("Signed manifest for %s:%s using daemon's key: %s", ref.String(), p.config.TrustKey.KeyID())
+	logrus.Infof("Signed manifest for %s using daemon's key: %s", ref.String(), p.config.TrustKey.KeyID())
 	signed, err := manifest.Sign(m, p.config.TrustKey)
 	if err != nil {
 		return err

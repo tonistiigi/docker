@@ -165,6 +165,9 @@ func (cl *cacheLayer) DiffID() DiffID {
 }
 
 func (cl *cacheLayer) Parent() (Layer, error) {
+	if cl.parent == nil {
+		return nil, nil
+	}
 	return cl.parent, nil
 }
 
