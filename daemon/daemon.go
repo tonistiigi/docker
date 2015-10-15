@@ -741,7 +741,12 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 
 	distributionPool := distribution.NewPool()
 
-	d.imageStore, err = images.NewImageStore(config.Root, d.layerStore)
+	ifs, err := images.NewFSStoreBackend(filepath.Join(config.Root, "images"))
+	if err != nil {
+		return nil, err
+	}
+
+	d.imageStore, err = images.NewImageStore(ifs, d.layerStore)
 	if err != nil {
 		return nil, err
 	}

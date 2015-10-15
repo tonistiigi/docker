@@ -35,6 +35,10 @@ const (
 	metadataDirName = "metadata"
 )
 
+func NewFSStoreBackend(root string) (StoreBackend, error) {
+	return newFSStore(root)
+}
+
 func newFSStore(root string) (*fs, error) {
 	s := &fs{
 		root: root,

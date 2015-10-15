@@ -2,7 +2,6 @@ package images
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"sync"
 
 	"github.com/Sirupsen/logrus"
@@ -22,23 +21,14 @@ type Store interface {
 type store struct {
 	sync.Mutex
 	ls        layer.Store
-	root      string
 	ids       map[ID]layer.Layer
 	fs        StoreBackend
 	digestSet *digest.Set
 }
 
-const imagesDirName = "images"
-
 // NewImageStore returns new store object for given layer.Store
-func NewImageStore(root string, ls layer.Store) (Store, error) {
-	fs, err := newFSStore(filepath.Join(root, imagesDirName))
-	if err != nil {
-		return nil, err
-	}
-
+func NewImageStore(fs StoreBackend, ls layer.Store) (Store, error) {
 	is := &store{
-		root:      root,
 		ls:        ls,
 		ids:       make(map[ID]layer.Layer),
 		fs:        fs,
