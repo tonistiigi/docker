@@ -111,7 +111,21 @@ func (daemon *Daemon) getInspectData(container *Container) (*types.ContainerJSON
 
 	contJSONBase.GraphDriver.Name = container.Driver
 
-	graphDriverData, err := daemon.driver.GetMetadata(container.ID)
+	image, err := daemon.imageStore.Get(container.ImageID)
+	if err != nil {
+		return nil, err
+	}
+	layerID, err := image.GetTopLayerID()
+	if err != nil {
+		return nil, err
+	}
+	layer, err := daemon.layerStore.Get(layerID)
+	if err != nil {
+		return nil, err
+	}
+	defer daemon.layerStore.Release(layer)
+
+	graphDriverData, err := layer.Metadata()
 	if err != nil {
 		return nil, err
 	}
