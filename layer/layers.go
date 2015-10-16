@@ -158,10 +158,7 @@ type MetadataStore interface {
 	RemoveMount(string) error
 }
 
-type tarStreamer func() (io.Reader, error)
-
 type cacheLayer struct {
-	tarStreamer
 	address    ID
 	digest     DiffID
 	parent     *cacheLayer
@@ -173,7 +170,12 @@ type cacheLayer struct {
 }
 
 func (cl *cacheLayer) TarStream() (io.Reader, error) {
-	return cl.tarStreamer()
+	r, err := cl.layerStore.store.TarSplitReader(cl.address)
+	if err != nil {
+		return nil, err
+	}
+
+	return cl.layerStore.assembleTar(cl.cacheID, r)
 }
 
 func (cl *cacheLayer) ID() ID {
@@ -199,16 +201,21 @@ func (cl *cacheLayer) Metadata() (map[string]string, error) {
 }
 
 type mountedLayer struct {
-	tarStreamer
-	name    string
-	mountID string
-	initID  string
-	parent  *cacheLayer
-	path    string
+	name       string
+	mountID    string
+	initID     string
+	parent     *cacheLayer
+	path       string
+	layerStore *layerStore
 }
 
 func (ml *mountedLayer) TarStream() (io.Reader, error) {
-	return ml.tarStreamer()
+	var pid string
+	if ml.parent != nil {
+		pid = ml.parent.cacheID
+	}
+	archiver, err := ml.layerStore.driver.Diff(ml.mountID, pid)
+	return io.Reader(archiver), err
 }
 
 func (ml *mountedLayer) Path() (string, error) {
@@ -309,8 +316,6 @@ func (ls *layerStore) loadLayer(layer ID) (*cacheLayer, error) {
 		cl.parent = p
 	}
 
-	cl.tarStreamer = ls.layerTarStreamer(cl)
-
 	ls.layerMap[cl.address] = cl
 
 	return cl, nil
@@ -337,9 +342,10 @@ func (ls *layerStore) loadMount(mount string) error {
 	}
 
 	ml := &mountedLayer{
-		name:    mount,
-		mountID: mountID,
-		initID:  initID,
+		name:       mount,
+		mountID:    mountID,
+		initID:     initID,
+		layerStore: ls,
 	}
 
 	if parent != "" {
@@ -350,15 +356,6 @@ func (ls *layerStore) loadMount(mount string) error {
 		ml.parent = p
 
 		ls.retainLayer(p)
-	}
-	var pid string
-	if ml.parent != nil {
-		pid = ml.parent.cacheID
-	}
-
-	ml.tarStreamer = func() (io.Reader, error) {
-		archiver, err := ls.driver.Diff(ml.mountID, pid)
-		return io.Reader(archiver), err
 	}
 
 	ls.mounts[ml.name] = ml
@@ -459,8 +456,6 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 	if err = ls.applyTar(tx, ts, pid, layer); err != nil {
 		return nil, err
 	}
-
-	layer.tarStreamer = ls.layerTarStreamer(layer)
 
 	if layer.parent == nil {
 		layer.address = ID(layer.digest)
@@ -614,15 +609,6 @@ func (ls *layerStore) mount(m *mountedLayer, mountLabel string) error {
 }
 
 func (ls *layerStore) saveMount(mount *mountedLayer) error {
-	var pid string
-	if mount.parent != nil {
-		pid = mount.parent.cacheID
-	}
-	mount.tarStreamer = func() (io.Reader, error) {
-		archiver, err := ls.driver.Diff(mount.mountID, pid)
-		return io.Reader(archiver), err
-	}
-
 	if err := ls.store.SetMountID(mount.name, mount.mountID); err != nil {
 		return err
 	}
@@ -681,9 +667,10 @@ func (ls *layerStore) Mount(name string, parent ID, mountLabel string, initFunc 
 	}
 
 	m = &mountedLayer{
-		name:    name,
-		parent:  p,
-		mountID: stringid.GenerateRandomID(),
+		name:       name,
+		parent:     p,
+		mountID:    stringid.GenerateRandomID(),
+		layerStore: ls,
 	}
 
 	if err := ls.driver.Create(m.mountID, pid); err != nil {

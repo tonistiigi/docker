@@ -41,9 +41,10 @@ func (ls *layerStore) MountByGraphID(name string, graphID string, parent ID) (RW
 	// TODO: Ensure graphID has correct parent
 
 	m = &mountedLayer{
-		name:    name,
-		parent:  p,
-		mountID: graphID,
+		name:       name,
+		parent:     p,
+		mountID:    graphID,
+		layerStore: ls,
 	}
 
 	if err := ls.saveMount(m); err != nil {
@@ -140,8 +141,6 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 	if err != nil {
 		return nil, err
 	}
-
-	layer.tarStreamer = ls.layerTarStreamer(layer)
 
 	if err = storeLayer(tx, layer); err != nil {
 		return nil, err
