@@ -250,7 +250,6 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		allBlobSums = append(allBlobSums, verifiedManifest.FSLayers[i].BlobSum)
 	}
 
-	var layerID layer.ID
 	var layerDiffIDs []layer.DiffID
 
 	// Iterating from top-most to bottom-most layer
@@ -258,12 +257,16 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 	for i = len(allBlobSums); i > 0; i-- {
 		// Do we have a layer on disk corresponding to the set of
 		// blobsums up to this point?
-		layerID, err = p.blobSumLookupService.Get(allBlobSums[:i])
+		layerID, err := p.blobSumLookupService.Get(allBlobSums[:i])
 		if err != nil {
 			continue
 		}
 
 		if l, err := p.config.LayerStore.Get(layerID); err == nil {
+			for _, blobSum := range allBlobSums[:i] {
+				logrus.Debugf("Layer already exists: %s", blobSum.String())
+				out.Write(p.sf.FormatProgress(stringid.TruncateID(blobSum.String()), "Already exists", nil))
+			}
 			referencedLayers = append(referencedLayers, l)
 			layerDiffIDs = addLayerDiffIDs(l)
 			break
@@ -306,6 +309,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		}
 	}
 
+	var layerID layer.ID
 	for _, d := range downloads {
 		if err := <-d.err; err != nil {
 			return false, err
@@ -334,13 +338,14 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 
 		inflatedLayerData, err := archive.DecompressStream(reader)
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("could not get decompression stream: %v", err)
 		}
 
 		l, err := p.config.LayerStore.Register(inflatedLayerData, layerID)
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("failed to register layer: %v", err)
 		}
+		logrus.Debugf("layer %s registered successfully", l.DiffID())
 		referencedLayers = append(referencedLayers, l)
 
 		layerID = l.ID()

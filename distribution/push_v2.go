@@ -105,6 +105,7 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 	if err != nil {
 		return fmt.Errorf("failed to get top layer from image: %v", err)
 	}
+	defer p.config.LayerStore.Release(l)
 
 	var blobsums []digest.Digest
 
@@ -231,6 +232,9 @@ func CreateV2Manifest(name, tag, architecture string, imgJSON []byte, fsLayers [
 	delete(configAsMap, "diff_ids")
 	delete(configAsMap, "history")
 	configAsMap["id"] = rawJSON(fsLayers[0].BlobSum.Hex())
+	if len(fsLayers) > 1 {
+		configAsMap["parent"] = rawJSON(fsLayers[1].BlobSum.Hex())
+	}
 
 	transformedConfig, err := json.Marshal(configAsMap)
 	if err != nil {
@@ -245,9 +249,9 @@ func CreateV2Manifest(name, tag, architecture string, imgJSON []byte, fsLayers [
 	for i := 1; i < len(fsLayers); i++ {
 		// FIXME: are there other fields that are mandatory to the pull code?
 		if i != len(fsLayers)-1 {
-			history[i].V1Compatibility = fmt.Sprintf(`{"id":"%s","parent":"%s"}\n`, fsLayers[i].BlobSum.Hex(), fsLayers[i+1].BlobSum.Hex())
+			history[i].V1Compatibility = fmt.Sprintf(`{"id":"%s","parent":"%s"}`, fsLayers[i].BlobSum.Hex(), fsLayers[i+1].BlobSum.Hex())
 		} else {
-			history[i].V1Compatibility = fmt.Sprintf(`{"id":"%s"}\n`, fsLayers[i].BlobSum.Hex())
+			history[i].V1Compatibility = fmt.Sprintf(`{"id":"%s"}`, fsLayers[i].BlobSum.Hex())
 		}
 	}
 
