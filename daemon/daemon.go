@@ -1033,8 +1033,7 @@ func (daemon *Daemon) unsubscribeToContainerStats(c *Container, ch chan interfac
 }
 
 func (daemon *Daemon) changes(container *Container) ([]archive.Change, error) {
-	initID := fmt.Sprintf("%s-init", container.ID)
-	return daemon.driver.Changes(container.ID, initID)
+	return daemon.layerStore.Changes(container.ID)
 }
 
 // Graph needs to be removed.
