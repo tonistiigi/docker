@@ -82,6 +82,7 @@ type RWLayer interface {
 	TarStreamer
 	Path() (string, error)
 	Parent() (Layer, error)
+	Size() (int64, error)
 }
 
 // Metadata holds information about a
@@ -229,6 +230,14 @@ func (ml *mountedLayer) Path() (string, error) {
 
 func (ml *mountedLayer) Parent() (Layer, error) {
 	return ml.parent, nil
+}
+
+func (ml *mountedLayer) Size() (int64, error) {
+	pid := ml.initID
+	if pid == "" && ml.parent != nil {
+		pid = ml.parent.cacheID
+	}
+	return ml.layerStore.driver.DiffSize(ml.mountID, pid)
 }
 
 type layerStore struct {
@@ -644,7 +653,31 @@ func (ls *layerStore) getAndRetainLayer(layer ID) *cacheLayer {
 	return l
 }
 
+func (ls *layerStore) initMount(parent string, initFunc MountInit) (string, error) {
+	initID := stringid.GenerateRandomID()
+	if err := ls.driver.Create(initID, parent); err != nil {
+
+	}
+	p, err := ls.driver.Get(initID, "")
+	if err != nil {
+		return "", err
+	}
+
+	if err := initFunc(p); err != nil {
+		ls.driver.Put(initID)
+		return "", err
+	}
+
+	if err := ls.driver.Put(initID); err != nil {
+		return "", err
+	}
+
+	return initID, nil
+
+}
+
 func (ls *layerStore) Mount(name string, parent ID, mountLabel string, initFunc MountInit) (RWLayer, error) {
+	var err error
 	ls.mountL.Lock()
 	defer ls.mountL.Unlock()
 	m, ok := ls.mounts[name]
@@ -667,6 +700,14 @@ func (ls *layerStore) Mount(name string, parent ID, mountLabel string, initFunc 
 		}
 		pid = p.cacheID
 
+		// Release parent chain if error
+		defer func() {
+			if err != nil {
+				ls.layerL.Lock()
+				ls.releaseLayer(p)
+				ls.layerL.Unlock()
+			}
+		}()
 	}
 
 	m = &mountedLayer{
@@ -676,15 +717,23 @@ func (ls *layerStore) Mount(name string, parent ID, mountLabel string, initFunc 
 		layerStore: ls,
 	}
 
-	if err := ls.driver.Create(m.mountID, pid); err != nil {
+	if initFunc != nil {
+		pid, err = ls.initMount(pid, initFunc)
+		if err != nil {
+			return nil, err
+		}
+		m.initID = pid
+	}
+
+	if err = ls.driver.Create(m.mountID, pid); err != nil {
 		return nil, err
 	}
 
-	if err := ls.saveMount(m); err != nil {
+	if err = ls.saveMount(m); err != nil {
 		return nil, err
 	}
 
-	if err := ls.mount(m, mountLabel); err != nil {
+	if err = ls.mount(m, mountLabel); err != nil {
 		return nil, err
 	}
 
@@ -757,8 +806,8 @@ func (ls *layerStore) Changes(name string) ([]archive.Change, error) {
 	if m == nil {
 		return nil, ErrMountDoesNotExist
 	}
-	var pid string
-	if m.parent != nil {
+	pid := m.initID
+	if pid == "" && m.parent != nil {
 		pid = m.parent.cacheID
 	}
 	return ls.driver.Changes(m.mountID, pid)

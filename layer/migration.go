@@ -3,6 +3,7 @@ package layer
 import (
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 
@@ -11,6 +12,8 @@ import (
 )
 
 func (ls *layerStore) MountByGraphID(name string, graphID string, parent ID) (RWLayer, error) {
+	var err error
+
 	ls.mountL.Lock()
 	defer ls.mountL.Unlock()
 	m, ok := ls.mounts[name]
@@ -36,6 +39,15 @@ func (ls *layerStore) MountByGraphID(name string, graphID string, parent ID) (RW
 		if p == nil {
 			return nil, ErrLayerDoesNotExist
 		}
+
+		// Release parent chain if error
+		defer func() {
+			if err != nil {
+				ls.layerL.Lock()
+				ls.releaseLayer(p)
+				ls.layerL.Unlock()
+			}
+		}()
 	}
 
 	// TODO: Ensure graphID has correct parent
@@ -47,12 +59,18 @@ func (ls *layerStore) MountByGraphID(name string, graphID string, parent ID) (RW
 		layerStore: ls,
 	}
 
-	if err := ls.saveMount(m); err != nil {
+	// Check for existing init layer
+	initID := fmt.Sprintf("%s-init", graphID)
+	if ls.driver.Exists(initID) {
+		m.initID = initID
+	}
+
+	if err = ls.saveMount(m); err != nil {
 		return nil, err
 	}
 
 	// TODO: provide a mount label
-	if err := ls.mount(m, ""); err != nil {
+	if err = ls.mount(m, ""); err != nil {
 		return nil, err
 	}
 
