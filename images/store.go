@@ -19,6 +19,8 @@ type Store interface {
 	SetParent(id ID, parent ID) error
 	GetParent(id ID) (ID, error)
 	HasChild(id ID) bool
+	Map() map[ID]*Image
+	Heads() map[ID]*Image
 }
 
 type imageMeta struct {
@@ -212,5 +214,38 @@ func (is *store) GetParent(id ID) (ID, error) {
 func (is *store) HasChild(id ID) bool {
 	is.Lock()
 	defer is.Unlock()
+
+	return is.hasChild(id)
+}
+
+func (is *store) hasChild(id ID) bool {
 	return is.images[id] != nil && len(is.images[id].children) > 0
+}
+
+func (is *store) Heads() map[ID]*Image {
+	return is.imageMap(false)
+}
+
+func (is *store) Map() map[ID]*Image {
+	return is.imageMap(true)
+}
+
+func (is *store) imageMap(all bool) map[ID]*Image {
+	is.Lock()
+	defer is.Unlock()
+
+	images := make(map[ID]*Image)
+
+	for id, _ := range is.images {
+		if !all && is.hasChild(id) {
+			continue
+		}
+		img, err := is.Get(id)
+		if err != nil {
+			logrus.Errorf("invalid image access: %q, error: %q", id, err)
+			continue
+		}
+		images[id] = img
+	}
+	return images
 }
