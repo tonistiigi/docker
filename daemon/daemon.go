@@ -1037,11 +1037,6 @@ func (daemon *Daemon) changes(container *Container) ([]archive.Change, error) {
 	return daemon.driver.Changes(container.ID, initID)
 }
 
-func (daemon *Daemon) diff(container *Container) (archive.Archive, error) {
-	initID := fmt.Sprintf("%s-init", container.ID)
-	return daemon.driver.Diff(container.ID, initID)
-}
-
 // Graph needs to be removed.
 //
 // FIXME: this is a convenience function for integration tests

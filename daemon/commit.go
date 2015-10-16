@@ -24,7 +24,7 @@ type ContainerCommitConfig struct {
 
 // Commit creates a new filesystem image from the current state of a container.
 // The image can optionally be tagged into a repository.
-func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (string, error) { // change type to images.ID
+func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (string, error) { // FIXME: change type to images.ID
 	if c.Pause && !container.isPaused() {
 		container.pause()
 		defer container.unpause()
@@ -40,7 +40,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 		}
 	}()
 
-	img, err := daemon.imageStore.Get(images.ID(container.ImageID))
+	img, err := daemon.imageStore.Get(container.ImageID)
 	if err != nil {
 		return "", err
 	}
