@@ -478,6 +478,7 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 	if existingLayer, ok := ls.layerMap[layer.address]; ok {
 		// Set error for cleanup, but do not return
 		err = errors.New("layer already exists")
+		ls.retainLayer(existingLayer)
 		return existingLayer, nil
 	}
 
