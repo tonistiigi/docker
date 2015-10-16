@@ -1131,7 +1131,7 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 		return nil, err
 	}
 
-	parent, _ := daemon.imageStore.GetParent(imgID) // probably better in lookupImage()
+	parent, _ := daemon.imageStore.GetParent(imgID) // probably better in graph.lookupImage()
 
 	refs := daemon.tagStore.References(imgID)
 	var tags = make([]string, len(refs))
@@ -1170,13 +1170,11 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 
 	imageInspect.GraphDriver.Name = daemon.driver.String()
 
-	// FIXME: expose via layer
-	// graphDriverData, err := daemon.driver.GetMetadata(image.ID)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// imageInspect.GraphDriver.Data = graphDriverData
-	//
+	graphDriverData, err := layer.Metadata()
+	if err != nil {
+		return nil, err
+	}
+	imageInspect.GraphDriver.Data = graphDriverData
 
 	return imageInspect, nil
 }

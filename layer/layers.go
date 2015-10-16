@@ -65,6 +65,7 @@ type Layer interface {
 	DiffID() DiffID
 	Parent() (Layer, error)
 	Size() (int64, error)
+	Metadata() (map[string]string, error)
 }
 
 // RWLayer represents a layer which is
@@ -143,11 +144,12 @@ type tarStreamer func() (io.Reader, error)
 
 type cacheLayer struct {
 	tarStreamer
-	address ID
-	digest  DiffID
-	parent  *cacheLayer
-	cacheID string
-	size    int64
+	address    ID
+	digest     DiffID
+	parent     *cacheLayer
+	cacheID    string
+	size       int64
+	layerStore *layerStore
 
 	referenceCount int
 }
@@ -173,6 +175,9 @@ func (cl *cacheLayer) Parent() (Layer, error) {
 
 func (cl *cacheLayer) Size() (int64, error) {
 	return cl.size, nil
+}
+func (cl *cacheLayer) Metadata() (map[string]string, error) {
+	return cl.layerStore.driver.GetMetadata(cl.cacheID)
 }
 
 type mountedLayer struct {
@@ -271,10 +276,11 @@ func (ls *layerStore) loadLayer(layer ID) (*cacheLayer, error) {
 	}
 
 	cl = &cacheLayer{
-		address: layer,
-		digest:  diff,
-		size:    size,
-		cacheID: cacheID,
+		address:    layer,
+		digest:     diff,
+		size:       size,
+		cacheID:    cacheID,
+		layerStore: ls,
 	}
 
 	if parent != "" {
@@ -374,6 +380,7 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 		parent:         p,
 		cacheID:        stringid.GenerateRandomID(),
 		referenceCount: 1,
+		layerStore:     ls,
 	}
 
 	if err = ls.driver.Create(layer.cacheID, pid); err != nil {
@@ -771,6 +778,7 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 		parent:         p,
 		cacheID:        graphID,
 		referenceCount: 1,
+		layerStore:     ls,
 	}
 
 	tar, err := ls.assembleTar(graphID, tarDataFile)
