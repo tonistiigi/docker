@@ -35,6 +35,7 @@ const (
 	metadataDirName = "metadata"
 )
 
+// NewFSStoreBackend returns new filesystem based backend for image.Store
 func NewFSStoreBackend(root string) (StoreBackend, error) {
 	return newFSStore(root)
 }

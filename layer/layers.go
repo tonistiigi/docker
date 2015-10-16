@@ -117,6 +117,8 @@ type Store interface {
 	Changes(id string) ([]archive.Change, error)
 }
 
+// MetadataTransaction represents functions for setting layer metadata
+// with a single transaction.
 type MetadataTransaction interface {
 	SetSize(int64) error
 	SetParent(parent ID) error

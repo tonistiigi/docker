@@ -71,7 +71,7 @@ func (img *Image) RawJSON() []byte {
 	return img.rawJSON
 }
 
-// GetTopLayer returns the top Layer object for this image.
+// GetTopLayerID returns the top layer ID for this image.
 func (img *Image) GetTopLayerID() (layer.ID, error) {
 	return layer.CreateID("", img.RootFS.DiffIDs...)
 }
