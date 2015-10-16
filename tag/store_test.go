@@ -95,7 +95,7 @@ func TestSave(t *testing.T) {
 	}
 }
 
-type LexicalRefs []reference.Reference
+type LexicalRefs []reference.Named
 
 func (a LexicalRefs) Len() int           { return len(a) }
 func (a LexicalRefs) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }

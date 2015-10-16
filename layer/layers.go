@@ -49,8 +49,18 @@ var (
 // ID is the content-addressable ID of a layer.
 type ID digest.Digest
 
+// String returns a string rendition of a layer ID
+func (id ID) String() string {
+	return string(id)
+}
+
 // DiffID is the hash of an individual layer tar.
 type DiffID digest.Digest
+
+// String returns a string rendition of a layer DiffID
+func (diffID DiffID) String() string {
+	return string(diffID)
+}
 
 // TarStreamer represents an object which may
 // have its contents exported as a tar stream.

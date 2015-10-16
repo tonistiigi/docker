@@ -24,13 +24,13 @@ var (
 
 // An Association is a tuple associating a reference with an image ID.
 type Association struct {
-	Ref     reference.Reference
+	Ref     reference.Named
 	ImageID images.ID
 }
 
 // Store provides the set of methods which can operate on a tag store.
 type Store interface {
-	References(id images.ID) []reference.Reference
+	References(id images.ID) []reference.Named
 	ReferencesByName(ref reference.Named) []Association
 	Add(ref reference.Named, id images.ID, force bool) error
 	Delete(ref reference.Named) (bool, error)
@@ -175,15 +175,15 @@ func (store *store) Get(ref reference.Named) (images.ID, error) {
 
 // References returns a slice of references to the given image ID. The slice
 // will be nil if there are no references to this image ID.
-func (store *store) References(id images.ID) []reference.Reference {
+func (store *store) References(id images.ID) []reference.Named {
 	store.RLock()
 	defer store.RUnlock()
 
-	var references []reference.Reference
+	var references []reference.Named
 	for _, repository := range store.Repositories {
 		for refStr, refID := range repository {
 			if refID == id {
-				ref, err := reference.Parse(refStr)
+				ref, err := reference.ParseNamed(refStr)
 				if err != nil {
 					// Should never happen
 					return nil
@@ -209,7 +209,7 @@ func (store *store) ReferencesByName(ref reference.Named) []Association {
 
 	var associations []Association
 	for refStr, refID := range repository {
-		ref, err := reference.Parse(refStr)
+		ref, err := reference.ParseNamed(refStr)
 		if err != nil {
 			// Should never happen
 			return nil

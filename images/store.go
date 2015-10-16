@@ -2,6 +2,7 @@ package images
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	"github.com/Sirupsen/logrus"
@@ -13,15 +14,18 @@ import (
 type Store interface {
 	Create(config []byte) (ID, error)
 	Get(id ID) (*Image, error)
-	Search(string) (ID, error)
-	SetParent(ID, ID) error
-	GetParent(ID) (ID, error)
+	Delete(id ID) ([]layer.Metadata, error)
+	Search(partialID string) (ID, error)
+	SetParent(id ID, parent ID) error
+	GetParent(id ID) (ID, error)
+	HasChild(id ID) bool
 }
 
 type store struct {
 	sync.Mutex
 	ls        layer.Store
 	ids       map[ID]layer.Layer
+	children  map[ID]map[ID]struct{}
 	fs        StoreBackend
 	digestSet *digest.Set
 }
@@ -31,6 +35,7 @@ func NewImageStore(fs StoreBackend, ls layer.Store) (Store, error) {
 	is := &store{
 		ls:        ls,
 		ids:       make(map[ID]layer.Layer),
+		children:  make(map[ID]map[ID]struct{}),
 		fs:        fs,
 		digestSet: digest.NewSet(),
 	}
@@ -64,6 +69,13 @@ func (is *store) restore() error {
 			return err
 		}
 
+		if parent, err := is.GetParent(ID(id)); err == nil {
+			if is.children[parent] == nil {
+				is.children[parent] = make(map[ID]struct{})
+			}
+			is.children[parent][ID(id)] = struct{}{}
+		}
+
 		return nil
 	})
 }
@@ -84,6 +96,9 @@ func (is *store) Create(config []byte) (ID, error) {
 	}
 	imageID := ID(dgst)
 
+	is.Lock()
+	defer is.Unlock()
+
 	if _, exists := is.ids[imageID]; exists {
 		return imageID, nil
 	}
@@ -97,8 +112,6 @@ func (is *store) Create(config []byte) (ID, error) {
 		return "", err
 	}
 
-	is.Lock()
-	defer is.Unlock()
 	is.ids[imageID] = layer
 	if err := is.digestSet.Add(digest.Digest(imageID)); err != nil {
 		delete(is.ids, imageID)
@@ -109,6 +122,9 @@ func (is *store) Create(config []byte) (ID, error) {
 }
 
 func (is *store) Search(term string) (ID, error) {
+	is.Lock()
+	defer is.Unlock()
+
 	dgst, err := is.digestSet.Lookup(term)
 	if err != nil {
 		return "", err
@@ -136,7 +152,34 @@ func (is *store) Get(id ID) (*Image, error) {
 	return &img, nil
 }
 
+func (is *store) Delete(id ID) ([]layer.Metadata, error) {
+	is.Lock()
+	defer is.Unlock()
+
+	if parent, err := is.GetParent(id); err == nil && is.children[parent] != nil {
+		delete(is.children[parent], id)
+		if len(is.children[parent]) == 0 {
+			delete(is.children, parent)
+		}
+	}
+
+	l, present := is.ids[id]
+	if !present {
+		return nil, fmt.Errorf("unrecognized image ID %s", id.String())
+	}
+	delete(is.ids, id)
+	is.fs.Delete(digest.Digest(id))
+
+	return is.ls.Release(l)
+}
+
 func (is *store) SetParent(id, parent ID) error {
+	is.Lock()
+	if is.children[parent] == nil {
+		is.children[parent] = make(map[ID]struct{})
+	}
+	is.children[parent][id] = struct{}{}
+	is.Unlock()
 	return is.fs.SetMetadata(digest.Digest(id), "parent", []byte(parent))
 }
 
@@ -146,4 +189,10 @@ func (is *store) GetParent(id ID) (ID, error) {
 		return "", err
 	}
 	return ID(d), nil // todo: validate?
+}
+
+func (is *store) HasChild(id ID) bool {
+	is.Lock()
+	defer is.Unlock()
+	return len(is.children[id]) > 0
 }

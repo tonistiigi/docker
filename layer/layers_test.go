@@ -219,9 +219,9 @@ func assertLayerEqual(t *testing.T, l1, l2 Layer) {
 		t.Fatal(err)
 	}
 
-	if p1.(*cacheLayer) != nil && p2.(*cacheLayer) != nil {
+	if p1 != nil && p2 != nil {
 		assertLayerEqual(t, p1, p2)
-	} else if p1.(*cacheLayer) != nil || p2.(*cacheLayer) != nil {
+	} else if p1 != nil || p2 != nil {
 		t.Fatalf("Mismatched parents: %v vs %v", p1, p2)
 	}
 }
