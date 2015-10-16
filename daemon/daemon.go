@@ -372,7 +372,7 @@ func (daemon *Daemon) restore() error {
 	return nil
 }
 
-func (daemon *Daemon) mergeAndVerifyConfig(config *runconfig.Config, img *image.Image) error {
+func (daemon *Daemon) mergeAndVerifyConfig(config *runconfig.Config, img *images.Image) error {
 	if img != nil && img.Config != nil {
 		if err := runconfig.Merge(config, img.Config); err != nil {
 			return err
@@ -488,7 +488,7 @@ func (daemon *Daemon) getEntrypointAndArgs(configEntrypoint *stringutils.StrSlic
 	return entrypoint, args
 }
 
-func (daemon *Daemon) newContainer(name string, config *runconfig.Config, imgID string) (*Container, error) {
+func (daemon *Daemon) newContainer(name string, config *runconfig.Config, imgID images.ID) (*Container, error) {
 	var (
 		id  string
 		err error

@@ -20,7 +20,7 @@ import (
 	"github.com/docker/docker/daemon/logger/jsonfilelog"
 	"github.com/docker/docker/daemon/network"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/image"
+	"github.com/docker/docker/images"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/broadcaster"
@@ -64,7 +64,7 @@ type CommonContainer struct {
 	Path            string
 	Args            []string
 	Config          *runconfig.Config
-	ImageID         string `json:"Image"` // FIXME: change type to ImageID
+	ImageID         images.ID `json:"Image"`
 	NetworkSettings *network.Settings
 	LogPath         string
 	Name            string
@@ -598,11 +598,11 @@ func (container *Container) changes() ([]archive.Change, error) {
 	return container.daemon.changes(container)
 }
 
-func (container *Container) getImage() (*image.Image, error) {
+func (container *Container) getImage() (*images.Image, error) {
 	if container.daemon == nil {
 		return nil, derr.ErrorCodeImageUnregContainer
 	}
-	return container.daemon.graph.Get(container.ImageID)
+	return container.daemon.imageStore.Get(container.ImageID)
 }
 
 // Unmount asks the daemon to release the layered filesystems that are
@@ -733,7 +733,7 @@ func (container *Container) getLogger() (logger.Logger, error) {
 		ContainerName:       container.Name,
 		ContainerEntrypoint: container.Path,
 		ContainerArgs:       container.Args,
-		ContainerImageID:    container.ImageID,
+		ContainerImageID:    container.ImageID.String(), // todo: use type?
 		ContainerImageName:  container.Config.Image,
 		ContainerCreated:    container.Created,
 	}

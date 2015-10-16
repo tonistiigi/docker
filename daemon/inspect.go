@@ -93,7 +93,7 @@ func (daemon *Daemon) getInspectData(container *Container) (*types.ContainerJSON
 		Path:            container.Path,
 		Args:            container.Args,
 		State:           containerState,
-		Image:           container.ImageID,
+		Image:           container.ImageID.String(), // todo: change type?
 		NetworkSettings: container.NetworkSettings,
 		LogPath:         container.LogPath,
 		Name:            container.Name,
@@ -110,6 +110,7 @@ func (daemon *Daemon) getInspectData(container *Container) (*types.ContainerJSON
 	contJSONBase = setPlatformSpecificContainerFields(container, contJSONBase)
 
 	contJSONBase.GraphDriver.Name = container.Driver
+
 	graphDriverData, err := daemon.driver.GetMetadata(container.ID)
 	if err != nil {
 		return nil, err

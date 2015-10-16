@@ -6,7 +6,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/image"
+	"github.com/docker/docker/images"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/runconfig"
@@ -50,24 +50,20 @@ func (daemon *Daemon) ContainerCreate(name string, config *runconfig.Config, hos
 func (daemon *Daemon) Create(config *runconfig.Config, hostConfig *runconfig.HostConfig, name string) (retC *Container, retErr error) {
 	var (
 		container *Container
-		img       *image.Image
-		imgID     string
+		img       *images.Image
+		imgID     images.ID
 		err       error
 	)
 
 	if config.Image != "" {
-		// img, err = daemon.repositories.LookupImage(config.Image)
-		// if err != nil {
-		// 	return nil, err
-		// }
-		// if err = daemon.graph.CheckDepth(img); err != nil {
-		// 	return nil, err
-		// }
-		id, err := daemon.imageStore.Search(config.Image)
+		imgID, err = daemon.GetImage(config.Image)
 		if err != nil {
 			return nil, err
 		}
-		imgID = id.String() // FIXME
+		img, err = daemon.imageStore.Get(imgID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if err := daemon.mergeAndVerifyConfig(config, img); err != nil {

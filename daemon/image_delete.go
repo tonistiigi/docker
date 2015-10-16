@@ -122,7 +122,7 @@ func isImageIDPrefix(imageID, possiblePrefix string) bool {
 // imageID. Returns nil if there is no such container.
 func (daemon *Daemon) getContainerUsingImage(imageID images.ID) *Container {
 	for _, container := range daemon.List() {
-		if container.ImageID == imageID.String() {
+		if container.ImageID == imageID {
 			return container
 		}
 	}
@@ -295,7 +295,7 @@ func (daemon *Daemon) checkImageDeleteHardConflict(imgID images.ID) *imageDelete
 			continue
 		}
 
-		if container.ImageID == imgID.String() {
+		if container.ImageID == imgID {
 			return &imageDeleteConflict{
 				imgID:   imgID,
 				hard:    true,
@@ -323,7 +323,7 @@ func (daemon *Daemon) checkImageDeleteSoftConflict(imgID images.ID) *imageDelete
 			continue
 		}
 
-		if container.ImageID == imgID.String() {
+		if container.ImageID == imgID {
 			return &imageDeleteConflict{
 				imgID:   imgID,
 				message: fmt.Sprintf("image is being used by stopped container %s", stringid.TruncateID(container.ID)),

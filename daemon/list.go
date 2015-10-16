@@ -277,7 +277,7 @@ func includeContainerInList(container *Container, ctx *listContext) iterationAct
 		if len(ctx.images) == 0 {
 			return excludeContainer
 		}
-		if !ctx.images[container.ImageID] {
+		if !ctx.images[string(container.ImageID)] {
 			return excludeContainer
 		}
 	}
@@ -290,22 +290,29 @@ func (daemon *Daemon) transformContainer(container *Container, ctx *listContext)
 	newC := &types.Container{
 		ID:      container.ID,
 		Names:   ctx.names[container.ID],
-		ImageID: container.ImageID,
+		ImageID: string(container.ImageID), // todo: check type
 	}
 	if newC.Names == nil {
 		// Dead containers will often have no name, so make sure the response isn't  null
 		newC.Names = []string{}
 	}
 
-	img, err := daemon.repositories.LookupImage(container.Config.Image)
+	imgID, err := daemon.GetImage(container.Config.Image)
+	if err != nil {
+		return nil, err
+	}
+	img, err := daemon.imageStore.Get(imgID)
+	if err != nil {
+		return nil, err
+	}
 	if err != nil {
 		// If the image can no longer be found by its original reference,
 		// it makes sense to show the ID instead of a stale reference.
-		newC.Image = container.ImageID
+		newC.Image = string(container.ImageID) // FIXME
 	} else if container.ImageID == img.ID {
 		newC.Image = container.Config.Image
 	} else {
-		newC.Image = container.ImageID
+		newC.Image = string(container.ImageID) // FIXME
 	}
 
 	if len(container.Args) > 0 {
