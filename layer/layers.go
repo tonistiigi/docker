@@ -114,6 +114,7 @@ type Store interface {
 	Mount(id string, parent ID, label string, init MountInit) (RWLayer, error)
 	Unmount(id string) error
 	DeleteMount(id string) ([]Metadata, error)
+	Changes(id string) ([]archive.Change, error)
 }
 
 type MetadataTransaction interface {
@@ -757,6 +758,20 @@ func (ls *layerStore) DeleteMount(name string) ([]Metadata, error) {
 	}
 
 	return []Metadata{}, nil
+}
+
+func (ls *layerStore) Changes(name string) ([]archive.Change, error) {
+	ls.mountL.Lock()
+	m := ls.mounts[name]
+	ls.mountL.Unlock()
+	if m == nil {
+		return nil, ErrMountDoesNotExist
+	}
+	var pid string
+	if m.parent != nil {
+		pid = m.parent.cacheID
+	}
+	return ls.driver.Changes(m.mountID, pid)
 }
 
 func (ls *layerStore) assembleTar(graphID string, metadata io.ReadCloser) (io.Reader, error) {
