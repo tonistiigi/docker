@@ -16,7 +16,7 @@ import (
 	"github.com/docker/docker/pkg/ioutils"
 )
 
-var stringIDRegexp = regexp.MustCompile(`^([a-f0-9]{64})$`)
+var stringIDRegexp = regexp.MustCompile(`^[a-f0-9]{64}(-init)?$`) // FIXME: probably better to keep the old format
 
 type fileMetadataStore struct {
 	root string
