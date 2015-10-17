@@ -167,5 +167,5 @@ func (s *fs) GetMetadata(id digest.Digest, key string) ([]byte, error) {
 	if _, err := s.get(id); err != nil {
 		return nil, err
 	}
-	return ioutil.ReadFile(filepath.Join(s.root, metadataDirName, id.String()))
+	return ioutil.ReadFile(filepath.Join(s.root, metadataDirName, id.String(), key))
 }
