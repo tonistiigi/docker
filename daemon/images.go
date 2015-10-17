@@ -67,13 +67,18 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 
 	for id, img := range allImages {
 		newImage := newImage(img, 0) // FIXME: parentSize
+
 		for _, ref := range daemon.tagStore.References(id) {
-			if digested, ok := ref.(reference.Digested); ok {
-				newImage.RepoDigests = append(newImage.RepoDigests, digested.Digest().String())
+			if _, ok := ref.(reference.Digested); ok {
+				newImage.RepoDigests = append(newImage.RepoDigests, ref.String())
 			}
-			if tagged, ok := ref.(reference.Tagged); ok {
-				newImage.RepoTags = append(newImage.RepoTags, tagged.Tag())
+			if _, ok := ref.(reference.Tagged); ok {
+				newImage.RepoTags = append(newImage.RepoTags, ref.String())
 			}
+		}
+		if newImage.RepoDigests == nil && newImage.RepoTags == nil {
+			newImage.RepoDigests = []string{"<none>@<none>"}
+			newImage.RepoTags = []string{"<none>:<none>"}
 		}
 		images = append(images, newImage)
 
