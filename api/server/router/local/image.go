@@ -459,7 +459,7 @@ func (s *router) getImagesJSON(ctx context.Context, w http.ResponseWriter, r *ht
 	}
 
 	// FIXME: The filter parameter could just be a match filter
-	images, err := s.daemon.ListImages(r.Form.Get("filters"), r.Form.Get("filter"), httputils.BoolValue(r, "all"))
+	images, err := s.daemon.Images(r.Form.Get("filters"), r.Form.Get("filter"), httputils.BoolValue(r, "all"))
 	if err != nil {
 		return err
 	}

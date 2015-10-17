@@ -1179,15 +1179,6 @@ func (daemon *Daemon) LoadImage(inTar io.ReadCloser, outStream io.Writer) error 
 	return daemon.repositories.Load(inTar, outStream)
 }
 
-// ListImages returns a filtered list of images. filterArgs is a JSON-encoded set
-// of filter arguments which will be interpreted by pkg/parsers/filters.
-// filter is a shell glob string applied to repository names. The argument
-// named all controls whether all images in the graph are filtered, or just
-// the heads.
-func (daemon *Daemon) ListImages(filterArgs, filter string, all bool) ([]*types.Image, error) {
-	return daemon.repositories.Images(filterArgs, filter, all)
-}
-
 // ImageHistory returns a slice of ImageHistory structures for the specified image
 // name by walking the image lineage.
 func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {

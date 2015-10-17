@@ -223,14 +223,14 @@ func (is *store) hasChild(id ID) bool {
 }
 
 func (is *store) Heads() map[ID]*Image {
-	return is.imageMap(false)
+	return is.imagesMap(false)
 }
 
 func (is *store) Map() map[ID]*Image {
-	return is.imageMap(true)
+	return is.imagesMap(true)
 }
 
-func (is *store) imageMap(all bool) map[ID]*Image {
+func (is *store) imagesMap(all bool) map[ID]*Image {
 	is.Lock()
 	defer is.Unlock()
 
