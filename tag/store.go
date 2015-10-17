@@ -132,15 +132,6 @@ func (store *store) Delete(ref reference.Named) (bool, error) {
 		return false, ErrDoesNotExist
 	}
 
-	switch ref.(type) {
-	case reference.Tagged:
-	case reference.Digested:
-	default:
-		// Delete the whole repository.
-		delete(store.Repositories, repoName)
-		return true, store.save()
-	}
-
 	refStr := ref.String()
 	if _, exists := repository[refStr]; exists {
 		delete(repository, refStr)

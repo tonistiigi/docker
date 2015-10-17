@@ -319,4 +319,10 @@ func TestAddDeleteGet(t *testing.T) {
 	if _, err := store.Get(ref5); err != ErrDoesNotExist {
 		t.Fatal("Expected ErrDoesNotExist from Get")
 	}
+	if deleted, err := store.Delete(nameOnly); err != nil || deleted != true {
+		t.Fatal("Delete failed")
+	}
+	if _, err := store.Get(nameOnly); err != ErrDoesNotExist {
+		t.Fatal("Expected ErrDoesNotExist from Get")
+	}
 }
