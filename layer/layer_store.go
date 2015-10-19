@@ -311,16 +311,21 @@ func (ls *layerStore) retainLayer(layer *cacheLayer) {
 }
 
 func (ls *layerStore) deleteLayer(layer *cacheLayer, metadata *Metadata) error {
-	if err := ls.driver.Remove(layer.cacheID); err != nil {
+	err := ls.driver.Remove(layer.cacheID)
+	if err != nil {
 		return err
 	}
 
-	if err := ls.store.Remove(layer.address); err != nil {
+	err = ls.store.Remove(layer.address)
+	if err != nil {
 		return err
 	}
 	metadata.DiffID = layer.digest
 	metadata.LayerID = layer.address
-	metadata.Size = layer.size
+	metadata.Size, err = layer.Size()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

@@ -38,8 +38,15 @@ func (cl *cacheLayer) Parent() (Layer, error) {
 	return cl.parent, nil
 }
 
-func (cl *cacheLayer) Size() (int64, error) {
-	return cl.size, nil
+func (cl *cacheLayer) Size() (size int64, err error) {
+	if cl.parent != nil {
+		size, err = cl.parent.Size()
+		if err != nil {
+			return
+		}
+	}
+
+	return size + cl.size, nil
 }
 
 func (cl *cacheLayer) Metadata() (map[string]string, error) {
