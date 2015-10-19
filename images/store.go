@@ -236,7 +236,7 @@ func (is *store) imagesMap(all bool) map[ID]*Image {
 
 	images := make(map[ID]*Image)
 
-	for id, _ := range is.images {
+	for id := range is.images {
 		if !all && is.hasChild(id) {
 			continue
 		}
