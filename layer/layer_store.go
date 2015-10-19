@@ -2,6 +2,7 @@ package layer
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"sync"
@@ -409,8 +410,13 @@ func (ls *layerStore) getAndRetainLayer(layer ID) *cacheLayer {
 	return l
 }
 
-func (ls *layerStore) initMount(parent string, initFunc MountInit) (string, error) {
-	initID := stringid.GenerateRandomID()
+func (ls *layerStore) initMount(graphID, parent string, initFunc MountInit) (string, error) {
+	// Use "<graph-id>-init" to maintain compatibility with graph drivers
+	// which are expecting this layer with this special name. If all
+	// graph drivers can be updated to not rely on knowin about this layer
+	// then the initID should be randomly generated.
+	initID := fmt.Sprintf("%s-init", graphID)
+
 	if err := ls.driver.Create(initID, parent); err != nil {
 
 	}
@@ -474,7 +480,7 @@ func (ls *layerStore) Mount(name string, parent ID, mountLabel string, initFunc 
 	}
 
 	if initFunc != nil {
-		pid, err = ls.initMount(pid, initFunc)
+		pid, err = ls.initMount(m.mountID, pid, initFunc)
 		if err != nil {
 			return nil, err
 		}
