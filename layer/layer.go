@@ -159,6 +159,7 @@ type MetadataTransaction interface {
 
 	Commit(ID) error
 	Cancel() error
+	String() string
 }
 
 // MetadataStore represents a backend for persisting

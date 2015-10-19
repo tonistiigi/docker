@@ -228,19 +228,22 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 		return nil, err
 	}
 
+	tx, err := ls.store.StartTransaction()
+	if err != nil {
+		return nil, err
+	}
+
 	defer func() {
 		if err != nil {
 			logrus.Debugf("Cleaning up layer %s: %v", layer.cacheID, err)
 			if err := ls.driver.Remove(layer.cacheID); err != nil {
 				logrus.Errorf("Error cleaning up cache layer %s: %v", layer.cacheID, err)
 			}
+			if err := tx.Cancel(); err != nil {
+				logrus.Errorf("Error canceling metadata transaction %q: %s", tx.String(), err)
+			}
 		}
 	}()
-
-	tx, err := ls.store.StartTransaction()
-	if err != nil {
-		return nil, err
-	}
 
 	if err = ls.applyTar(tx, ts, pid, layer); err != nil {
 		return nil, err

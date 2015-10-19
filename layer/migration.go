@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/pkg/ioutils"
 )
@@ -96,11 +97,6 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 		}()
 	}
 
-	tx, err := ls.store.StartTransaction()
-	if err != nil {
-		return nil, err
-	}
-
 	// Create new cacheLayer
 	layer := &cacheLayer{
 		parent:         p,
@@ -109,6 +105,20 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 		layerStore:     ls,
 		references:     map[Layer]struct{}{},
 	}
+
+	tx, err := ls.store.StartTransaction()
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		if err != nil {
+			logrus.Debugf("Cleaning up transaction after failed migration for %s: %v", graphID, err)
+			if err := tx.Cancel(); err != nil {
+				logrus.Errorf("Error canceling metadata transaction %q: %s", tx.String(), err)
+			}
+		}
+	}()
 
 	if tarDataFile != "" {
 		var (

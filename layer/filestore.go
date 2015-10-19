@@ -108,6 +108,10 @@ func (fm *fileMetadataTransaction) Cancel() error {
 	return os.RemoveAll(fm.root)
 }
 
+func (fm *fileMetadataTransaction) String() string {
+	return fm.root
+}
+
 func (fms *fileMetadataStore) GetSize(layer ID) (int64, error) {
 	content, err := ioutil.ReadFile(fms.getLayerFilename(layer, "size"))
 	if err != nil {
