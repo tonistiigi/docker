@@ -11,6 +11,7 @@ type cacheLayer struct {
 	layerStore *layerStore
 
 	referenceCount int
+	references     map[Layer]struct{}
 }
 
 func (cl *cacheLayer) TarStream() (io.Reader, error) {
@@ -43,6 +44,32 @@ func (cl *cacheLayer) Size() (int64, error) {
 
 func (cl *cacheLayer) Metadata() (map[string]string, error) {
 	return cl.layerStore.driver.GetMetadata(cl.cacheID)
+}
+
+type referencedCacheLayer struct {
+	*cacheLayer
+}
+
+func (cl *cacheLayer) getReference() Layer {
+	ref := &referencedCacheLayer{
+		cacheLayer: cl,
+	}
+	cl.references[ref] = struct{}{}
+
+	return ref
+}
+
+func (cl *cacheLayer) hasReference(ref Layer) bool {
+	_, ok := cl.references[ref]
+	return ok
+}
+
+func (cl *cacheLayer) hasReferences() bool {
+	return len(cl.references) > 0
+}
+
+func (cl *cacheLayer) deleteReference(ref Layer) {
+	delete(cl.references, ref)
 }
 
 func storeLayer(tx MetadataTransaction, layer *cacheLayer) error {

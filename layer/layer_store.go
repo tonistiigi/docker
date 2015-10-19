@@ -93,6 +93,7 @@ func (ls *layerStore) loadLayer(layer ID) (*cacheLayer, error) {
 		size:       size,
 		cacheID:    cacheID,
 		layerStore: ls,
+		references: map[Layer]struct{}{},
 	}
 
 	if parent != "" {
@@ -220,6 +221,7 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 		cacheID:        stringid.GenerateRandomID(),
 		referenceCount: 1,
 		layerStore:     ls,
+		references:     map[Layer]struct{}{},
 	}
 
 	if err = ls.driver.Create(layer.cacheID, pid); err != nil {
@@ -264,7 +266,7 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 		// Set error for cleanup, but do not return the error
 		err = errors.New("layer already exists")
 		ls.retainLayer(existingLayer)
-		return existingLayer, nil
+		return existingLayer.getReference(), nil
 	}
 
 	if err = tx.Commit(layer.address); err != nil {
@@ -273,7 +275,7 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 
 	ls.layerMap[layer.address] = layer
 
-	return layer, nil
+	return layer.getReference(), nil
 }
 
 func (ls *layerStore) get(l ID) *cacheLayer {
@@ -296,7 +298,7 @@ func (ls *layerStore) Get(l ID) (Layer, error) {
 		return nil, ErrLayerDoesNotExist
 	}
 
-	return layer, nil
+	return layer.getReference(), nil
 }
 
 func (ls *layerStore) retainLayer(layer *cacheLayer) {
@@ -332,6 +334,9 @@ func (ls *layerStore) releaseLayers(l *cacheLayer, removed *[]Metadata, depth in
 		if len(*removed) == 0 && depth > 0 {
 			return errors.New("cannot remove parent with child")
 		}
+		if l.hasReferences() {
+			return errors.New("cannot delete referenced layer")
+		}
 		var metadata Metadata
 		if err := ls.deleteLayer(l, &metadata); err != nil {
 			return err
@@ -363,6 +368,12 @@ func (ls *layerStore) Release(l Layer) ([]Metadata, error) {
 	if !ok {
 		return []Metadata{}, nil
 	}
+	if !layer.hasReference(l) {
+		// Layer reference has already been released
+		return []Metadata{}, nil
+	}
+
+	layer.deleteReference(l)
 
 	return ls.releaseLayer(layer)
 }

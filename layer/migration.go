@@ -107,6 +107,7 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 		cacheID:        graphID,
 		referenceCount: 1,
 		layerStore:     ls,
+		references:     map[Layer]struct{}{},
 	}
 
 	if tarDataFile != "" {
@@ -170,7 +171,7 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 	if existingLayer, ok := ls.layerMap[layer.address]; ok {
 		// Set error for cleanup, but do not return
 		err = errors.New("layer already exists")
-		return existingLayer, nil
+		return existingLayer.getReference(), nil
 	}
 
 	if err = tx.Commit(layer.address); err != nil {
@@ -179,5 +180,5 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 
 	ls.layerMap[layer.address] = layer
 
-	return layer, nil
+	return layer.getReference(), nil
 }

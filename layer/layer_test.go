@@ -186,6 +186,13 @@ func releaseAndCheckDeleted(t *testing.T, ls Store, layer Layer, removed ...Laye
 	// TODO: Done
 }
 
+func cacheID(l Layer) string {
+	if rl, ok := l.(*referencedCacheLayer); ok {
+		return rl.cacheID
+	}
+	return l.(*cacheLayer).cacheID
+}
+
 func assertLayerEqual(t *testing.T, l1, l2 Layer) {
 	if l1.ID() != l2.ID() {
 		t.Fatalf("Mismatched ID: %s vs %s", l1.ID(), l2.ID())
@@ -208,8 +215,8 @@ func assertLayerEqual(t *testing.T, l1, l2 Layer) {
 		t.Fatalf("Mismatched size: %d vs %d", size1, size2)
 	}
 
-	if l1.(*cacheLayer).cacheID != l2.(*cacheLayer).cacheID {
-		t.Fatalf("Mismatched cache id: %s vs %s", l1.(*cacheLayer).cacheID, l2.(*cacheLayer).cacheID)
+	if cacheID(l1) != cacheID(l2) {
+		t.Fatalf("Mismatched cache id: %s vs %s", cacheID(l1), cacheID(l2))
 	}
 
 	p1, err := l1.Parent()
@@ -435,7 +442,7 @@ func TestTarStreamStability(t *testing.T) {
 	}
 
 	// hack layer to add file
-	p, err := ls.(*layerStore).driver.Get(layer1.(*cacheLayer).cacheID, "")
+	p, err := ls.(*layerStore).driver.Get(layer1.(*referencedCacheLayer).cacheID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +451,7 @@ func TestTarStreamStability(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ls.(*layerStore).driver.Put(layer1.(*cacheLayer).cacheID); err != nil {
+	if err := ls.(*layerStore).driver.Put(layer1.(*referencedCacheLayer).cacheID); err != nil {
 		t.Fatal(err)
 	}
 
