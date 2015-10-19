@@ -383,6 +383,7 @@ func (ls *layerStore) mount(m *mountedLayer, mountLabel string) error {
 		return err
 	}
 	m.path = dir
+	m.activityCount += 1
 
 	return nil
 }
@@ -521,11 +522,10 @@ func (ls *layerStore) Unmount(name string) error {
 		return ErrMountDoesNotExist
 	}
 
-	if m.path != "" {
-		if err := ls.driver.Put(m.mountID); err != nil {
-			return err
-		}
-		m.path = ""
+	m.activityCount -= 1
+
+	if err := ls.driver.Put(m.mountID); err != nil {
+		return err
 	}
 
 	return nil
@@ -539,7 +539,7 @@ func (ls *layerStore) DeleteMount(name string) ([]Metadata, error) {
 	if m == nil {
 		return nil, ErrMountDoesNotExist
 	}
-	if m.path != "" {
+	if m.activityCount > 0 {
 		return nil, ErrActiveMount
 	}
 

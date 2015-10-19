@@ -3,12 +3,13 @@ package layer
 import "io"
 
 type mountedLayer struct {
-	name       string
-	mountID    string
-	initID     string
-	parent     *cacheLayer
-	path       string
-	layerStore *layerStore
+	name          string
+	mountID       string
+	initID        string
+	parent        *cacheLayer
+	path          string
+	layerStore    *layerStore
+	activityCount int
 }
 
 func (ml *mountedLayer) cacheParent() string {
