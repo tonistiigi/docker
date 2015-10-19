@@ -25,7 +25,6 @@ import (
 	"github.com/docker/docker/pkg/progressreader"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/ulimit"
-	"github.com/docker/docker/registry"
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/docker/utils"
 	"golang.org/x/net/context"
@@ -335,15 +334,13 @@ func (s *router) postBuild(ctx context.Context, w http.ResponseWriter, r *http.R
 		buildConfig.Pull = true
 	}
 
-	isNamedTagged := false
-	var namedTagged reference.NamedTagged
-	ref, err := reference.ParseNamed(r.FormValue("t"))
-	if err == nil {
-		namedTagged, isNamedTagged = ref.(reference.NamedTagged)
-		if isNamedTagged {
-			if err := registry.ValidateRepositoryName(namedTagged); err != nil {
-				return errf(err)
-			}
+	tag := r.FormValue("t")
+	var ref reference.Named
+	var err error
+	if len(tag) > 0 {
+		ref, err = reference.ParseNamed(tag)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -443,9 +440,8 @@ func (s *router) postBuild(ctx context.Context, w http.ResponseWriter, r *http.R
 	if err != nil {
 		return errf(err)
 	}
-
-	if isNamedTagged {
-		if err := s.daemon.TagImage(namedTagged, imgID, true); err != nil {
+	if len(tag) > 0 {
+		if err := s.daemon.TagImage(ref, imgID, true); err != nil {
 			return errf(err)
 		}
 	}
