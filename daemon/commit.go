@@ -7,6 +7,7 @@ import (
 
 	"github.com/docker/docker/autogen/dockerversion"
 	"github.com/docker/docker/images"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/runconfig"
 	"github.com/jfrazelle/go/canonical/json"
 )
@@ -48,13 +49,16 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 	if err != nil {
 		return "", err
 	}
-	layer, err := daemon.layerStore.Register(rwTar, layerID)
+	l, err := daemon.layerStore.Register(rwTar, layerID)
 	if err != nil {
 		return "", err
 	}
-	defer daemon.layerStore.Release(layer)
+	defer daemon.layerStore.Release(l)
 
-	diffIDs := append(img.RootFS.DiffIDs, layer.DiffID())
+	diffIDs := img.RootFS.DiffIDs
+	if diffID := l.DiffID(); layer.DigestSha256EmptyTar != diffID {
+		diffIDs = append(diffIDs, diffID)
+	}
 
 	h := images.History{}
 	h.Author = c.Author
