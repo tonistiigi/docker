@@ -22,6 +22,10 @@ var (
 	// attempted on a layer which does not exist.
 	ErrLayerDoesNotExist = errors.New("layer does not exist")
 
+	// ErrLayerAlreadyReleased is used when a release is
+	// attempted on a layer which has already been released.
+	ErrLayerAlreadyReleased = errors.New("layer already released")
+
 	// ErrMountDoesNotExist is used when an operation is
 	// attempted on a mount layer which does not exist.
 	ErrMountDoesNotExist = errors.New("mount does not exist")

@@ -327,15 +327,15 @@ func (ls *layerStore) deleteLayer(layer *cacheLayer, metadata *Metadata) error {
 
 func (ls *layerStore) releaseLayers(l *cacheLayer, removed *[]Metadata, depth int) error {
 	if l.referenceCount == 0 {
-		return errors.New("layer not retained")
+		panic("layer not retained")
 	}
 	l.referenceCount--
 	if l.referenceCount == 0 {
 		if len(*removed) == 0 && depth > 0 {
-			return errors.New("cannot remove parent with child")
+			panic("cannot remove layer with child")
 		}
 		if l.hasReferences() {
-			return errors.New("cannot delete referenced layer")
+			panic("cannot delete referenced layer")
 		}
 		var metadata Metadata
 		if err := ls.deleteLayer(l, &metadata); err != nil {
@@ -369,8 +369,7 @@ func (ls *layerStore) Release(l Layer) ([]Metadata, error) {
 		return []Metadata{}, nil
 	}
 	if !layer.hasReference(l) {
-		// Layer reference has already been released
-		return []Metadata{}, nil
+		return nil, ErrLayerAlreadyReleased
 	}
 
 	layer.deleteReference(l)
