@@ -49,6 +49,10 @@ func (cl *cacheLayer) Size() (size int64, err error) {
 	return size + cl.size, nil
 }
 
+func (cl *cacheLayer) DiffSize() (size int64, err error) {
+	return cl.size, nil
+}
+
 func (cl *cacheLayer) Metadata() (map[string]string, error) {
 	return cl.layerStore.driver.GetMetadata(cl.cacheID)
 }

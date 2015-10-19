@@ -149,6 +149,13 @@ func initWithFiles(files ...FileApplier) layerInit {
 	}
 }
 
+func getCachedLayer(l Layer) *cacheLayer {
+	if rl, ok := l.(*referencedCacheLayer); ok {
+		return rl.cacheLayer
+	}
+	return l.(*cacheLayer)
+}
+
 func releaseAndCheckDeleted(t *testing.T, ls Store, layer Layer, removed ...Layer) {
 	layerCount := len(ls.(*layerStore).layerMap)
 	expectedMetadata := make([]Metadata, len(removed))
@@ -161,6 +168,7 @@ func releaseAndCheckDeleted(t *testing.T, ls Store, layer Layer, removed ...Laye
 		expectedMetadata[i].LayerID = removed[i].ID()
 		expectedMetadata[i].DiffID = removed[i].DiffID()
 		expectedMetadata[i].Size = size
+		expectedMetadata[i].DiffSize = getCachedLayer(removed[i]).size
 	}
 	metadata, err := ls.Release(layer)
 	if err != nil {
@@ -187,10 +195,7 @@ func releaseAndCheckDeleted(t *testing.T, ls Store, layer Layer, removed ...Laye
 }
 
 func cacheID(l Layer) string {
-	if rl, ok := l.(*referencedCacheLayer); ok {
-		return rl.cacheID
-	}
-	return l.(*cacheLayer).cacheID
+	return getCachedLayer(l).cacheID
 }
 
 func assertLayerEqual(t *testing.T, l1, l2 Layer) {

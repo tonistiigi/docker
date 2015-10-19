@@ -22,9 +22,9 @@ var (
 	// attempted on a layer which does not exist.
 	ErrLayerDoesNotExist = errors.New("layer does not exist")
 
-	// ErrLayerAlreadyReleased is used when a release is
-	// attempted on a layer which has already been released.
-	ErrLayerAlreadyReleased = errors.New("layer already released")
+	// ErrLayerNotRetained is used when a release is
+	// attempted on a layer which is not retained.
+	ErrLayerNotRetained = errors.New("layer not retained")
 
 	// ErrMountDoesNotExist is used when an operation is
 	// attempted on a mount layer which does not exist.
@@ -59,16 +59,37 @@ func (diffID DiffID) String() string {
 // TarStreamer represents an object which may
 // have its contents exported as a tar stream.
 type TarStreamer interface {
+	// TarStream returns a tar archive stream
+	// for the contents of a layer.
 	TarStream() (io.Reader, error)
 }
 
 // Layer represents a read only layer
 type Layer interface {
 	TarStreamer
+
+	// ID returns the content hash of the entire
+	// layer chain. The hash chain is made up of
+	// DiffID of top layer and all of its parents.
 	ID() ID
+
+	// DiffID returns the content hash of the layer
+	// tar stream used to create this layer.
 	DiffID() DiffID
+
+	// Parent returns the next layer in the layer chain.
 	Parent() (Layer, error)
+
+	// Size returns the size of the entire layer chain. The size
+	// is calculated from the total size of all files in the layers.
 	Size() (int64, error)
+
+	// DiffSize returns the size difference of the top layer
+	// from parent layer.
+	DiffSize() (int64, error)
+
+	// Metadata returns the low level storage metadata associated
+	// with layer.
 	Metadata() (map[string]string, error)
 }
 
@@ -76,8 +97,18 @@ type Layer interface {
 // read and writable
 type RWLayer interface {
 	TarStreamer
+
+	// Path returns the filesystem path to the writable
+	// layer.
 	Path() (string, error)
+
+	// Parent returns the layer which the writable
+	// layer was created from.
 	Parent() (Layer, error)
+
+	// Size represents the size of the writable layer
+	// as calculated by the total size of the files
+	// changed in the mutable layer.
 	Size() (int64, error)
 }
 
@@ -91,8 +122,11 @@ type Metadata struct {
 	// create the layer
 	DiffID DiffID
 
-	// Size is the size of the layer content
+	// Size is the size of the layer and all parents
 	Size int64
+
+	// DiffSize is the size of the top layer
+	DiffSize int64
 }
 
 // MountInit is a function to initialize a

@@ -326,6 +326,7 @@ func (ls *layerStore) deleteLayer(layer *cacheLayer, metadata *Metadata) error {
 	if err != nil {
 		return err
 	}
+	metadata.DiffSize = layer.size
 
 	return nil
 }
@@ -374,7 +375,7 @@ func (ls *layerStore) Release(l Layer) ([]Metadata, error) {
 		return []Metadata{}, nil
 	}
 	if !layer.hasReference(l) {
-		return nil, ErrLayerAlreadyReleased
+		return nil, ErrLayerNotRetained
 	}
 
 	layer.deleteReference(l)
@@ -388,7 +389,7 @@ func (ls *layerStore) mount(m *mountedLayer, mountLabel string) error {
 		return err
 	}
 	m.path = dir
-	m.activityCount += 1
+	m.activityCount++
 
 	return nil
 }
@@ -527,7 +528,7 @@ func (ls *layerStore) Unmount(name string) error {
 		return ErrMountDoesNotExist
 	}
 
-	m.activityCount -= 1
+	m.activityCount--
 
 	if err := ls.driver.Put(m.mountID); err != nil {
 		return err
