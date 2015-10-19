@@ -14,7 +14,6 @@ import (
 	"github.com/docker/distribution/manifest"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/distribution/metadata"
-	"github.com/docker/docker/image"
 	"github.com/docker/docker/images"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/migrate/v1"
@@ -251,6 +250,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 	}
 
 	var layerDiffIDs []layer.DiffID
+	var parentID layer.ID
 
 	// Iterating from top-most to bottom-most layer
 	var i int
@@ -269,6 +269,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 			}
 			referencedLayers = append(referencedLayers, l)
 			layerDiffIDs = addLayerDiffIDs(l)
+			parentID = layerID
 			break
 		}
 	}
@@ -309,7 +310,6 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		}
 	}
 
-	var layerID layer.ID
 	for _, d := range downloads {
 		if err := <-d.err; err != nil {
 			return false, err
@@ -341,18 +341,17 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 			return false, fmt.Errorf("could not get decompression stream: %v", err)
 		}
 
-		l, err := p.config.LayerStore.Register(inflatedLayerData, layerID)
+		l, err := p.config.LayerStore.Register(inflatedLayerData, parentID)
 		if err != nil {
 			return false, fmt.Errorf("failed to register layer: %v", err)
 		}
 		logrus.Debugf("layer %s registered successfully", l.DiffID())
 		referencedLayers = append(referencedLayers, l)
 
-		layerID = l.ID()
 		layerDiffIDs = append(layerDiffIDs, l.DiffID())
 
 		// Cache mapping from the set of blobsums so far to this layer ID
-		if err := p.blobSumLookupService.Set(d.layerBlobSums, layerID); err != nil {
+		if err := p.blobSumLookupService.Set(d.layerBlobSums, l.ID()); err != nil {
 			return false, err
 		}
 		// Cache mapping from this layer's DiffID to the blobsum
@@ -363,6 +362,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		d.broadcaster.Write(p.sf.FormatProgress(stringid.TruncateID(d.digest.String()), "Pull complete", nil))
 		d.broadcaster.Close()
 		tagUpdated = true
+		parentID = l.ID()
 	}
 
 	// Create a new-style config from the legacy config in the manifest
@@ -469,19 +469,21 @@ func verifyManifest(signedManifest *manifest.SignedManifest, ref reference.Refer
 // fixManifestLayers removes repeated layers from the manifest and checks the
 // correctness of the parent chain.
 func fixManifestLayers(m *manifest.Manifest) error {
-	images := make([]*image.Image, len(m.FSLayers))
+	imgs := make([]*images.ImageV1, len(m.FSLayers))
 	for i := range m.FSLayers {
-		img, err := image.NewImgJSON([]byte(m.History[i].V1Compatibility))
-		if err != nil {
+		img := &images.ImageV1{}
+
+		if err := json.Unmarshal([]byte(m.History[i].V1Compatibility), img); err != nil {
 			return err
 		}
-		images[i] = img
-		if err := image.ValidateID(img.ID); err != nil {
+
+		imgs[i] = img
+		if err := images.ValidateID(img.ID); err != nil {
 			return err
 		}
 	}
 
-	if images[len(images)-1].Parent != "" {
+	if imgs[len(imgs)-1].Parent != "" {
 		return errors.New("Invalid parent ID in the base layer of the image.")
 	}
 
@@ -489,7 +491,7 @@ func fixManifestLayers(m *manifest.Manifest) error {
 	idmap := make(map[string]struct{})
 
 	var lastID string
-	for _, img := range images {
+	for _, img := range imgs {
 		// skip IDs that appear after each other, we handle those later
 		if _, exists := idmap[img.ID]; img.ID != lastID && exists {
 			return fmt.Errorf("ID %+v appears multiple times in manifest", img.ID)
@@ -499,12 +501,12 @@ func fixManifestLayers(m *manifest.Manifest) error {
 	}
 
 	// backwards loop so that we keep the remaining indexes after removing items
-	for i := len(images) - 2; i >= 0; i-- {
-		if images[i].ID == images[i+1].ID { // repeated ID. remove and continue
+	for i := len(imgs) - 2; i >= 0; i-- {
+		if imgs[i].ID == imgs[i+1].ID { // repeated ID. remove and continue
 			m.FSLayers = append(m.FSLayers[:i], m.FSLayers[i+1:]...)
 			m.History = append(m.History[:i], m.History[i+1:]...)
-		} else if images[i].Parent != images[i+1].ID {
-			return fmt.Errorf("Invalid parent ID. Expected %v, got %v.", images[i+1].ID, images[i].Parent)
+		} else if imgs[i].Parent != imgs[i+1].ID {
+			return fmt.Errorf("Invalid parent ID. Expected %v, got %v.", imgs[i+1].ID, imgs[i].Parent)
 		}
 	}
 
