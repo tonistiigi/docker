@@ -85,7 +85,22 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 			}
 		}
 
-		newImage := newImage(img, 0) // FIXME: parentSize
+		layerID, err := img.GetTopLayerID()
+		if err != nil {
+			return nil, err
+		}
+		layer, err := daemon.layerStore.Get(layerID)
+		if err != nil {
+			return nil, err
+		}
+
+		size, err := layer.Size()
+		if err != nil {
+			return nil, err
+		}
+		daemon.layerStore.Release(layer)
+
+		newImage := newImage(img, size)
 
 		for _, ref := range daemon.tagStore.References(id) {
 			if filter != "" { // filter by tag/repo name
@@ -122,13 +137,12 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 	return images, nil
 }
 
-func newImage(image *images.Image, parentSize int64) *types.Image {
+func newImage(image *images.Image, size int64) *types.Image {
 	newImage := new(types.Image)
 	newImage.ParentID = image.Parent
 	newImage.ID = image.ID.String()
 	newImage.Created = image.Created.Unix()
-	newImage.Size = image.Size
-	newImage.VirtualSize = parentSize + image.Size
+	newImage.Size = size
 	if image.Config != nil {
 		newImage.Labels = image.Config.Labels
 	}
