@@ -11,12 +11,18 @@ type mountedLayer struct {
 	layerStore *layerStore
 }
 
-func (ml *mountedLayer) TarStream() (io.Reader, error) {
-	var pid string
-	if ml.parent != nil {
-		pid = ml.parent.cacheID
+func (ml *mountedLayer) cacheParent() string {
+	if ml.initID != "" {
+		return ml.initID
 	}
-	archiver, err := ml.layerStore.driver.Diff(ml.mountID, pid)
+	if ml.parent != nil {
+		return ml.parent.cacheID
+	}
+	return ""
+}
+
+func (ml *mountedLayer) TarStream() (io.Reader, error) {
+	archiver, err := ml.layerStore.driver.Diff(ml.mountID, ml.cacheParent())
 	return io.Reader(archiver), err
 }
 
@@ -32,9 +38,5 @@ func (ml *mountedLayer) Parent() (Layer, error) {
 }
 
 func (ml *mountedLayer) Size() (int64, error) {
-	pid := ml.initID
-	if pid == "" && ml.parent != nil {
-		pid = ml.parent.cacheID
-	}
-	return ml.layerStore.driver.DiffSize(ml.mountID, pid)
+	return ml.layerStore.driver.DiffSize(ml.mountID, ml.cacheParent())
 }
