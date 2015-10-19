@@ -31,10 +31,9 @@ func (r byCreated) Less(i, j int) bool { return r[i].Created < r[j].Created }
 // the heads.
 func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Image, error) {
 	var (
-		allImages  map[images.ID]*images.Image
-		err        error
-		filtTagged = true
-		// filtLabel  = false
+		allImages    map[images.ID]*images.Image
+		err          error
+		danglingOnly = false
 	)
 
 	imageFilters, err := filters.FromParam(filterArgs)
@@ -50,14 +49,12 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 	if i, ok := imageFilters["dangling"]; ok {
 		for _, value := range i {
 			if strings.ToLower(value) == "true" {
-				filtTagged = false
+				danglingOnly = true
 			}
 		}
 	}
 
-	// _, filtLabel = imageFilters["label"]
-
-	if all && filtTagged {
+	if all && !danglingOnly {
 		allImages = daemon.imageStore.Map()
 	} else {
 		allImages = daemon.imageStore.Heads()
@@ -65,10 +62,41 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 
 	images := []*types.Image{}
 
+	var filterTagged bool
+	if filter != "" {
+		filterRef, err := reference.Parse(filter)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := filterRef.(reference.Tagged); ok {
+			filterTagged = true
+		}
+	}
+
 	for id, img := range allImages {
+		if _, ok := imageFilters["label"]; ok {
+			if img.Config == nil {
+				// Very old image that do not have image.Config (or even labels)
+				continue
+			}
+			// We are now sure image.Config is not nil
+			if !imageFilters.MatchKVList("label", img.Config.Labels) {
+				continue
+			}
+		}
+
 		newImage := newImage(img, 0) // FIXME: parentSize
 
 		for _, ref := range daemon.tagStore.References(id) {
+			if filter != "" { // filter by tag/repo name
+				if filterTagged { // filter by tag, require full ref match
+					if ref.String() != filter {
+						continue
+					}
+				} else if ref.Name() != filter { // name only match
+					continue
+				}
+			}
 			if _, ok := ref.(reference.Digested); ok {
 				newImage.RepoDigests = append(newImage.RepoDigests, ref.String())
 			}
@@ -77,111 +105,17 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 			}
 		}
 		if newImage.RepoDigests == nil && newImage.RepoTags == nil {
+			if filter != "" { // skip images with no references if filtering by tag
+				continue
+			}
 			newImage.RepoDigests = []string{"<none>@<none>"}
 			newImage.RepoTags = []string{"<none>:<none>"}
+		} else if danglingOnly {
+			continue
 		}
+
 		images = append(images, newImage)
-
 	}
-
-	// lookup := make(map[string]*types.Image)
-	// s.Lock()
-	// for repoName, repository := range s.Repositories {
-	// 	filterTagName := ""
-	// 	if filter != "" {
-	// 		filterName := filter
-	// 		// Test if the tag was in there, if yes, get the name
-	// 		if strings.Contains(filterName, ":") {
-	// 			filterWithTag := strings.Split(filter, ":")
-	// 			filterName = filterWithTag[0]
-	// 			filterTagName = filterWithTag[1]
-	// 		}
-	// 		if match, _ := path.Match(filterName, repoName); !match {
-	// 			continue
-	// 		}
-	// 		if filterTagName != "" {
-	// 			if _, ok := repository[filterTagName]; !ok {
-	// 				continue
-	// 			}
-	// 		}
-	// 	}
-	// 	for ref, id := range repository {
-	// 		imgRef := utils.ImageReference(repoName, ref)
-	// 		if !strings.Contains(imgRef, filterTagName) {
-	// 			continue
-	// 		}
-	// 		image, err := s.graph.Get(id)
-	// 		if err != nil {
-	// 			logrus.Warnf("couldn't load %s from %s: %s", id, imgRef, err)
-	// 			continue
-	// 		}
-	//
-	// 		if lImage, exists := lookup[id]; exists {
-	// 			if filtTagged {
-	// 				if utils.DigestReference(ref) {
-	// 					lImage.RepoDigests = append(lImage.RepoDigests, imgRef)
-	// 				} else { // Tag Ref.
-	// 					lImage.RepoTags = append(lImage.RepoTags, imgRef)
-	// 				}
-	// 			}
-	// 		} else {
-	// 			// get the boolean list for if only the untagged images are requested
-	// 			delete(allImages, id)
-	//
-	// 			if len(imageFilters["label"]) > 0 {
-	// 				if image.Config == nil {
-	// 					// Very old image that do not have image.Config (or even labels)
-	// 					continue
-	// 				}
-	// 				// We are now sure image.Config is not nil
-	// 				if !imageFilters.MatchKVList("label", image.Config.Labels) {
-	// 					continue
-	// 				}
-	// 			}
-	// 			if filtTagged {
-	// 				newImage := newImage(image, s.graph.GetParentsSize(image))
-	//
-	// 				if utils.DigestReference(ref) {
-	// 					newImage.RepoTags = []string{}
-	// 					newImage.RepoDigests = []string{imgRef}
-	// 				} else {
-	// 					newImage.RepoTags = []string{imgRef}
-	// 					newImage.RepoDigests = []string{}
-	// 				}
-	//
-	// 				lookup[id] = newImage
-	// 			}
-	// 		}
-	//
-	// 	}
-	// }
-	// s.Unlock()
-	//
-	// images := []*types.Image{}
-	// for _, value := range lookup {
-	// 	images = append(images, value)
-	// }
-	//
-	// // Display images which aren't part of a repository/tag
-	// if filter == "" || filtLabel {
-	// 	for _, image := range allImages {
-	// 		if len(imageFilters["label"]) > 0 {
-	// 			if image.Config == nil {
-	// 				// Very old image that do not have image.Config (or even labels)
-	// 				continue
-	// 			}
-	// 			// We are now sure image.Config is not nil
-	// 			if !imageFilters.MatchKVList("label", image.Config.Labels) {
-	// 				continue
-	// 			}
-	// 		}
-	// 		newImage := newImage(image, s.graph.GetParentsSize(image))
-	// 		newImage.RepoTags = []string{"<none>:<none>"}
-	// 		newImage.RepoDigests = []string{"<none>@<none>"}
-	//
-	// 		images = append(images, newImage)
-	// 	}
-	// }
 
 	sort.Sort(sort.Reverse(byCreated(images)))
 
