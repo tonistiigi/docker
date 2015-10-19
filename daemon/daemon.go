@@ -1050,7 +1050,7 @@ func (daemon *Daemon) Graph() *graph.Graph {
 // imageName. If force is true, an existing tag with the same name may be
 // overwritten.
 func (daemon *Daemon) TagImage(newTag reference.Named, imageName string, force bool) error {
-	imageID, err := daemon.GetImage(imageName)
+	imageID, err := daemon.GetImageID(imageName)
 	if err != nil {
 		return err
 	}
@@ -1115,24 +1115,20 @@ func (daemon *Daemon) PushImage(ref reference.Named, metaHeaders map[string][]st
 // LookupImage looks up an image by name and returns it as an ImageInspect
 // structure.
 func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
-	imgID, err := daemon.GetImage(name)
-	if err != nil {
-		return nil, err
-	}
-	image, err := daemon.imageStore.Get(imgID)
+	img, err := daemon.GetImage(name)
 	if err != nil {
 		return nil, err
 	}
 
-	parent, _ := daemon.imageStore.GetParent(imgID) // probably better in graph.lookupImage()
+	parent, _ := daemon.imageStore.GetParent(img.ID) // probably better in graph.lookupImage()
 
-	refs := daemon.tagStore.References(imgID)
+	refs := daemon.tagStore.References(img.ID)
 	var tags = make([]string, len(refs))
 	for i := range refs {
 		tags[i] = refs[i].String()
 	}
 
-	layerID, err := image.GetTopLayerID()
+	layerID, err := img.GetTopLayerID()
 	if err != nil {
 		return nil, err
 	}
@@ -1145,18 +1141,18 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 	size, _ := layer.Size()
 
 	imageInspect := &types.ImageInspect{
-		ID:              imgID.String(),
+		ID:              img.ID.String(),
 		Tags:            tags,
 		Parent:          string(parent),
-		Comment:         image.Comment,
-		Created:         image.Created.Format(time.RFC3339Nano),
-		Container:       image.Container,
-		ContainerConfig: &image.ContainerConfig,
-		DockerVersion:   image.DockerVersion,
-		Author:          image.Author,
-		Config:          image.Config,
-		Architecture:    image.Architecture,
-		Os:              image.OS,
+		Comment:         img.Comment,
+		Created:         img.Created.Format(time.RFC3339Nano),
+		Container:       img.Container,
+		ContainerConfig: &img.ContainerConfig,
+		DockerVersion:   img.DockerVersion,
+		Author:          img.Author,
+		Config:          img.Config,
+		Architecture:    img.Architecture,
+		Os:              img.OS,
 		Size:            size,
 		//VirtualSize:   s.graph.GetParentsSize(image) + image.Size, // FIXME: document removal
 	}
@@ -1185,9 +1181,9 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 	return daemon.repositories.History(name)
 }
 
-// GetImage returns an image ID corresponding to the image referred to by
+// GetImageID returns an image ID corresponding to the image referred to by
 // refOrID.
-func (daemon *Daemon) GetImage(refOrID string) (images.ID, error) {
+func (daemon *Daemon) GetImageID(refOrID string) (images.ID, error) {
 	// Treat it as a possible tag or digest reference
 	if ref, err := reference.ParseNamed(refOrID); err == nil {
 		if id, err := daemon.tagStore.Get(ref); err == nil {
@@ -1201,6 +1197,15 @@ func (daemon *Daemon) GetImage(refOrID string) (images.ID, error) {
 	}
 
 	return "", fmt.Errorf("image %s not found", refOrID)
+}
+
+// GetImage returns an image corresponding to the image referred to by refOrID.
+func (daemon *Daemon) GetImage(refOrID string) (*images.Image, error) {
+	imgID, err := daemon.GetImageID(refOrID)
+	if err != nil {
+		return nil, err
+	}
+	return daemon.imageStore.Get(imgID)
 }
 
 func (daemon *Daemon) config() *Config {

@@ -52,7 +52,7 @@ import (
 func (daemon *Daemon) ImageDelete(imageRef string, force, prune bool) ([]types.ImageDelete, error) {
 	records := []types.ImageDelete{}
 
-	imgID, err := daemon.GetImage(imageRef)
+	imgID, err := daemon.GetImageID(imageRef)
 	if err != nil {
 		return nil, err
 	}

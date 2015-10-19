@@ -51,16 +51,11 @@ func (daemon *Daemon) Create(config *runconfig.Config, hostConfig *runconfig.Hos
 	var (
 		container *Container
 		img       *images.Image
-		imgID     images.ID
 		err       error
 	)
 
 	if config.Image != "" {
-		imgID, err = daemon.GetImage(config.Image)
-		if err != nil {
-			return nil, err
-		}
-		img, err = daemon.imageStore.Get(imgID)
+		img, err = daemon.GetImage(config.Image)
 		if err != nil {
 			return nil, err
 		}
@@ -79,7 +74,7 @@ func (daemon *Daemon) Create(config *runconfig.Config, hostConfig *runconfig.Hos
 			return nil, err
 		}
 	}
-	if container, err = daemon.newContainer(name, config, imgID); err != nil {
+	if container, err = daemon.newContainer(name, config, img.ID); err != nil {
 		return nil, err
 	}
 	defer func() {

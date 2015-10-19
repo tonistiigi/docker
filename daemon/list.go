@@ -297,11 +297,7 @@ func (daemon *Daemon) transformContainer(container *Container, ctx *listContext)
 		newC.Names = []string{}
 	}
 
-	imgID, err := daemon.GetImage(container.Config.Image)
-	if err != nil {
-		return nil, err
-	}
-	img, err := daemon.imageStore.Get(imgID)
+	img, err := daemon.GetImage(container.Config.Image)
 	if err != nil {
 		return nil, err
 	}
