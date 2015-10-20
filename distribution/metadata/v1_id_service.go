@@ -1,10 +1,10 @@
 package metadata
 
 import (
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/layer"
 )
 
-// V1IDService maps v1 IDs to images on disk.
+// V1IDService maps v1 IDs to layers on disk.
 type V1IDService struct {
 	store Store
 }
@@ -21,16 +21,16 @@ func (idserv *V1IDService) namespace() string {
 	return "v1id"
 }
 
-// Get finds an image by its V1 ID.
-func (idserv *V1IDService) Get(v1ID string) (images.ID, error) {
-	idBytes, err := idserv.store.Get(idserv.namespace(), v1ID)
+// Get finds a layer by its V1 ID.
+func (idserv *V1IDService) Get(v1ID, registry string) (layer.ID, error) {
+	idBytes, err := idserv.store.Get(idserv.namespace(), registry+","+v1ID)
 	if err != nil {
-		return images.ID(""), err
+		return layer.ID(""), err
 	}
-	return images.ID(idBytes), nil
+	return layer.ID(idBytes), nil
 }
 
 // Set associates an image with a V1 ID.
-func (idserv *V1IDService) Set(v1ID string, id images.ID) error {
-	return idserv.store.Set(idserv.namespace(), v1ID, []byte(id))
+func (idserv *V1IDService) Set(v1ID, registry string, id layer.ID) error {
+	return idserv.store.Set(idserv.namespace(), registry+","+v1ID, []byte(id))
 }

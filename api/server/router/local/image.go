@@ -108,6 +108,11 @@ func (s *router) postImagesCreate(ctx context.Context, w http.ResponseWriter, r 
 	w.Header().Set("Content-Type", "application/json")
 
 	if image != "" { //pull
+		// Special case: "pull -a" may send an image name with a
+		// trailing :. This is ugly, but let's not break API
+		// compatibility.
+		image = strings.TrimSuffix(image, ":")
+
 		ref, err := reference.ParseNamed(image)
 		if err != nil {
 			return err

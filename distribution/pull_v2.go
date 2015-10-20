@@ -58,9 +58,13 @@ func (p *v2Puller) Pull(ref reference.Named) (fallback bool, err error) {
 }
 
 func (p *v2Puller) pullV2Repository(ref reference.Named) (err error) {
-	var refs []reference.Named
-	if _, isTagged := ref.(reference.Tagged); isTagged {
-		refs = []reference.Named{ref}
+	var refs []reference.NamedTagged
+	if tagged, isTagged := ref.(reference.Tagged); isTagged {
+		tagRef, err := reference.WithTag(p.repoInfo.LocalName, tagged.Tag())
+		if err != nil {
+			return err
+		}
+		refs = []reference.NamedTagged{tagRef}
 	} else {
 		var err error
 
@@ -188,12 +192,8 @@ func (p *v2Puller) download(di *downloadInfo) {
 	di.err <- nil
 }
 
-func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated bool, err error) {
-	tagged, isTagged := ref.(reference.Tagged)
-	if !isTagged {
-		return false, fmt.Errorf("reference %s has no tag", ref.String())
-	}
-	tag := tagged.Tag()
+func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.NamedTagged) (tagUpdated bool, err error) {
+	tag := ref.Tag()
 
 	logrus.Debugf("Pulling ref from V2 registry: %q", tag)
 
@@ -409,16 +409,6 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 	}
 
 	return tagUpdated, nil
-}
-
-// addLayerDiffIDs creates a slice containing all layer diff IDs for the given
-// layer, ordered from base to top-most.
-func addLayerDiffIDs(l layer.Layer) []layer.DiffID {
-	parent, err := l.Parent()
-	if err != nil || parent == nil {
-		return []layer.DiffID{l.DiffID()}
-	}
-	return append(addLayerDiffIDs(parent), l.DiffID())
 }
 
 func verifyManifest(signedManifest *manifest.SignedManifest, ref reference.Reference) (m *manifest.Manifest, err error) {

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/cliconfig"
 	"github.com/docker/docker/pkg/httputils"
 	"github.com/docker/docker/pkg/ioutils"
@@ -320,7 +321,9 @@ func (r *Session) GetRemoteImageLayer(imgID, registry string, imgSize int64) (io
 // repository. It queries each of the registries supplied in the registries
 // argument, and returns data from the first one that answers the query
 // successfully.
-func (r *Session) GetRemoteTag(registries []string, repository string, askedTag string) (string, error) {
+func (r *Session) GetRemoteTag(registries []string, repositoryRef reference.Named, askedTag string) (string, error) {
+	repository := repositoryRef.Name()
+
 	if strings.Count(repository, "/") == 0 {
 		// This will be removed once the registry supports auto-resolution on
 		// the "library" namespace
@@ -356,7 +359,9 @@ func (r *Session) GetRemoteTag(registries []string, repository string, askedTag 
 // of the registries supplied in the registries argument, and returns data from
 // the first one that answers the query successfully. It returns a map with
 // tag names as the keys and image IDs as the values.
-func (r *Session) GetRemoteTags(registries []string, repository string) (map[string]string, error) {
+func (r *Session) GetRemoteTags(registries []string, repositoryRef reference.Named) (map[string]string, error) {
+	repository := repositoryRef.Name()
+
 	if strings.Count(repository, "/") == 0 {
 		// This will be removed once the registry supports auto-resolution on
 		// the "library" namespace
@@ -408,8 +413,8 @@ func buildEndpointsList(headers []string, indexEp string) ([]string, error) {
 }
 
 // GetRepositoryData returns lists of images and endpoints for the repository
-func (r *Session) GetRepositoryData(remote string) (*RepositoryData, error) {
-	repositoryTarget := fmt.Sprintf("%srepositories/%s/images", r.indexEndpoint.VersionString(1), remote)
+func (r *Session) GetRepositoryData(remote reference.Named) (*RepositoryData, error) {
+	repositoryTarget := fmt.Sprintf("%srepositories/%s/images", r.indexEndpoint.VersionString(1), remote.Name())
 
 	logrus.Debugf("[registry] Calling GET %s", repositoryTarget)
 
@@ -443,7 +448,7 @@ func (r *Session) GetRepositoryData(remote string) (*RepositoryData, error) {
 		if err != nil {
 			logrus.Debugf("Error reading response body: %s", err)
 		}
-		return nil, httputils.NewHTTPRequestError(fmt.Sprintf("Error: Status %d trying to pull repository %s: %q", res.StatusCode, remote, errBody), res)
+		return nil, httputils.NewHTTPRequestError(fmt.Sprintf("Error: Status %d trying to pull repository %s: %q", res.StatusCode, remote.Name(), errBody), res)
 	}
 
 	var endpoints []string

@@ -70,15 +70,13 @@ func NewPuller(endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo,
 			repoInfo:              repoInfo,
 		}, nil
 	case registry.APIVersion1:
-		panic("v1 unsupported")
-		// FIXME
-		/*return &v1Puller{
-			v1IDService: metadata.NewV1IDService(metadataStore),
+		return &v1Puller{
+			v1IDService: metadata.NewV1IDService(imagePullConfig.MetadataStore),
 			endpoint:    endpoint,
 			config:      imagePullConfig,
 			sf:          sf,
 			repoInfo:    repoInfo,
-		}, nil*/
+		}, nil
 	}
 	return nil, fmt.Errorf("unknown version %d for registry %s", endpoint.Version, endpoint.URL)
 }
