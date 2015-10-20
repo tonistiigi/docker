@@ -34,7 +34,6 @@ import (
 	dmetadata "github.com/docker/docker/distribution/metadata"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/graph"
-	"github.com/docker/docker/image"
 	"github.com/docker/docker/images"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/migrate/v1"
@@ -1251,25 +1250,28 @@ func (daemon *Daemon) GetRemappedUIDGID() (int, int) {
 // of the image with imgID, that had the same config when it was
 // created. nil is returned if a child cannot be found. An error is
 // returned if the parent image cannot be found.
-func (daemon *Daemon) ImageGetCached(imgID string, config *runconfig.Config) (*image.Image, error) {
+func (daemon *Daemon) ImageGetCached(imgID images.ID, config *runconfig.Config) (*images.Image, error) {
 	// Retrieve all images
-	images := daemon.Graph().Map()
+	imgs := daemon.Map()
 
 	// Store the tree in a map of map (map[parentId][childId])
-	imageMap := make(map[string]map[string]struct{})
-	for _, img := range images {
-		if _, exists := imageMap[img.Parent]; !exists {
-			imageMap[img.Parent] = make(map[string]struct{})
+	siblings := make([]images.ID, 0)
+	for id := range imgs {
+		parentID, err := daemon.imageStore.GetParent(id)
+		if err != nil {
+			continue
 		}
-		imageMap[img.Parent][img.ID] = struct{}{}
+		if parentID == imgID {
+			siblings = append(siblings, id)
+		}
 	}
 
 	// Loop on the children of the given image and check the config
-	var match *image.Image
-	for elem := range imageMap[imgID] {
-		img, ok := images[elem]
+	var match *images.Image
+	for _, id := range siblings {
+		img, ok := imgs[id]
 		if !ok {
-			return nil, fmt.Errorf("unable to find image %q", elem)
+			return nil, fmt.Errorf("unable to find image %q", id)
 		}
 		if runconfig.Compare(&img.ContainerConfig, config) {
 			if match == nil || match.Created.Before(img.Created) {

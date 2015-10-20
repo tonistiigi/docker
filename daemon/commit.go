@@ -96,6 +96,10 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 		return "", err
 	}
 
+	if err := daemon.imageStore.SetParent(id, img.ID); err != nil {
+		return "", err
+	}
+
 	container.logEvent("commit")
 
 	// FIXME: tagging

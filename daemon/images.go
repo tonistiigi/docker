@@ -24,6 +24,11 @@ func (r byCreated) Len() int           { return len(r) }
 func (r byCreated) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
 func (r byCreated) Less(i, j int) bool { return r[i].Created < r[j].Created }
 
+// Map returns a map of all images in the ImageStore
+func (daemon *Daemon) Map() map[images.ID]*images.Image {
+	return daemon.imageStore.Map()
+}
+
 // Images returns a filtered list of images. filterArgs is a JSON-encoded set
 // of filter arguments which will be interpreted by pkg/parsers/filters.
 // filter is a shell glob string applied to repository names. The argument

@@ -196,11 +196,11 @@ func (d Docker) Copy(c *daemon.Container, destPath string, src builder.FileInfo,
 // GetCachedImage returns a reference to a cached image whose parent equals `parent`
 // and runconfig equals `cfg`. A cache miss is expected to return an empty ID and a nil error.
 func (d Docker) GetCachedImage(imgID string, cfg *runconfig.Config) (string, error) {
-	cache, err := d.Daemon.ImageGetCached(string(imgID), cfg)
+	cache, err := d.Daemon.ImageGetCached(images.ID(imgID), cfg)
 	if cache == nil || err != nil {
 		return "", err
 	}
-	return cache.ID, nil
+	return cache.ID.String(), nil
 }
 
 // Following is specific to builder contexts
