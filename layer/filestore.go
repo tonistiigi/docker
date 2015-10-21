@@ -16,7 +16,14 @@ import (
 	"github.com/docker/docker/pkg/ioutils"
 )
 
-var stringIDRegexp = regexp.MustCompile(`^[a-f0-9]{64}(-init)?$`) // FIXME: probably better to keep the old format
+var (
+	stringIDRegexp      = regexp.MustCompile(`^[a-f0-9]{64}(-init)?$`) // FIXME: probably better to keep the old format
+	supportedAlgorithms = []digest.Algorithm{
+		digest.SHA256,
+		// digest.SHA384, // Currently not used
+		// digest.SHA512, // Currently not used
+	}
+)
 
 type fileMetadataStore struct {
 	root string
@@ -259,27 +266,29 @@ func (fms *fileMetadataStore) GetMountParent(mount string) (ID, error) {
 }
 
 func (fms *fileMetadataStore) List() ([]ID, []string, error) {
-	fileInfos, err := ioutil.ReadDir(fms.root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []ID{}, []string{}, nil
-		}
-		return nil, nil, err
-	}
-
 	var ids []ID
-	for _, fi := range fileInfos {
-		if fi.IsDir() && fi.Name() != "mounts" {
-			dgst, err := digest.ParseDigest(fi.Name())
-			if err == nil {
-				ids = append(ids, ID(dgst))
-			} else {
-				logrus.Debugf("Ignoring invalid directory %s", fi.Name())
+	for _, algorithm := range supportedAlgorithms {
+		fileInfos, err := ioutil.ReadDir(filepath.Join(fms.root, string(algorithm)))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, nil, err
+		}
+
+		for _, fi := range fileInfos {
+			if fi.IsDir() && fi.Name() != "mounts" {
+				dgst := digest.NewDigestFromHex(string(algorithm), fi.Name())
+				if err := dgst.Validate(); err != nil {
+					logrus.Debugf("Ignoring invalid digest %s:%s", algorithm, fi.Name())
+				} else {
+					ids = append(ids, ID(dgst))
+				}
 			}
 		}
 	}
 
-	fileInfos, err = ioutil.ReadDir(filepath.Join(fms.root, "mounts"))
+	fileInfos, err := ioutil.ReadDir(filepath.Join(fms.root, "mounts"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return ids, []string{}, nil
