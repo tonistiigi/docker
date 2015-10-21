@@ -1177,7 +1177,26 @@ func (daemon *Daemon) LoadImage(inTar io.ReadCloser, outStream io.Writer) error 
 // ImageHistory returns a slice of ImageHistory structures for the specified image
 // name by walking the image lineage.
 func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
-	return daemon.repositories.History(name)
+	img, err := daemon.GetImage(name)
+	if err != nil {
+		return nil, err
+	}
+
+	history := []*types.ImageHistory{}
+
+	for i := len(img.History) - 1; i >= 0; i-- {
+		id := ""
+		if i == len(img.History)-1 {
+			id = img.ID.String()
+		}
+		history = append(history, &types.ImageHistory{
+			ID:        id,
+			Created:   img.History[i].Created.Unix(),
+			CreatedBy: img.History[i].Description,
+		})
+	}
+
+	return history, nil
 }
 
 // GetImageID returns an image ID corresponding to the image referred to by
