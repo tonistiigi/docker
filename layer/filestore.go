@@ -37,7 +37,8 @@ func NewFileMetadataStore(root string) MetadataStore {
 }
 
 func (fms *fileMetadataStore) getLayerDirectory(layer ID) string {
-	return filepath.Join(fms.root, digest.Digest(layer).String())
+	dgst := digest.Digest(layer)
+	return filepath.Join(fms.root, string(dgst.Algorithm()), dgst.Hex())
 }
 
 func (fms *fileMetadataStore) getLayerFilename(layer ID, filename string) string {
@@ -101,7 +102,11 @@ func (fm *fileMetadataTransaction) TarSplitWriter() (io.WriteCloser, error) {
 }
 
 func (fm *fileMetadataTransaction) Commit(layer ID) error {
-	return os.Rename(fm.root, fm.store.getLayerDirectory(layer))
+	finalDir := fm.store.getLayerDirectory(layer)
+	if err := os.MkdirAll(filepath.Dir(finalDir), 0755); err != nil {
+		return err
+	}
+	return os.Rename(fm.root, finalDir)
 }
 
 func (fm *fileMetadataTransaction) Cancel() error {
