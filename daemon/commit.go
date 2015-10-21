@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/autogen/dockerversion"
 	"github.com/docker/docker/images"
 	"github.com/docker/docker/layer"
@@ -26,6 +27,7 @@ type ContainerCommitConfig struct {
 // Commit creates a new filesystem image from the current state of a container.
 // The image can optionally be tagged into a repository.
 func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (string, error) { // FIXME: change type to images.ID
+
 	if c.Pause && !container.isPaused() {
 		container.pause()
 		defer container.unpause()
@@ -100,18 +102,23 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 		return "", err
 	}
 
-	container.logEvent("commit")
+	if c.Repo != "" {
+		newTag, err := reference.WithName(c.Repo) // todo: should move this to API layer
+		if err != nil {
+			return "", err
+		}
+		if c.Tag != "" {
+			if newTag, err = reference.WithTag(newTag, c.Tag); err != nil {
+				return "", err
+			}
+		}
+		if err := daemon.TagImage(newTag, id.String(), true); err != nil {
+			return "", err
+		}
+	}
 
-	// FIXME: tagging
+	container.logEvent("commit")
 
 	return id.String(), nil
 
-	// // Register the image if needed
-	// if c.Repo != "" {
-	// 	if err := daemon.repositories.Tag(c.Repo, c.Tag, img.ID, true); err != nil {
-	// 		return img, err
-	// 	}
-	// }
-	// container.logEvent("commit")
-	// return img, nil
 }
