@@ -210,12 +210,7 @@ func (p *v1Pusher) imageListForTag(imgID images.ID, dependenciesSeen map[layer.I
 		return nil, err
 	}
 
-	layerID, err := img.GetTopLayerID()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get top layer id from image: %v", err)
-	}
-
-	l, err := p.config.LayerStore.Get(layerID)
+	l, err := p.config.LayerStore.Get(img.GetTopLayerID())
 	*referencedLayers = append(*referencedLayers, l)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get top layer from image: %v", err)
