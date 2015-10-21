@@ -73,7 +73,7 @@ func (s *fs) Walk(f IDWalKFunc) error {
 
 func validateCanonicalDigest(dgst digest.Digest) error {
 	if err := dgst.Validate(); err != nil {
-		return nil
+		return err
 	}
 	if dgst.Algorithm() != digest.Canonical {
 		return fmt.Errorf("unsupported digest algorithm: %v", dgst.Algorithm())
