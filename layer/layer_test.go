@@ -132,6 +132,12 @@ func (tf *testFile) ApplyFile(root string) error {
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		return err
 	}
+	// Check if already exists
+	if stat, err := os.Stat(fullPath); err == nil && stat.Mode().Perm() != tf.permission {
+		if err := os.Chmod(fullPath, tf.permission); err != nil {
+			return err
+		}
+	}
 	if err := ioutil.WriteFile(fullPath, tf.content, tf.permission); err != nil {
 		return err
 	}

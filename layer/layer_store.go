@@ -184,17 +184,6 @@ func (ls *layerStore) applyTar(tx MetadataTransaction, ts io.Reader, parent stri
 	return nil
 }
 
-func (ls *layerStore) layerTarStreamer(layer *cacheLayer) func() (io.Reader, error) {
-	return func() (io.Reader, error) {
-		r, err := ls.store.TarSplitReader(layer.address)
-		if err != nil {
-			return nil, err
-		}
-
-		return ls.assembleTar(layer.cacheID, r)
-	}
-}
-
 func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 	var err error
 	var pid string
