@@ -45,9 +45,13 @@ func NewStore(store MetadataStore, driver graphdriver.Driver) (Store, error) {
 	}
 
 	for _, id := range ids {
-		if _, err := ls.loadLayer(id); err != nil {
+		l, err := ls.loadLayer(id)
+		if err != nil {
 			// TODO warn with bad layers, don't error out
 			return nil, err
+		}
+		if l.parent != nil {
+			l.parent.referenceCount++
 		}
 	}
 
@@ -143,7 +147,7 @@ func (ls *layerStore) loadMount(mount string) error {
 		}
 		ml.parent = p
 
-		ls.retainLayer(p)
+		p.referenceCount++
 	}
 
 	ls.mounts[ml.name] = ml
@@ -254,10 +258,9 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 	ls.layerL.Lock()
 	defer ls.layerL.Unlock()
 
-	if existingLayer, ok := ls.layerMap[layer.address]; ok {
+	if existingLayer := ls.getAndRetainLayer(layer.address); existingLayer != nil {
 		// Set error for cleanup, but do not return the error
 		err = errors.New("layer already exists")
-		ls.retainLayer(existingLayer)
 		return existingLayer.getReference(), nil
 	}
 
@@ -279,7 +282,7 @@ func (ls *layerStore) get(l ID) *cacheLayer {
 		return nil
 	}
 
-	ls.retainLayer(layer)
+	layer.referenceCount++
 
 	return layer
 }
@@ -291,15 +294,6 @@ func (ls *layerStore) Get(l ID) (Layer, error) {
 	}
 
 	return layer.getReference(), nil
-}
-
-func (ls *layerStore) retainLayer(layer *cacheLayer) {
-	for l := layer; ; l = l.parent {
-		l.referenceCount++
-		if l.parent == nil {
-			break
-		}
-	}
 }
 
 func (ls *layerStore) deleteLayer(layer *cacheLayer, metadata *Metadata) error {
@@ -342,11 +336,11 @@ func (ls *layerStore) releaseLayers(l *cacheLayer, removed *[]Metadata, depth in
 
 		delete(ls.layerMap, l.address)
 		*removed = append(*removed, metadata)
-	}
 
-	if l.parent != nil {
-		if err := ls.releaseLayers(l.parent, removed, depth+1); err != nil {
-			return err
+		if l.parent != nil {
+			if err := ls.releaseLayers(l.parent, removed, depth+1); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -414,7 +408,7 @@ func (ls *layerStore) getAndRetainLayer(layer ID) *cacheLayer {
 		return nil
 	}
 
-	ls.retainLayer(l)
+	l.referenceCount++
 
 	return l
 }
@@ -444,7 +438,6 @@ func (ls *layerStore) initMount(graphID, parent string, initFunc MountInit) (str
 	}
 
 	return initID, nil
-
 }
 
 func (ls *layerStore) Mount(name string, parent ID, mountLabel string, initFunc MountInit) (RWLayer, error) {

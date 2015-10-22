@@ -178,7 +178,7 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 	ls.layerL.Lock()
 	defer ls.layerL.Unlock()
 
-	if existingLayer, ok := ls.layerMap[layer.address]; ok {
+	if existingLayer := ls.getAndRetainLayer(layer.address); existingLayer != nil {
 		// Set error for cleanup, but do not return
 		err = errors.New("layer already exists")
 		return existingLayer.getReference(), nil

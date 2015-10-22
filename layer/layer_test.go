@@ -391,7 +391,7 @@ func TestStoreRestore(t *testing.T) {
 	assertLayerEqual(t, layer3b, layer3)
 
 	// Mount again with same name, should already be loaded
-	m2, err := ls.Mount("some-mount_name", layer3b.ID(), "", nil)
+	m2, err := ls2.Mount("some-mount_name", layer3b.ID(), "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +409,7 @@ func TestStoreRestore(t *testing.T) {
 		t.Fatalf("Unexpected content %q, expected %q", string(b), expected)
 	}
 
-	if err := ls.Unmount("some-mount_name"); err != nil {
+	if err := ls2.Unmount("some-mount_name"); err != nil {
 		t.Fatal(err)
 	}
 
