@@ -60,20 +60,23 @@ func (is *store) restore() error {
 			logrus.Errorf("invalid image %v, %v", id, err)
 			return nil
 		}
-		layerID, err := layer.CreateID("", img.RootFS.DiffIDs...)
-		if err != nil {
-			return err
-		}
-		layer, err := is.ls.Get(layerID)
-		if err != nil {
-			return err
+		var l layer.Layer
+		if len(img.RootFS.DiffIDs) > 0 {
+			layerID, err := layer.CreateID("", img.RootFS.DiffIDs...)
+			if err != nil {
+				return err
+			}
+			l, err = is.ls.Get(layerID)
+			if err != nil {
+				return err
+			}
 		}
 		if err := is.digestSet.Add(id); err != nil {
 			return err
 		}
 
 		imageMeta := &imageMeta{
-			layer:    layer,
+			layer:    l,
 			children: make(map[ID]struct{}),
 		}
 
@@ -124,13 +127,17 @@ func (is *store) Create(config []byte) (ID, error) {
 	if err != nil {
 		return "", err
 	}
-	layer, err := is.ls.Get(layerID)
-	if err != nil {
-		return "", err
+
+	var l layer.Layer
+	if layerID != "" {
+		l, err = is.ls.Get(layerID)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	imageMeta := &imageMeta{
-		layer:    layer,
+		layer:    l,
 		children: make(map[ID]struct{}),
 	}
 

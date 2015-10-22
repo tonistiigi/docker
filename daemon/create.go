@@ -51,6 +51,7 @@ func (daemon *Daemon) Create(config *runconfig.Config, hostConfig *runconfig.Hos
 	var (
 		container *Container
 		img       *images.Image
+		imgID     images.ID
 		err       error
 	)
 
@@ -59,6 +60,7 @@ func (daemon *Daemon) Create(config *runconfig.Config, hostConfig *runconfig.Hos
 		if err != nil {
 			return nil, err
 		}
+		imgID = img.ID
 	}
 
 	if err := daemon.mergeAndVerifyConfig(config, img); err != nil {
@@ -74,7 +76,7 @@ func (daemon *Daemon) Create(config *runconfig.Config, hostConfig *runconfig.Hos
 			return nil, err
 		}
 	}
-	if container, err = daemon.newContainer(name, config, img.ID); err != nil {
+	if container, err = daemon.newContainer(name, config, imgID); err != nil {
 		return nil, err
 	}
 	defer func() {

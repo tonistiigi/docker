@@ -962,13 +962,16 @@ func (daemon *Daemon) Shutdown() error {
 // Mount sets container.basefs
 // (is it not set coming in? why is it unset?)
 func (daemon *Daemon) Mount(container *Container) error {
-	img, err := daemon.imageStore.Get(images.ID(container.ImageID))
-	if err != nil {
-		return err
-	}
-	layerID, err := img.GetTopLayerID()
-	if err != nil {
-		return err
+	var layerID layer.ID
+	if container.ImageID != "" {
+		img, err := daemon.imageStore.Get(container.ImageID)
+		if err != nil {
+			return err
+		}
+		layerID, err = img.GetTopLayerID()
+		if err != nil {
+			return err
+		}
 	}
 	rwlayer, err := daemon.layerStore.Mount(container.ID, layerID, "", daemon.setupInitLayer) // FIXME: init
 	if err != nil {

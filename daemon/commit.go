@@ -43,21 +43,30 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 		}
 	}()
 
-	img, err := daemon.imageStore.Get(container.ImageID)
-	if err != nil {
-		return "", err
+	var history []images.History
+	var diffIDs []layer.DiffID
+	var layerID layer.ID
+
+	if container.ImageID != "" {
+		img, err := daemon.imageStore.Get(container.ImageID)
+		if err != nil {
+			return "", err
+		}
+		layerID, err = img.GetTopLayerID()
+		if err != nil {
+			return "", err
+		}
+
+		diffIDs = img.RootFS.DiffIDs
+		history = img.History
 	}
-	layerID, err := img.GetTopLayerID()
-	if err != nil {
-		return "", err
-	}
+
 	l, err := daemon.layerStore.Register(rwTar, layerID)
 	if err != nil {
 		return "", err
 	}
 	defer daemon.layerStore.Release(l)
 
-	diffIDs := img.RootFS.DiffIDs
 	if diffID := l.DiffID(); layer.DigestSha256EmptyTar != diffID {
 		diffIDs = append(diffIDs, diffID)
 	}
@@ -71,7 +80,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 		h.Description += "(" + c.Comment + ")"
 	}
 
-	history := append(img.History, h)
+	history = append(history, h)
 
 	config, err := json.Marshal(&images.Image{
 		ImageV1: images.ImageV1{
@@ -98,8 +107,10 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 		return "", err
 	}
 
-	if err := daemon.imageStore.SetParent(id, img.ID); err != nil {
-		return "", err
+	if container.ImageID != "" {
+		if err := daemon.imageStore.SetParent(id, container.ImageID); err != nil {
+			return "", err
+		}
 	}
 
 	if c.Repo != "" {
