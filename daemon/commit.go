@@ -90,6 +90,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 			OS:              runtime.GOOS,
 			Container:       container.ID,
 			ContainerConfig: *container.Config,
+			Author:          c.Author,
 		},
 		RootFS: &images.RootFS{
 			Type:    "layers",
