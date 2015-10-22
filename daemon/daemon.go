@@ -1130,17 +1130,25 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 		tags[i] = refs[i].String()
 	}
 
+	var size int64
+	var layerMetadata map[string]string
 	layerID, err := img.GetTopLayerID()
 	if err != nil {
 		return nil, err
 	}
-	layer, err := daemon.layerStore.Get(layerID)
-	if err != nil {
-		return nil, err
-	}
-	defer daemon.layerStore.Release(layer)
+	if layerID != "" {
+		layer, err := daemon.layerStore.Get(layerID)
+		if err != nil {
+			return nil, err
+		}
+		defer daemon.layerStore.Release(layer)
+		size, _ = layer.Size()
 
-	size, _ := layer.Size()
+		layerMetadata, err = layer.Metadata()
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	imageInspect := &types.ImageInspect{
 		ID:              img.ID.String(),
@@ -1161,11 +1169,7 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 
 	imageInspect.GraphDriver.Name = daemon.driver.String()
 
-	graphDriverData, err := layer.Metadata()
-	if err != nil {
-		return nil, err
-	}
-	imageInspect.GraphDriver.Data = graphDriverData
+	imageInspect.GraphDriver.Data = layerMetadata
 
 	return imageInspect, nil
 }
