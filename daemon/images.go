@@ -96,16 +96,19 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 		if err != nil {
 			return nil, err
 		}
-		layer, err := daemon.layerStore.Get(layerID)
-		if err != nil {
-			return nil, err
-		}
+		var size int64
+		if layerID != "" {
+			l, err := daemon.layerStore.Get(layerID)
+			if err != nil {
+				return nil, err
+			}
 
-		size, err := layer.Size()
-		if err != nil {
-			return nil, err
+			size, err = l.Size()
+			if err != nil {
+				return nil, err
+			}
+			daemon.layerStore.Release(l)
 		}
-		daemon.layerStore.Release(layer)
 
 		newImage := newImage(img, size)
 
