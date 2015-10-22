@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 
@@ -53,16 +54,18 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 
 	if i, ok := imageFilters["dangling"]; ok {
 		for _, value := range i {
-			if strings.ToLower(value) == "true" {
+			if v := strings.ToLower(value); v == "true" {
 				danglingOnly = true
+			} else if v != "false" {
+				return nil, fmt.Errorf("Invalid filter 'dangling=%s'", v)
 			}
 		}
 	}
 
-	if all && !danglingOnly {
-		allImages = daemon.imageStore.Map()
-	} else {
+	if danglingOnly {
 		allImages = daemon.imageStore.Heads()
+	} else {
+		allImages = daemon.imageStore.Map()
 	}
 
 	images := []*types.Image{}
@@ -70,11 +73,10 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 	var filterTagged bool
 	if filter != "" {
 		filterRef, err := reference.Parse(filter)
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := filterRef.(reference.Tagged); ok {
-			filterTagged = true
+		if err == nil { // parse error means wildcard repo
+			if _, ok := filterRef.(reference.Tagged); ok {
+				filterTagged = true
+			}
 		}
 	}
 
@@ -113,7 +115,7 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 					if ref.String() != filter {
 						continue
 					}
-				} else if ref.Name() != filter { // name only match
+				} else if matched, err := path.Match(filter, ref.Name()); !matched || err != nil { // name only match, FIXME: docs say exact
 					continue
 				}
 			}
@@ -125,11 +127,13 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 			}
 		}
 		if newImage.RepoDigests == nil && newImage.RepoTags == nil {
-			if filter != "" { // skip images with no references if filtering by tag
-				continue
+			if all || !daemon.imageStore.HasChild(id) {
+				if filter != "" { // skip images with no references if filtering by tag
+					continue
+				}
+				newImage.RepoDigests = []string{"<none>@<none>"}
+				newImage.RepoTags = []string{"<none>:<none>"}
 			}
-			newImage.RepoDigests = []string{"<none>@<none>"}
-			newImage.RepoTags = []string{"<none>:<none>"}
 		} else if danglingOnly {
 			continue
 		}
