@@ -85,7 +85,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 	config, err := json.Marshal(&images.Image{
 		ImageV1: images.ImageV1{
 			DockerVersion:   dockerversion.VERSION,
-			Config:          container.Config,
+			Config:          c.Config,
 			Architecture:    runtime.GOARCH,
 			OS:              runtime.GOOS,
 			Container:       container.ID,
