@@ -196,7 +196,10 @@ func (is *store) Delete(id ID) ([]layer.Metadata, error) {
 	delete(is.images, id)
 	is.fs.Delete(digest.Digest(id))
 
-	return is.ls.Release(imageMeta.layer)
+	if imageMeta.layer != nil {
+		return is.ls.Release(imageMeta.layer)
+	}
+	return nil, nil
 }
 
 func (is *store) SetParent(id, parent ID) error {

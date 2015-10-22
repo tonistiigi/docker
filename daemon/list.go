@@ -297,10 +297,7 @@ func (daemon *Daemon) transformContainer(container *Container, ctx *listContext)
 		newC.Names = []string{}
 	}
 
-	img, err := daemon.GetImage(container.Config.Image)
-	if err != nil {
-		return nil, err
-	}
+	img, err := daemon.GetImage(container.Config.Image) // FIXME changed in master
 	if err != nil {
 		// If the image can no longer be found by its original reference,
 		// it makes sense to show the ID instead of a stale reference.
