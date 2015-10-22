@@ -35,6 +35,7 @@ import (
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/graph"
 	"github.com/docker/docker/images"
+	"github.com/docker/docker/images/tarexport"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
@@ -1178,7 +1179,11 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 // complement of ImageExport.  The input stream is an uncompressed tar
 // ball containing images and metadata.
 func (daemon *Daemon) LoadImage(inTar io.ReadCloser, outStream io.Writer) error {
-	return daemon.repositories.Load(inTar, outStream)
+	l, err := tarexport.NewLoader(daemon.imageStore, daemon.layerStore, daemon.tagStore)
+	if err != nil {
+		return err
+	}
+	return l.Load(inTar, outStream)
 }
 
 // ImageHistory returns a slice of ImageHistory structures for the specified image
