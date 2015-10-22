@@ -39,15 +39,19 @@ func (blobserv *BlobSumLookupService) hash(blobsums []digest.Digest) (digest.Dig
 	return digest.FromBytes(toHash)
 }
 
+func (blobserv *BlobSumLookupService) key(dgst digest.Digest) string {
+	return string(dgst.Algorithm()) + "/" + dgst.Hex()
+}
+
 // Get finds a layer address from a slice of blobsums. The blobsums must be
 // ordered from bottom-most to top-most.
 func (blobserv *BlobSumLookupService) Get(blobsums []digest.Digest) (layer.ID, error) {
-	key, err := blobserv.hash(blobsums)
+	dgst, err := blobserv.hash(blobsums)
 	if err != nil {
 		return layer.ID(""), err
 	}
 
-	addressBytes, err := blobserv.store.Get(blobserv.namespace(), string(key))
+	addressBytes, err := blobserv.store.Get(blobserv.namespace(), blobserv.key(dgst))
 	if err != nil {
 		return layer.ID(""), err
 	}
@@ -57,10 +61,10 @@ func (blobserv *BlobSumLookupService) Get(blobsums []digest.Digest) (layer.ID, e
 
 // Set associates a layer ID with a blobsum.
 func (blobserv *BlobSumLookupService) Set(blobsums []digest.Digest, addr layer.ID) error {
-	key, err := blobserv.hash(blobsums)
+	dgst, err := blobserv.hash(blobsums)
 	if err != nil {
 		return err
 	}
 
-	return blobserv.store.Set(blobserv.namespace(), string(key), []byte(addr))
+	return blobserv.store.Set(blobserv.namespace(), blobserv.key(dgst), []byte(addr))
 }

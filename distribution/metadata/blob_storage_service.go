@@ -28,9 +28,13 @@ func (blobserv *BlobSumStorageService) namespace() string {
 	return "blobsum-storage"
 }
 
+func (blobserv *BlobSumStorageService) key(diffID layer.DiffID) string {
+	return string(digest.Digest(diffID).Algorithm()) + "/" + digest.Digest(diffID).Hex()
+}
+
 // Get finds the blobsums associated with a layer DiffID.
 func (blobserv *BlobSumStorageService) Get(diffID layer.DiffID) ([]digest.Digest, error) {
-	jsonBytes, err := blobserv.store.Get(blobserv.namespace(), string(diffID))
+	jsonBytes, err := blobserv.store.Get(blobserv.namespace(), blobserv.key(diffID))
 	if err != nil {
 		return nil, err
 	}
@@ -66,6 +70,9 @@ func (blobserv *BlobSumStorageService) Add(diffID layer.DiffID, blobsum digest.D
 	}
 
 	jsonBytes, err := json.Marshal(newBlobSums)
+	if err != nil {
+		return err
+	}
 
-	return blobserv.store.Set(blobserv.namespace(), string(diffID), jsonBytes)
+	return blobserv.store.Set(blobserv.namespace(), blobserv.key(diffID), jsonBytes)
 }

@@ -50,8 +50,9 @@ func (store *FSMetadataStore) Set(namespace, key string, value []byte) error {
 	store.Lock()
 	defer store.Unlock()
 
-	if err := os.MkdirAll(filepath.Join(store.basePath, namespace), 0755); err != nil {
+	path := store.path(namespace, key)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	return ioutil.WriteFile(store.path(namespace, key), value, 0644)
+	return ioutil.WriteFile(path, value, 0644)
 }
