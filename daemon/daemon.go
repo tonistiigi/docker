@@ -1279,10 +1279,7 @@ func (daemon *Daemon) ImageGetCached(imgID images.ID, config *runconfig.Config) 
 	// Store the tree in a map of map (map[parentId][childId])
 	siblings := make([]images.ID, 0)
 	for id := range imgs {
-		parentID, err := daemon.imageStore.GetParent(id)
-		if err != nil {
-			continue
-		}
+		parentID, _ := daemon.imageStore.GetParent(id) // empty parent also handled
 		if parentID == imgID {
 			siblings = append(siblings, id)
 		}
