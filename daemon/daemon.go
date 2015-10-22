@@ -1214,7 +1214,7 @@ func (daemon *Daemon) GetImageID(refOrID string) (images.ID, error) {
 		return id, nil
 	}
 
-	return "", fmt.Errorf("image %s not found", refOrID)
+	return "", fmt.Errorf("No such image: %s", refOrID)
 }
 
 // GetImage returns an image corresponding to the image referred to by refOrID.
