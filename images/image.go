@@ -1,16 +1,12 @@
 package images
 
 import (
-	"regexp"
 	"time"
 
 	"github.com/docker/distribution/digest"
-	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/runconfig"
 )
-
-var validHex = regexp.MustCompile(`^([a-f0-9]{64})$`)
 
 // ID is the content-addressable ID of an image.
 type ID digest.Digest
@@ -96,11 +92,3 @@ type History struct {
 // 	}
 // 	return ret, nil
 // }
-
-// ValidateID checks whether an ID string is a valid image ID.
-func ValidateID(id string) error {
-	if ok := validHex.MatchString(id); !ok {
-		return derr.ErrorCodeInvalidImageID.WithArgs(id)
-	}
-	return nil
-}

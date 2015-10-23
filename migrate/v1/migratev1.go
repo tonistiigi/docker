@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/Sirupsen/logrus"
@@ -17,6 +18,8 @@ import (
 	"github.com/docker/docker/tag"
 	"github.com/jfrazelle/go/canonical/json"
 )
+
+var validHex = regexp.MustCompile(`^([a-f0-9]{64})$`)
 
 type migratoryLayerStore interface {
 	RegisterByGraphID(string, layer.ID, string) (layer.Layer, error)
@@ -84,7 +87,7 @@ func migrateImages(root string, ls layer.Store, is images.Store, mappings map[st
 	// var ids = []string{}
 	for _, v := range dir {
 		v1ID := v.Name()
-		if err := images.ValidateID(v1ID); err != nil {
+		if err := ValidateV1ID(v1ID); err != nil {
 			continue
 		}
 		if _, exists := mappings[v1ID]; exists {
@@ -384,4 +387,12 @@ func rawJSON(value interface{}) *json.RawMessage {
 		return nil
 	}
 	return (*json.RawMessage)(&jsonval)
+}
+
+// ValidateID checks whether an ID string is a valid image ID.
+func ValidateV1ID(id string) error {
+	if ok := validHex.MatchString(id); !ok {
+		return fmt.Errorf("image ID '%s' is invalid ", id)
+	}
+	return nil
 }

@@ -10,7 +10,7 @@ import (
 
 	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/api/v2"
-	"github.com/docker/docker/image"
+	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/opts"
 	flag "github.com/docker/docker/pkg/mflag"
 )
@@ -220,7 +220,7 @@ func ValidateIndexName(val string) (string, error) {
 func validateRemoteName(remoteName string) error {
 	if !strings.Contains(remoteName, "/") {
 		// the repository name must not be a valid image ID
-		if err := image.ValidateID(remoteName); err == nil {
+		if err := v1.ValidateV1ID(remoteName); err == nil {
 			return fmt.Errorf("Invalid repository name (%s), cannot specify 64-byte hexadecimal strings", remoteName)
 		}
 	}

@@ -468,7 +468,7 @@ func fixManifestLayers(m *manifest.Manifest) error {
 		}
 
 		imgs[i] = img
-		if err := images.ValidateID(img.ID); err != nil {
+		if err := v1.ValidateV1ID(img.ID); err != nil {
 			return err
 		}
 	}

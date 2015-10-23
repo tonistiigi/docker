@@ -176,7 +176,7 @@ func (p *v1Puller) downloadImage(out io.Writer, repoData *registry.RepositoryDat
 		errors <- retErr
 	}
 
-	if err := images.ValidateID(img.ID); err != nil {
+	if err := v1.ValidateV1ID(img.ID); err != nil {
 		errors <- err
 		return
 	}
