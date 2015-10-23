@@ -136,6 +136,8 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 				}
 				newImage.RepoDigests = []string{"<none>@<none>"}
 				newImage.RepoTags = []string{"<none>:<none>"}
+			} else {
+				continue
 			}
 		} else if danglingOnly {
 			continue
