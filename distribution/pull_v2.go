@@ -89,32 +89,18 @@ func (p *v2Puller) pullV2Repository(ref reference.Named) (err error) {
 		}
 	}
 
-	poolKey := "v2:" + ref.String()
-	broadcaster, found := p.config.Pool.add("pull", poolKey)
-	broadcaster.Add(p.config.OutStream)
-	if found {
-		// Another pull of the same repository is already taking place; just wait for it to finish
-		return broadcaster.Wait()
-	}
-
-	// This must use a closure so it captures the value of err when the
-	// function returns, not when the 'defer' is evaluated.
-	defer func() {
-		p.config.Pool.removeWithError("pull", poolKey, err)
-	}()
-
 	var layersDownloaded bool
 	for _, pullRef := range refs {
 		// pulledNew is true if either new layers were downloaded OR if existing images were newly tagged
 		// TODO(tiborvass): should we change the name of `layersDownload`? What about message in WriteStatus?
-		pulledNew, err := p.pullV2Tag(broadcaster, pullRef)
+		pulledNew, err := p.pullV2Tag(p.config.OutStream, pullRef)
 		if err != nil {
 			return err
 		}
 		layersDownloaded = layersDownloaded || pulledNew
 	}
 
-	writeStatus(ref.String(), broadcaster, p.sf, layersDownloaded)
+	writeStatus(ref.String(), p.config.OutStream, p.sf, layersDownloaded)
 
 	return nil
 }
@@ -322,6 +308,12 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.NamedTagged) (tagUpdat
 			if err != nil {
 				return false, err
 			}
+
+			parentID, err = p.blobSumLookupService.Get(d.layerBlobSums)
+			if err != nil {
+				return false, err
+			}
+
 			continue
 		}
 

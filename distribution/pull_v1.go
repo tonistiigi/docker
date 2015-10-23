@@ -181,24 +181,14 @@ func (p *v1Puller) downloadImage(out io.Writer, repoData *registry.RepositoryDat
 		return
 	}
 
-	// ensure no two downloads of the same image happen at the same time
-	poolKey := "img:" + img.ID
-	broadcaster, found := p.config.Pool.add("pull", poolKey)
-	broadcaster.Add(out)
-	if found {
-		errors <- broadcaster.Wait()
-		return
-	}
-	defer p.config.Pool.remove("pull", poolKey)
-
-	broadcaster.Write(p.sf.FormatProgress(stringid.TruncateID(img.ID), fmt.Sprintf("Pulling image (%s) from %s", img.Tag, p.repoInfo.CanonicalName.Name()), nil))
+	out.Write(p.sf.FormatProgress(stringid.TruncateID(img.ID), fmt.Sprintf("Pulling image (%s) from %s", img.Tag, p.repoInfo.CanonicalName.Name()), nil))
 	success := false
 	var lastErr error
 	var isDownloaded bool
 	for _, ep := range p.repoInfo.Index.Mirrors {
 		ep += "v1/"
-		broadcaster.Write(p.sf.FormatProgress(stringid.TruncateID(img.ID), fmt.Sprintf("Pulling image (%s) from %s, mirror: %s", img.Tag, p.repoInfo.CanonicalName.Name(), ep), nil))
-		if isDownloaded, err = p.pullImage(broadcaster, img.ID, ep, localNameRef); err != nil {
+		out.Write(p.sf.FormatProgress(stringid.TruncateID(img.ID), fmt.Sprintf("Pulling image (%s) from %s, mirror: %s", img.Tag, p.repoInfo.CanonicalName.Name(), ep), nil))
+		if isDownloaded, err = p.pullImage(out, img.ID, ep, localNameRef); err != nil {
 			// Don't report errors when pulling from mirrors.
 			logrus.Debugf("Error pulling image (%s) from %s, mirror: %s, %s", img.Tag, p.repoInfo.CanonicalName.Name(), ep, err)
 			continue
@@ -211,12 +201,12 @@ func (p *v1Puller) downloadImage(out io.Writer, repoData *registry.RepositoryDat
 	}
 	if !success {
 		for _, ep := range repoData.Endpoints {
-			broadcaster.Write(p.sf.FormatProgress(stringid.TruncateID(img.ID), fmt.Sprintf("Pulling image (%s) from %s, endpoint: %s", img.Tag, p.repoInfo.CanonicalName.Name(), ep), nil))
-			if isDownloaded, err = p.pullImage(broadcaster, img.ID, ep, localNameRef); err != nil {
+			out.Write(p.sf.FormatProgress(stringid.TruncateID(img.ID), fmt.Sprintf("Pulling image (%s) from %s, endpoint: %s", img.Tag, p.repoInfo.CanonicalName.Name(), ep), nil))
+			if isDownloaded, err = p.pullImage(out, img.ID, ep, localNameRef); err != nil {
 				// It's not ideal that only the last error is returned, it would be better to concatenate the errors.
 				// As the error is also given to the output stream the user will see the error.
 				lastErr = err
-				broadcaster.Write(p.sf.FormatProgress(stringid.TruncateID(img.ID), fmt.Sprintf("Error pulling image (%s) from %s, endpoint: %s, %s", img.Tag, p.repoInfo.CanonicalName.Name(), ep, err), nil))
+				out.Write(p.sf.FormatProgress(stringid.TruncateID(img.ID), fmt.Sprintf("Error pulling image (%s) from %s, endpoint: %s, %s", img.Tag, p.repoInfo.CanonicalName.Name(), ep, err), nil))
 				continue
 			}
 			if isDownloaded {
@@ -228,12 +218,11 @@ func (p *v1Puller) downloadImage(out io.Writer, repoData *registry.RepositoryDat
 	}
 	if !success {
 		err := fmt.Errorf("Error pulling image (%s) from %s, %v", img.Tag, p.repoInfo.CanonicalName.Name(), lastErr)
-		broadcaster.Write(p.sf.FormatProgress(stringid.TruncateID(img.ID), err.Error(), nil))
+		out.Write(p.sf.FormatProgress(stringid.TruncateID(img.ID), err.Error(), nil))
 		errors <- err
-		broadcaster.CloseWithError(err)
 		return
 	}
-	broadcaster.Write(p.sf.FormatProgress(stringid.TruncateID(img.ID), "Download complete", nil))
+	out.Write(p.sf.FormatProgress(stringid.TruncateID(img.ID), "Download complete", nil))
 }
 
 func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef reference.Named) (layersDownloaded bool, err error) {
