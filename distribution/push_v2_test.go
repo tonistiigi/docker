@@ -24,13 +24,19 @@ func TestCreateV2Manifest(t *testing.T) {
 		t.Fatalf("json encoding failed: %v")
 	}
 
+	// To fill in rawJSON
+	img, err = images.NewFromJSON(imgJSON)
+	if err != nil {
+		t.Fatalf("json decoding failed: %v")
+	}
+
 	fsLayers := []manifest.FSLayer{
 		manifest.FSLayer{BlobSum: digest.Digest("sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4")},
 		manifest.FSLayer{BlobSum: digest.Digest("sha256:86e0e091d0da6bde2456dbb48306f3956bbeb2eae1b5b9a43045843f69fe4aaa")},
 		manifest.FSLayer{BlobSum: digest.Digest("sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4")},
 	}
 
-	manifest, err := CreateV2Manifest("testrepo", "testtag", "testarch", imgJSON, fsLayers)
+	manifest, err := CreateV2Manifest("testrepo", "testtag", img, fsLayers)
 	if err != nil {
 		t.Fatalf("CreateV2Manifest returned error: %v", err)
 	}

@@ -13,7 +13,9 @@ import (
 	"github.com/docker/distribution/manifest"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/distribution/metadata"
+	"github.com/docker/docker/images"
 	"github.com/docker/docker/layer"
+	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/progressreader"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/stringid"
@@ -99,7 +101,7 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 
 	layerID, err := img.GetTopLayerID()
 	if err != nil {
-		return fmt.Errorf("failed to get top layer from image: %v", err)
+		return fmt.Errorf("failed to get top layer id from image: %v", err)
 	}
 	l, err := p.config.LayerStore.Get(layerID)
 	if err != nil {
@@ -159,7 +161,7 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 	if tagged, isTagged := ref.(reference.Tagged); isTagged {
 		tag = tagged.Tag()
 	}
-	m, err := CreateV2Manifest(p.repo.Name(), tag, img.Architecture, img.RawJSON(), fsLayers)
+	m, err := CreateV2Manifest(p.repo.Name(), tag, img, fsLayers)
 	if err != nil {
 		return err
 	}
@@ -212,13 +214,17 @@ func (p *v2Pusher) blobSumAlreadyExists(blobsums []digest.Digest) (digest.Digest
 // FSLayer digests.
 // FIXME: This should be moved to the distribution repo, since it will also
 // be useful for converting new manifests to the old format.
-func CreateV2Manifest(name, tag, architecture string, imgJSON []byte, fsLayers []manifest.FSLayer) (*manifest.Manifest, error) {
+func CreateV2Manifest(name, tag string, img *images.Image, fsLayers []manifest.FSLayer) (*manifest.Manifest, error) {
 	if len(fsLayers) == 0 {
 		return nil, errors.New("empty fsLayers list when trying to create V2 manifest")
 	}
 
 	// Generate IDs for each layer
-	v1IDs := make([]string, len(fsLayers))
+	v1IDsLen := len(fsLayers)
+	if v1IDsLen < 2 {
+		v1IDsLen = 2
+	}
+	v1IDs := make([]string, v1IDsLen)
 	parent := ""
 	for i := len(fsLayers) - 1; i > 0; i-- {
 		dgst, err := digest.FromBytes([]byte(fsLayers[i].BlobSum.Hex() + " " + parent))
@@ -229,7 +235,7 @@ func CreateV2Manifest(name, tag, architecture string, imgJSON []byte, fsLayers [
 		v1IDs[i] = parent
 	}
 
-	dgst, err := digest.FromBytes([]byte(fsLayers[0].BlobSum.Hex() + " " + parent + " " + string(imgJSON)))
+	dgst, err := digest.FromBytes([]byte(fsLayers[0].BlobSum.Hex() + " " + parent + " " + string(img.RawJSON())))
 	if err != nil {
 		return nil, err
 	}
@@ -239,20 +245,7 @@ func CreateV2Manifest(name, tag, architecture string, imgJSON []byte, fsLayers [
 
 	// Top-level v1compatibility string should be a modified version of the
 	// image config.
-	var configAsMap map[string]*json.RawMessage
-	if err := json.Unmarshal(imgJSON, &configAsMap); err != nil {
-		return nil, err
-	}
-
-	// Delete fields that didn't exist in old manifest
-	delete(configAsMap, "diff_ids")
-	delete(configAsMap, "history")
-	configAsMap["id"] = rawJSON(v1IDs[0])
-	if len(fsLayers) > 1 {
-		configAsMap["parent"] = rawJSON(v1IDs[1])
-	}
-
-	transformedConfig, err := json.Marshal(configAsMap)
+	transformedConfig, err := v1.V1ConfigFromConfig(img, v1IDs[0], v1IDs[1])
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +270,7 @@ func CreateV2Manifest(name, tag, architecture string, imgJSON []byte, fsLayers [
 		},
 		Name:         name,
 		Tag:          tag,
-		Architecture: architecture,
+		Architecture: img.Architecture,
 		FSLayers:     fsLayers,
 		History:      history,
 	}, nil
@@ -309,14 +302,11 @@ func (p *v2Pusher) pushV2Layer(bs distribution.BlobService, l layer.Layer) (dige
 	}
 	defer layerUpload.Close()
 
-	digester := digest.Canonical.New()
-	tee := io.TeeReader(arch, digester.Hash())
-
 	// don't care if this fails; best effort
 	size, _ := l.Size()
 
 	reader := progressreader.New(progressreader.Config{
-		In:        ioutil.NopCloser(tee), // we'll take care of close here.
+		In:        ioutil.NopCloser(arch), // we'll take care of close here.
 		Out:       out,
 		Formatter: p.sf,
 		Size:      size,
@@ -325,8 +315,14 @@ func (p *v2Pusher) pushV2Layer(bs distribution.BlobService, l layer.Layer) (dige
 		Action:    "Pushing",
 	})
 
+	compressedReader := compress(reader)
+
+	digester := digest.Canonical.New()
+	tee := io.TeeReader(compressedReader, digester.Hash())
+
 	out.Write(p.sf.FormatProgress(displayID, "Pushing", nil))
-	nn, err := io.Copy(layerUpload, reader)
+	nn, err := layerUpload.ReadFrom(tee)
+	compressedReader.Close()
 	if err != nil {
 		return "", err
 	}

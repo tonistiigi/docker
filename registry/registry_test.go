@@ -215,13 +215,21 @@ func TestGetRemoteImageLayer(t *testing.T) {
 
 func TestGetRemoteTag(t *testing.T) {
 	r := spawnTestRegistrySession(t)
-	tag, err := r.GetRemoteTag([]string{makeURL("/v1/")}, REPO, "test")
+	repoRef, err := reference.ParseNamed(REPO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tag, err := r.GetRemoteTag([]string{makeURL("/v1/")}, repoRef, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertEqual(t, tag, imageID, "Expected tag test to map to "+imageID)
 
-	_, err = r.GetRemoteTag([]string{makeURL("/v1/")}, "foo42/baz", "foo")
+	bazRef, err := reference.ParseNamed("foo42/baz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.GetRemoteTag([]string{makeURL("/v1/")}, bazRef, "foo")
 	if err != ErrRepoNotFound {
 		t.Fatal("Expected ErrRepoNotFound error when fetching tag for bogus repo")
 	}
@@ -229,7 +237,11 @@ func TestGetRemoteTag(t *testing.T) {
 
 func TestGetRemoteTags(t *testing.T) {
 	r := spawnTestRegistrySession(t)
-	tags, err := r.GetRemoteTags([]string{makeURL("/v1/")}, REPO)
+	repoRef, err := reference.ParseNamed(REPO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags, err := r.GetRemoteTags([]string{makeURL("/v1/")}, repoRef)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +249,11 @@ func TestGetRemoteTags(t *testing.T) {
 	assertEqual(t, tags["latest"], imageID, "Expected tag latest to map to "+imageID)
 	assertEqual(t, tags["test"], imageID, "Expected tag test to map to "+imageID)
 
-	_, err = r.GetRemoteTags([]string{makeURL("/v1/")}, "foo42/baz")
+	bazRef, err := reference.ParseNamed("foo42/baz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.GetRemoteTags([]string{makeURL("/v1/")}, bazRef)
 	if err != ErrRepoNotFound {
 		t.Fatal("Expected ErrRepoNotFound error when fetching tags for bogus repo")
 	}
@@ -250,7 +266,11 @@ func TestGetRepositoryData(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := "http://" + parsedURL.Host + "/v1/"
-	data, err := r.GetRepositoryData("foo42/bar")
+	repoRef, err := reference.ParseNamed(REPO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := r.GetRepositoryData(repoRef)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -729,7 +749,11 @@ func TestMirrorEndpointLookup(t *testing.T) {
 
 func TestPushRegistryTag(t *testing.T) {
 	r := spawnTestRegistrySession(t)
-	err := r.PushRegistryTag("foo42/bar", imageID, "stable", makeURL("/v1/"))
+	repoRef, err := reference.ParseNamed(REPO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = r.PushRegistryTag(repoRef, imageID, "stable", makeURL("/v1/"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -747,14 +771,18 @@ func TestPushImageJSONIndex(t *testing.T) {
 			Checksum: "sha256:bea7bf2e4bacd479344b737328db47b18880d09096e6674165533aa994f5e9f2",
 		},
 	}
-	repoData, err := r.PushImageJSONIndex("foo42/bar", imgData, false, nil)
+	repoRef, err := reference.ParseNamed(REPO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoData, err := r.PushImageJSONIndex(repoRef, imgData, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if repoData == nil {
 		t.Fatal("Expected RepositoryData object")
 	}
-	repoData, err = r.PushImageJSONIndex("foo42/bar", imgData, true, []string{r.indexEndpoint.String()})
+	repoData, err = r.PushImageJSONIndex(repoRef, imgData, true, []string{r.indexEndpoint.String()})
 	if err != nil {
 		t.Fatal(err)
 	}

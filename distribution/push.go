@@ -1,6 +1,8 @@
 package distribution
 
 import (
+	"bufio"
+	"compress/gzip"
 	"fmt"
 	"io"
 
@@ -59,9 +61,7 @@ type Pusher interface {
 	Push() (fallback bool, err error)
 }
 
-// FIXME
-// Repository maps tags to image IDs.
-type Repository map[string]string
+const compressionBufSize = 32768
 
 // NewPusher creates a new Pusher interface that will push to either a v1 or v2
 // registry. The endpoint argument contains a Version field that determines
@@ -82,17 +82,14 @@ func NewPusher(ref reference.Named, endpoint registry.APIEndpoint, repoInfo *reg
 			layersPushed: make(map[digest.Digest]bool),
 		}, nil
 	case registry.APIVersion1:
-		// FIXME
-		panic("v1 push not supported")
-		/*
-			return &v1Pusher{
-				v1IDService: metadata.NewV1IDService(metadataStore),
-				ref: reference,
-				endpoint:    endpoint,
-				repoInfo:    repoInfo,
-				config:      imagePushConfig,
-				sf:          sf,
-			}, nil*/
+		return &v1Pusher{
+			v1IDService: metadata.NewV1IDService(imagePushConfig.MetadataStore),
+			ref:         ref,
+			endpoint:    endpoint,
+			repoInfo:    repoInfo,
+			config:      imagePushConfig,
+			sf:          sf,
+		}, nil
 	}
 	return nil, fmt.Errorf("unknown version %d for registry %s", endpoint.Version, endpoint.URL)
 }
@@ -150,4 +147,36 @@ func Push(ref reference.Named, imagePushConfig *ImagePushConfig) error {
 		lastErr = fmt.Errorf("no endpoints found for %s", repoInfo.CanonicalName)
 	}
 	return lastErr
+}
+
+// compress returns an io.ReadCloser which will supply a compressed version of
+// the provided Reader. The caller must close the ReadCloser after reading the
+// compressed data.
+//
+// Note that this function returns a reader instead of taking a writer as an
+// argument so that it can be used with httpBlobWriter's ReadFrom method.
+// Using httpBlobWriter's Write method would send a PATCH request for every
+// Write call.
+func compress(in io.Reader) io.ReadCloser {
+	pipeReader, pipeWriter := io.Pipe()
+	// Use a bufio.Writer to avoid excessive chunking in HTTP request.
+	bufWriter := bufio.NewWriterSize(pipeWriter, compressionBufSize)
+	compressor := gzip.NewWriter(bufWriter)
+
+	go func() {
+		_, err := io.Copy(compressor, in)
+		if err == nil {
+			err = compressor.Close()
+		}
+		if err == nil {
+			err = bufWriter.Flush()
+		}
+		if err != nil {
+			pipeWriter.CloseWithError(err)
+		} else {
+			pipeWriter.Close()
+		}
+	}()
+
+	return pipeReader
 }

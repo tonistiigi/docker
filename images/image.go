@@ -1,6 +1,7 @@
 package images
 
 import (
+	"encoding/json"
 	"io"
 	"time"
 
@@ -90,13 +91,17 @@ type Exporter interface {
 	Save([]string, io.Writer) error
 }
 
-// NewImgJSON creates an Image configuration from json.
-// func NewImgJSON(src []byte) (*Image, error) {
-// 	ret := &Image{}
-//
-// 	// FIXME: Is there a cleaner way to "purify" the input json?
-// 	if err := json.Unmarshal(src, ret); err != nil {
-// 		return nil, err
-// 	}
-// 	return ret, nil
-// }
+// NewFromJSON creates an Image configuration from json.
+// This shouldn't be used directly - it's for unit tests.
+func NewFromJSON(src []byte) (*Image, error) {
+	ret := &Image{}
+
+	// FIXME: Is there a cleaner way to "purify" the input json?
+	if err := json.Unmarshal(src, ret); err != nil {
+		return nil, err
+	}
+
+	ret.rawJSON = src
+
+	return ret, nil
+}

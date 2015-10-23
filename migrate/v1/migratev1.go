@@ -414,6 +414,26 @@ func ConfigFromV1Config(imageJSON []byte, layerDigests []layer.DiffID, history [
 	return json.MarshalCanonical(c)
 }
 
+// V1ConfigFromConfig creates an legacy V1 image config from an Image struct
+func V1ConfigFromConfig(img *images.Image, v1ID, parentV1ID string) ([]byte, error) {
+	// Top-level v1compatibility string should be a modified version of the
+	// image config.
+	var configAsMap map[string]*json.RawMessage
+	if err := json.Unmarshal(img.RawJSON(), &configAsMap); err != nil {
+		return nil, err
+	}
+
+	// Delete fields that didn't exist in old manifest
+	delete(configAsMap, "diff_ids")
+	delete(configAsMap, "history")
+	configAsMap["id"] = rawJSON(v1ID)
+	if parentV1ID != "" {
+		configAsMap["parent"] = rawJSON(parentV1ID)
+	}
+
+	return json.Marshal(configAsMap)
+}
+
 func rawJSON(value interface{}) *json.RawMessage {
 	jsonval, err := json.Marshal(value)
 	if err != nil {

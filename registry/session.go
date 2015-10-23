@@ -600,10 +600,10 @@ func (r *Session) PushImageLayerRegistry(imgID string, layer io.Reader, registry
 
 // PushRegistryTag pushes a tag on the registry.
 // Remote has the format '<user>/<repo>
-func (r *Session) PushRegistryTag(remote, revision, tag, registry string) error {
+func (r *Session) PushRegistryTag(remote reference.Named, revision, tag, registry string) error {
 	// "jsonify" the string
 	revision = "\"" + revision + "\""
-	path := fmt.Sprintf("repositories/%s/tags/%s", remote, tag)
+	path := fmt.Sprintf("repositories/%s/tags/%s", remote.Name(), tag)
 
 	req, err := http.NewRequest("PUT", registry+path, strings.NewReader(revision))
 	if err != nil {
@@ -617,13 +617,13 @@ func (r *Session) PushRegistryTag(remote, revision, tag, registry string) error 
 	}
 	res.Body.Close()
 	if res.StatusCode != 200 && res.StatusCode != 201 {
-		return httputils.NewHTTPRequestError(fmt.Sprintf("Internal server error: %d trying to push tag %s on %s", res.StatusCode, tag, remote), res)
+		return httputils.NewHTTPRequestError(fmt.Sprintf("Internal server error: %d trying to push tag %s on %s", res.StatusCode, tag, remote.Name()), res)
 	}
 	return nil
 }
 
 // PushImageJSONIndex uploads an image list to the repository
-func (r *Session) PushImageJSONIndex(remote string, imgList []*ImgData, validate bool, regs []string) (*RepositoryData, error) {
+func (r *Session) PushImageJSONIndex(remote reference.Named, imgList []*ImgData, validate bool, regs []string) (*RepositoryData, error) {
 	cleanImgList := []*ImgData{}
 	if validate {
 		for _, elem := range imgList {
@@ -643,7 +643,7 @@ func (r *Session) PushImageJSONIndex(remote string, imgList []*ImgData, validate
 	if validate {
 		suffix = "images"
 	}
-	u := fmt.Sprintf("%srepositories/%s/%s", r.indexEndpoint.VersionString(1), remote, suffix)
+	u := fmt.Sprintf("%srepositories/%s/%s", r.indexEndpoint.VersionString(1), remote.Name(), suffix)
 	logrus.Debugf("[registry] PUT %s", u)
 	logrus.Debugf("Image list pushed to index:\n%s", imgListJSON)
 	headers := map[string][]string{
@@ -681,7 +681,7 @@ func (r *Session) PushImageJSONIndex(remote string, imgList []*ImgData, validate
 			if err != nil {
 				logrus.Debugf("Error reading response body: %s", err)
 			}
-			return nil, httputils.NewHTTPRequestError(fmt.Sprintf("Error: Status %d trying to push repository %s: %q", res.StatusCode, remote, errBody), res)
+			return nil, httputils.NewHTTPRequestError(fmt.Sprintf("Error: Status %d trying to push repository %s: %q", res.StatusCode, remote.Name(), errBody), res)
 		}
 		tokens = res.Header["X-Docker-Token"]
 		logrus.Debugf("Auth token: %v", tokens)
@@ -699,7 +699,7 @@ func (r *Session) PushImageJSONIndex(remote string, imgList []*ImgData, validate
 			if err != nil {
 				logrus.Debugf("Error reading response body: %s", err)
 			}
-			return nil, httputils.NewHTTPRequestError(fmt.Sprintf("Error: Status %d trying to push checksums %s: %q", res.StatusCode, remote, errBody), res)
+			return nil, httputils.NewHTTPRequestError(fmt.Sprintf("Error: Status %d trying to push checksums %s: %q", res.StatusCode, remote.Name(), errBody), res)
 		}
 	}
 
