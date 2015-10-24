@@ -219,6 +219,25 @@ func CreateV2Manifest(name, tag, architecture string, imgJSON []byte, fsLayers [
 	if len(fsLayers) == 0 {
 		return nil, errors.New("empty fsLayers list when trying to create V2 manifest")
 	}
+
+	// Generate IDs for each layer
+	v1IDs := make([]string, len(fsLayers))
+	parent := ""
+	for i := len(fsLayers) - 1; i > 0; i-- {
+		dgst, err := digest.FromBytes([]byte(fsLayers[i].BlobSum.Hex() + " " + parent))
+		if err != nil {
+			return nil, err
+		}
+		parent = dgst.Hex()
+		v1IDs[i] = parent
+	}
+
+	dgst, err := digest.FromBytes([]byte(fsLayers[0].BlobSum.Hex() + " " + parent + " " + string(imgJSON)))
+	if err != nil {
+		return nil, err
+	}
+	v1IDs[0] = dgst.Hex()
+
 	history := make([]manifest.History, len(fsLayers))
 
 	// Top-level v1compatibility string should be a modified version of the
@@ -231,9 +250,9 @@ func CreateV2Manifest(name, tag, architecture string, imgJSON []byte, fsLayers [
 	// Delete fields that didn't exist in old manifest
 	delete(configAsMap, "diff_ids")
 	delete(configAsMap, "history")
-	configAsMap["id"] = rawJSON(fsLayers[0].BlobSum.Hex())
+	configAsMap["id"] = rawJSON(v1IDs[0])
 	if len(fsLayers) > 1 {
-		configAsMap["parent"] = rawJSON(fsLayers[1].BlobSum.Hex())
+		configAsMap["parent"] = rawJSON(v1IDs[1])
 	}
 
 	transformedConfig, err := json.Marshal(configAsMap)
@@ -249,9 +268,9 @@ func CreateV2Manifest(name, tag, architecture string, imgJSON []byte, fsLayers [
 	for i := 1; i < len(fsLayers); i++ {
 		// FIXME: are there other fields that are mandatory to the pull code?
 		if i != len(fsLayers)-1 {
-			history[i].V1Compatibility = fmt.Sprintf(`{"id":"%s","parent":"%s"}`, fsLayers[i].BlobSum.Hex(), fsLayers[i+1].BlobSum.Hex())
+			history[i].V1Compatibility = fmt.Sprintf(`{"id":"%s","parent":"%s"}`, v1IDs[i], v1IDs[i+1])
 		} else {
-			history[i].V1Compatibility = fmt.Sprintf(`{"id":"%s"}`, fsLayers[i].BlobSum.Hex())
+			history[i].V1Compatibility = fmt.Sprintf(`{"id":"%s"}`, v1IDs[i])
 		}
 	}
 
