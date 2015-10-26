@@ -166,7 +166,7 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 		return nil, errors.New("migrating without tar split data not supported")
 	}
 
-	layer.address, err = CreateID(parent, layer.digest)
+	layer.address, err = createIDFromParent(parent, layer.digest)
 	if err != nil {
 		return nil, err
 	}

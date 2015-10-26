@@ -191,7 +191,7 @@ func (s *saveSession) saveImage(id images.ID) error {
 		if i == len(diffIDs)-1 {
 			v1Img = img.ImageV1
 		}
-		layerID, err := layer.CreateID("", diffIDs[:i+1]...)
+		layerID, err := layer.CreateID(diffIDs[:i+1]...)
 		if err != nil {
 			return err
 		}

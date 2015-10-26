@@ -27,12 +27,6 @@ type layerStore struct {
 	mountL sync.Mutex
 }
 
-type IgnoredLayer struct {
-	ID    string
-	Mount bool
-	Cause error
-}
-
 // NewStore creates a new Store instance using
 // the provided metadata store and graph driver.
 // The metadata store will be used to restore
@@ -249,7 +243,7 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 	if layer.parent == nil {
 		layer.address = ID(layer.digest)
 	} else {
-		layer.address, err = CreateID(layer.parent.address, layer.digest)
+		layer.address, err = createIDFromParent(layer.parent.address, layer.digest)
 		if err != nil {
 			return nil, err
 		}

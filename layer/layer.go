@@ -196,18 +196,22 @@ type MetadataStore interface {
 	RemoveMount(string) error
 }
 
-// CreateID returns ID for a layerDigest slice and optional parent ID
-func CreateID(parent ID, dgsts ...DiffID) (ID, error) {
+// CreateID returns ID for a layerDigest slice
+func CreateID(dgsts ...DiffID) (ID, error) {
+	return createIDFromParent("", dgsts...)
+}
+
+func createIDFromParent(parent ID, dgsts ...DiffID) (ID, error) {
 	if len(dgsts) == 0 {
 		return parent, nil
 	}
 	if parent == "" {
-		return CreateID(ID(dgsts[0]), dgsts[1:]...)
+		return createIDFromParent(ID(dgsts[0]), dgsts[1:]...)
 	}
 	// H = "H(n-1) SHA256(n)"
 	dgst, err := digest.FromBytes([]byte(string(parent) + " " + string(dgsts[0])))
 	if err != nil {
 		return "", err
 	}
-	return CreateID(ID(dgst), dgsts[1:]...)
+	return createIDFromParent(ID(dgst), dgsts[1:]...)
 }

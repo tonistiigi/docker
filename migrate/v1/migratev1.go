@@ -299,7 +299,7 @@ func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map
 		history = parentImg.History
 	}
 
-	parentLayer, err := layer.CreateID("", layerDigests...)
+	parentLayer, err := layer.CreateID(layerDigests...)
 	if err != nil {
 		return err
 	}
