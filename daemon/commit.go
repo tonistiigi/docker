@@ -91,6 +91,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 			Container:       container.ID,
 			ContainerConfig: *container.Config,
 			Author:          c.Author,
+			Created:         h.Created,
 		},
 		RootFS: &images.RootFS{
 			Type:    "layers",

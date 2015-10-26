@@ -110,7 +110,7 @@ func (s *DockerSuite) TestSaveImageId(c *check.C) {
 	dockerCmd(c, "tag", "emptyfs:latest", fmt.Sprintf("%v:latest", repoName))
 
 	out, _ := dockerCmd(c, "images", "-q", "--no-trunc", repoName)
-	cleanedLongImageID := strings.TrimSpace(out)
+	cleanedLongImageID := strings.TrimPrefix(strings.TrimSpace(out), "sha256:")
 
 	out, _ = dockerCmd(c, "images", "-q", repoName)
 	cleanedShortImageID := strings.TrimSpace(out)
