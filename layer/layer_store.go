@@ -27,6 +27,12 @@ type layerStore struct {
 	mountL sync.Mutex
 }
 
+type IgnoredLayer struct {
+	ID    string
+	Mount bool
+	Cause error
+}
+
 // NewStore creates a new Store instance using
 // the provided metadata store and graph driver.
 // The metadata store will be used to restore
@@ -47,8 +53,7 @@ func NewStore(store MetadataStore, driver graphdriver.Driver) (Store, error) {
 	for _, id := range ids {
 		l, err := ls.loadLayer(id)
 		if err != nil {
-			// TODO warn with bad layers, don't error out
-			return nil, err
+			logrus.Debugf("Failed to load layer %s: %s", id, err)
 		}
 		if l.parent != nil {
 			l.parent.referenceCount++
@@ -57,8 +62,7 @@ func NewStore(store MetadataStore, driver graphdriver.Driver) (Store, error) {
 
 	for _, mount := range mounts {
 		if err := ls.loadMount(mount); err != nil {
-			// TODO warn with bad mounts, don't error out
-			return nil, err
+			logrus.Debugf("Failed to load mount %s: %s", mount, err)
 		}
 	}
 

@@ -82,7 +82,7 @@ type Layer interface {
 	DiffID() DiffID
 
 	// Parent returns the next layer in the layer chain.
-	Parent() (Layer, error)
+	Parent() Layer
 
 	// Size returns the size of the entire layer chain. The size
 	// is calculated from the total size of all files in the layers.
@@ -108,7 +108,7 @@ type RWLayer interface {
 
 	// Parent returns the layer which the writable
 	// layer was created from.
-	Parent() (Layer, error)
+	Parent() Layer
 
 	// Size represents the size of the writable layer
 	// as calculated by the total size of the files

@@ -152,10 +152,7 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 
 		p.layersPushed[dgst] = true
 
-		l, err = l.Parent()
-		if err != nil {
-			return err
-		}
+		l = l.Parent()
 	}
 
 	var tag string

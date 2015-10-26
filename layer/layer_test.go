@@ -230,16 +230,8 @@ func assertLayerEqual(t *testing.T, l1, l2 Layer) {
 		t.Fatalf("Mismatched cache id: %s vs %s", cacheID(l1), cacheID(l2))
 	}
 
-	p1, err := l1.Parent()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	p2, err := l2.Parent()
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	p1 := l1.Parent()
+	p2 := l2.Parent()
 	if p1 != nil && p2 != nil {
 		assertLayerEqual(t, p1, p2)
 	} else if p1 != nil || p2 != nil {

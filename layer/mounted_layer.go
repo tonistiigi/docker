@@ -34,8 +34,8 @@ func (ml *mountedLayer) Path() (string, error) {
 	return ml.path, nil
 }
 
-func (ml *mountedLayer) Parent() (Layer, error) {
-	return ml.parent, nil
+func (ml *mountedLayer) Parent() Layer {
+	return ml.parent
 }
 
 func (ml *mountedLayer) Size() (int64, error) {

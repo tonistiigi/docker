@@ -31,11 +31,11 @@ func (cl *cacheLayer) DiffID() DiffID {
 	return cl.digest
 }
 
-func (cl *cacheLayer) Parent() (Layer, error) {
+func (cl *cacheLayer) Parent() Layer {
 	if cl.parent == nil {
-		return nil, nil
+		return nil
 	}
-	return cl.parent, nil
+	return cl.parent
 }
 
 func (cl *cacheLayer) Size() (size int64, err error) {
