@@ -62,6 +62,48 @@ func TestMountInit(t *testing.T) {
 	}
 }
 
+func TestMountSize(t *testing.T) {
+	ls, cleanup := newTestStore(t)
+	defer cleanup()
+
+	content1 := []byte("Base contents")
+	content2 := []byte("Mutable contents")
+	contentInit := []byte("why am I excluded from the size ☹")
+
+	li := initWithFiles(newTestFile("file1", content1, 0644))
+	layer, err := createLayer(ls, "", li)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mountInit := func(root string) error {
+		return newTestFile("file-init", contentInit, 0777).ApplyFile(root)
+	}
+
+	m, err := ls.Mount("mount-size", layer.ID(), "", mountInit)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := m.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ioutil.WriteFile(filepath.Join(path, "file2"), content2, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mountSize, err := m.Size()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if expected := len(content2); int(mountSize) != expected {
+		t.Fatalf("Unexpected mount size %d, expected %d", int(mountSize), expected)
+	}
+}
+
 func TestMountChanges(t *testing.T) {
 	ls, cleanup := newTestStore(t)
 	defer cleanup()
