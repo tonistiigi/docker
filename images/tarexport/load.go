@@ -2,7 +2,6 @@ package tarexport
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -16,32 +15,9 @@ import (
 	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
-	"github.com/docker/docker/tag"
 )
 
-type Loader interface {
-	Load(io.ReadCloser, io.Writer) error
-	// Load(net.Context, io.ReadCloser, <- chan StatusMessage) error
-}
-
-type loader struct {
-	is images.Store
-	ls layer.Store
-	ts tag.Store
-}
-
-func NewLoader(is images.Store, ls layer.Store, ts tag.Store) (Loader, error) {
-	if is == nil || ls == nil || ts == nil {
-		return nil, errors.New("Invalid loader configuration")
-	}
-	return &loader{
-		is: is,
-		ls: ls,
-		ts: ts,
-	}, nil
-}
-
-func (l *loader) Load(inTar io.ReadCloser, outStream io.Writer) error {
+func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer) error {
 	tmpDir, err := ioutil.TempDir("", "docker-import-")
 	if err != nil {
 		return err
@@ -52,8 +28,94 @@ func (l *loader) Load(inTar io.ReadCloser, outStream io.Writer) error {
 		return err
 	}
 
-	// todo: detect legacy load
+	// read manifest, if no file then load in legacy mode
+	manifestFile, err := os.Open(filepath.Join(tmpDir, manifestFileName))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return l.legacyLoad(tmpDir, outStream)
+		}
+		return manifestFile.Close()
+	}
+	defer manifestFile.Close()
 
+	var manifest []manifestItem
+	if err := json.NewDecoder(manifestFile).Decode(&manifest); err != nil {
+		return err
+	}
+
+	var layers []layer.DiffID
+	for _, m := range manifest {
+		for _, layerFile := range m.Layers {
+			newLayer, err := l.loadLayer(filepath.Join(tmpDir, layerFile), layers)
+			if err != nil {
+				return err
+			}
+			layers = append(layers, newLayer.DiffID())
+			defer l.ls.Release(newLayer)
+		}
+
+		// FIXME: all these paths must be protected against breaksouts
+		config, err := ioutil.ReadFile(filepath.Join(tmpDir, m.Config))
+		if err != nil {
+			return err
+		}
+		imgID, err := l.is.Create(config)
+		if err != nil {
+			return err
+		}
+
+		for _, repoTag := range m.RepoTags {
+			named, err := reference.ParseNamed(repoTag)
+			if err != nil {
+				return err
+			}
+			if ref, ok := named.(reference.NamedTagged); !ok {
+				return fmt.Errorf("invalid tag %q", repoTag)
+			} else {
+				l.setLoadedTag(ref, imgID, outStream)
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (l *tarexporter) loadLayer(filename string, parentDiffs []layer.DiffID) (layer.Layer, error) {
+	rawTar, err := os.Open(filename)
+	if err != nil {
+		logrus.Debugf("Error reading embedded tar: %v", err)
+		return nil, err
+	}
+
+	inflatedLayerData, err := archive.DecompressStream(rawTar)
+	if err != nil {
+		return nil, err
+	}
+
+	defer rawTar.Close()
+	defer inflatedLayerData.Close()
+
+	parentLayerID, err := layer.CreateID("", parentDiffs...)
+	if err != nil {
+		return nil, err
+	}
+
+	return l.ls.Register(inflatedLayerData, parentLayerID)
+}
+
+func (l *tarexporter) setLoadedTag(ref reference.NamedTagged, imgID images.ID, outStream io.Writer) error {
+	if prevID, err := l.ts.Get(ref); err == nil && prevID != imgID {
+		fmt.Fprintf(outStream, "The image %s:%s already exists, renaming the old one with ID %s to empty string\n", ref.String(), string(prevID)) // todo: this message is wrong in case of multiple tags
+	}
+
+	if err := l.ts.Add(ref, imgID, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (l *tarexporter) legacyLoad(tmpDir string, outStream io.Writer) error {
 	legacyLoadedMap := make(map[string]images.ID)
 
 	dirs, err := ioutil.ReadDir(tmpDir)
@@ -61,15 +123,17 @@ func (l *loader) Load(inTar io.ReadCloser, outStream io.Writer) error {
 		return err
 	}
 
+	// every dir represents an image
 	for _, d := range dirs {
 		if d.IsDir() {
-			if err := l.legacyRecursiveLoad(d.Name(), tmpDir, legacyLoadedMap); err != nil {
+			if err := l.legacyLoadImage(d.Name(), tmpDir, legacyLoadedMap); err != nil {
 				return err
 			}
 		}
 	}
 
-	reposJSONFile, err := os.Open(filepath.Join(tmpDir, "repositories"))
+	// load tags from repositories file
+	reposJSONFile, err := os.Open(filepath.Join(tmpDir, legacyRepositoriesFileName))
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return err
@@ -78,9 +142,7 @@ func (l *loader) Load(inTar io.ReadCloser, outStream io.Writer) error {
 	}
 	defer reposJSONFile.Close()
 
-	type repo map[string]string
-
-	repositories := map[string]repo{}
+	repositories := make(map[string]map[string]string)
 	if err := json.NewDecoder(reposJSONFile).Decode(&repositories); err != nil {
 		return err
 	}
@@ -100,13 +162,7 @@ func (l *loader) Load(inTar io.ReadCloser, outStream io.Writer) error {
 					return err
 				}
 
-				if prevID, err := l.ts.Get(ref); err == nil && prevID != imgID {
-					fmt.Fprintf(outStream, "The image %s:%s already exists, renaming the old one with ID %s to empty string\n", ref.String(), string(prevID)) // todo: this message is wrong in case of multiple tags
-				}
-
-				if err := l.ts.Add(ref, imgID, true); err != nil {
-					return err
-				}
+				l.setLoadedTag(ref, imgID, outStream)
 
 			}
 		}
@@ -115,12 +171,12 @@ func (l *loader) Load(inTar io.ReadCloser, outStream io.Writer) error {
 	return nil
 }
 
-func (l *loader) legacyRecursiveLoad(oldID, sourceDir string, loadedMap map[string]images.ID) error {
+func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[string]images.ID) error {
 	if _, loaded := loadedMap[oldID]; loaded {
 		return nil
 	}
 
-	imageJSON, err := ioutil.ReadFile(filepath.Join(sourceDir, oldID, "json"))
+	imageJSON, err := ioutil.ReadFile(filepath.Join(sourceDir, oldID, legacyConfigFileName))
 	if err != nil {
 		logrus.Debugf("Error reading json: %v", err)
 		return err
@@ -136,29 +192,14 @@ func (l *loader) legacyRecursiveLoad(oldID, sourceDir string, loadedMap map[stri
 		for {
 			var loaded bool
 			if parentID, loaded = loadedMap[img.Parent]; !loaded {
-				if err := l.legacyRecursiveLoad(img.Parent, sourceDir, loadedMap); err != nil {
+				if err := l.legacyLoadImage(img.Parent, sourceDir, loadedMap); err != nil {
 					return err
 				}
 			} else {
 				break
 			}
-
 		}
 	}
-
-	rawTar, err := os.Open(filepath.Join(sourceDir, oldID, "layer.tar"))
-	if err != nil {
-		logrus.Debugf("Error reading embedded tar: %v", err)
-		return err
-	}
-
-	inflatedLayerData, err := archive.DecompressStream(rawTar)
-	if err != nil {
-		return err
-	}
-
-	defer rawTar.Close()
-	defer inflatedLayerData.Close()
 
 	// todo: try to connect with migrate code
 	var layerDigests []layer.DiffID
@@ -174,12 +215,7 @@ func (l *loader) legacyRecursiveLoad(oldID, sourceDir string, loadedMap map[stri
 		history = parentImg.History
 	}
 
-	parentLayer, err := layer.CreateID("", layerDigests...)
-	if err != nil {
-		return err
-	}
-
-	newLayer, err := l.ls.Register(inflatedLayerData, parentLayer)
+	newLayer, err := l.loadLayer(filepath.Join(sourceDir, oldID, legacyLayerFileName), layerDigests)
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,7 @@
 package images
 
 import (
+	"io"
 	"time"
 
 	"github.com/docker/distribution/digest"
@@ -80,6 +81,13 @@ type History struct {
 	Author string `json:"author,omitempty"`
 	// Description for build point. Command and comment for Dockerfiles.
 	Description string `json:"description,omitempty"`
+}
+
+// Exporter provides interface for exporting and importing images
+type Exporter interface {
+	Load(io.ReadCloser, io.Writer) error
+	// Load(net.Context, io.ReadCloser, <- chan StatusMessage) error
+	Save([]string, io.Writer) error
 }
 
 // NewImgJSON creates an Image configuration from json.

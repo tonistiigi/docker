@@ -258,9 +258,15 @@ func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map
 	if err != nil {
 		return err
 	}
-	var parent struct{ Parent string }
+	var parent struct {
+		Parent   string
+		ParentID digest.Digest `json:"parent_id"`
+	}
 	if err := json.Unmarshal(imageJSON, &parent); err != nil {
 		return err
+	}
+	if parent.Parent == "" && parent.ParentID != "" { // v1.9
+		parent.Parent = parent.ParentID.Hex()
 	}
 
 	var parentID images.ID
@@ -360,6 +366,33 @@ func HistoryFromV1Config(imageJSON []byte) (images.History, error) {
 	}
 
 	return h, nil
+}
+
+func CreateV1ID(v1Image images.ImageV1, layerID layer.ID, parent digest.Digest) (digest.Digest, error) {
+	v1Image.ID = ""
+	v1JSON, err := json.Marshal(v1Image)
+	if err != nil {
+		return "", err
+	}
+
+	var config map[string]*json.RawMessage
+	if err := json.Unmarshal(v1JSON, &config); err != nil {
+		return "", err
+	}
+
+	// FIXME: note that this is slightly incompatible with RootFS logic
+	config["layer_id"] = rawJSON(layerID)
+	if parent != "" {
+		config["parent"] = rawJSON(parent)
+	}
+
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return "", err
+	}
+	logrus.Debugf("CreateV1ID %s", configJSON)
+
+	return digest.FromBytes(configJSON)
 }
 
 // ConfigFromV1Config creates an image config from the legacy V1 config format.
