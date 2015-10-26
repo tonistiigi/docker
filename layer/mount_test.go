@@ -4,7 +4,10 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
+
+	"github.com/docker/docker/pkg/archive"
 )
 
 func TestMountInit(t *testing.T) {
@@ -57,4 +60,116 @@ func TestMountInit(t *testing.T) {
 	if fi.Mode().Perm() != 0777 {
 		t.Fatalf("Unexpected filemode %o, expecting %o", fi.Mode().Perm(), 0777)
 	}
+}
+
+func TestMountChanges(t *testing.T) {
+	ls, cleanup := newTestStore(t)
+	defer cleanup()
+
+	basefiles := []FileApplier{
+		newTestFile("testfile1.txt", []byte("base data!"), 0644),
+		newTestFile("testfile2.txt", []byte("base data!"), 0644),
+		newTestFile("testfile3.txt", []byte("base data!"), 0644),
+	}
+	initfile := newTestFile("testfile1.txt", []byte("init data!"), 0777)
+
+	li := initWithFiles(basefiles...)
+	layer, err := createLayer(ls, "", li)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mountInit := func(root string) error {
+		return initfile.ApplyFile(root)
+	}
+
+	m, err := ls.Mount("mount-changes", layer.ID(), "", mountInit)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := m.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(filepath.Join(path, "testfile1.txt"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ioutil.WriteFile(filepath.Join(path, "testfile1.txt"), []byte("mount data!"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Remove(filepath.Join(path, "testfile2.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(filepath.Join(path, "testfile3.txt"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ioutil.WriteFile(filepath.Join(path, "testfile4.txt"), []byte("mount data!"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changes, err := ls.Changes("mount-changes")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if expected := 4; len(changes) != expected {
+		t.Fatalf("Wrong number of changes %d, expected %d", len(changes), expected)
+	}
+
+	sortChanges(changes)
+
+	assertChange(t, changes[0], archive.Change{
+		Path: "/testfile1.txt",
+		Kind: archive.ChangeModify,
+	})
+	assertChange(t, changes[1], archive.Change{
+		Path: "/testfile2.txt",
+		Kind: archive.ChangeDelete,
+	})
+	assertChange(t, changes[2], archive.Change{
+		Path: "/testfile3.txt",
+		Kind: archive.ChangeModify,
+	})
+	assertChange(t, changes[3], archive.Change{
+		Path: "/testfile4.txt",
+		Kind: archive.ChangeAdd,
+	})
+}
+
+func assertChange(t *testing.T, actual, expected archive.Change) {
+	if actual.Path != expected.Path {
+		t.Fatalf("Unexpected change path %s, expected %s", actual.Path, expected.Path)
+	}
+	if actual.Kind != expected.Kind {
+		t.Fatalf("Unexpected change type %s, expected %s", actual.Kind, expected.Kind)
+	}
+}
+
+func sortChanges(changes []archive.Change) {
+	cs := &changeSorter{
+		changes: changes,
+	}
+	sort.Sort(cs)
+}
+
+type changeSorter struct {
+	changes []archive.Change
+}
+
+func (cs *changeSorter) Len() int {
+	return len(cs.changes)
+}
+
+func (cs *changeSorter) Swap(i, j int) {
+	cs.changes[i], cs.changes[j] = cs.changes[j], cs.changes[i]
+}
+
+func (cs *changeSorter) Less(i, j int) bool {
+	return cs.changes[i].Path < cs.changes[j].Path
 }
