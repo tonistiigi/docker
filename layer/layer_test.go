@@ -580,3 +580,78 @@ func tarFromFiles(files ...FileApplier) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+// assertReferences asserts that all the references are to the same
+// image and represent the full set of references to that image.
+func assertReferences(t *testing.T, references ...Layer) {
+	if len(references) == 0 {
+		return
+	}
+	base := references[0].(*referencedCacheLayer).cacheLayer
+	if rc := len(base.references); rc != len(references) {
+		t.Fatalf("Unexpected number of references %d, expecting %d", rc, len(references))
+	}
+	seenReferences := map[Layer]struct{}{
+		references[0]: struct{}{},
+	}
+	for i := 1; i < len(references); i++ {
+		other := references[i].(*referencedCacheLayer).cacheLayer
+		if base != other {
+			t.Fatalf("Unexpected referenced cache layer %v, expecting %v", other, base)
+		}
+		if _, ok := base.references[references[i]]; !ok {
+			t.Fatalf("Reference not part of reference list: %v", references[i])
+		}
+		if _, ok := seenReferences[references[i]]; ok {
+			t.Fatalf("Duplicated reference %v", references[i])
+		}
+	}
+}
+
+func TestRegisterExistingLayer(t *testing.T) {
+	ls, cleanup := newTestStore(t)
+	defer cleanup()
+
+	baseFiles := []FileApplier{
+		newTestFile("/etc/profile", []byte("# Base configuration"), 0644),
+	}
+
+	layerFiles := []FileApplier{
+		newTestFile("/root/.bashrc", []byte("# Root configuration"), 0644),
+	}
+
+	li := initWithFiles(baseFiles...)
+	layer1, err := createLayer(ls, "", li)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tar1, err := tarFromFiles(layerFiles...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer2a, err := ls.Register(bytes.NewReader(tar1), layer1.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer2b, err := ls.Register(bytes.NewReader(tar1), layer1.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertReferences(t, layer2a, layer2b)
+
+	tar2, err := tarFromFiles(layerFiles...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer2c, err := ls.Register(bytes.NewReader(tar2), layer1.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertReferences(t, layer2a, layer2b, layer2c)
+}
