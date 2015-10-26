@@ -52,11 +52,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 		if err != nil {
 			return "", err
 		}
-		layerID, err = img.GetTopLayerID()
-		if err != nil {
-			return "", err
-		}
-
+		layerID = img.GetTopLayerID()
 		diffIDs = img.RootFS.DiffIDs
 		history = img.History
 	}

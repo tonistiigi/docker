@@ -958,10 +958,7 @@ func (daemon *Daemon) Mount(container *Container) error {
 		if err != nil {
 			return err
 		}
-		layerID, err = img.GetTopLayerID()
-		if err != nil {
-			return err
-		}
+		layerID = img.GetTopLayerID()
 	}
 	rwlayer, err := daemon.layerStore.Mount(container.ID, layerID, "", daemon.setupInitLayer) // FIXME: init
 	if err != nil {
@@ -1102,10 +1099,7 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 
 	var size int64
 	var layerMetadata map[string]string
-	layerID, err := img.GetTopLayerID()
-	if err != nil {
-		return nil, err
-	}
+	layerID := img.GetTopLayerID()
 	if layerID != "" {
 		layer, err := daemon.layerStore.Get(layerID)
 		if err != nil {

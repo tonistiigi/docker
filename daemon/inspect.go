@@ -115,11 +115,7 @@ func (daemon *Daemon) getInspectData(container *Container) (*types.ContainerJSON
 	if err != nil {
 		return nil, err
 	}
-	layerID, err := image.GetTopLayerID()
-	if err != nil {
-		return nil, err
-	}
-	layer, err := daemon.layerStore.Get(layerID)
+	layer, err := daemon.layerStore.Get(image.GetTopLayerID())
 	if err != nil {
 		return nil, err
 	}

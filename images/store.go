@@ -62,11 +62,7 @@ func (is *store) restore() error {
 		}
 		var l layer.Layer
 		if len(img.RootFS.DiffIDs) > 0 {
-			layerID, err := layer.CreateID(img.RootFS.DiffIDs...)
-			if err != nil {
-				return err
-			}
-			l, err = is.ls.Get(layerID)
+			l, err = is.ls.Get(layer.CreateID(img.RootFS.DiffIDs))
 			if err != nil {
 				return err
 			}
@@ -123,10 +119,7 @@ func (is *store) Create(config []byte) (ID, error) {
 		return imageID, nil
 	}
 
-	layerID, err := layer.CreateID(img.RootFS.DiffIDs...)
-	if err != nil {
-		return "", err
-	}
+	layerID := layer.CreateID(img.RootFS.DiffIDs)
 
 	var l layer.Layer
 	if layerID != "" {

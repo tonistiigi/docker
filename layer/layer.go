@@ -197,13 +197,13 @@ type MetadataStore interface {
 }
 
 // CreateID returns ID for a layerDigest slice
-func CreateID(dgsts ...DiffID) (ID, error) {
+func CreateID(dgsts []DiffID) ID {
 	return createIDFromParent("", dgsts...)
 }
 
-func createIDFromParent(parent ID, dgsts ...DiffID) (ID, error) {
+func createIDFromParent(parent ID, dgsts ...DiffID) ID {
 	if len(dgsts) == 0 {
-		return parent, nil
+		return parent
 	}
 	if parent == "" {
 		return createIDFromParent(ID(dgsts[0]), dgsts[1:]...)
@@ -211,7 +211,9 @@ func createIDFromParent(parent ID, dgsts ...DiffID) (ID, error) {
 	// H = "H(n-1) SHA256(n)"
 	dgst, err := digest.FromBytes([]byte(string(parent) + " " + string(dgsts[0])))
 	if err != nil {
-		return "", err
+		// Digest calculation is not expected to throw an error,
+		// any error at this point is a program error
+		panic(err)
 	}
 	return createIDFromParent(ID(dgst), dgsts[1:]...)
 }

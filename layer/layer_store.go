@@ -243,10 +243,7 @@ func (ls *layerStore) Register(ts io.Reader, parent ID) (Layer, error) {
 	if layer.parent == nil {
 		layer.address = ID(layer.digest)
 	} else {
-		layer.address, err = createIDFromParent(layer.parent.address, layer.digest)
-		if err != nil {
-			return nil, err
-		}
+		layer.address = createIDFromParent(layer.parent.address, layer.digest)
 	}
 
 	if err = storeLayer(tx, layer); err != nil {

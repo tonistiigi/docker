@@ -172,12 +172,7 @@ func migrateContainers(root string, ls layer.Store, is images.Store, imageMappin
 			return err
 		}
 
-		layerID, err := img.GetTopLayerID()
-		if err != nil {
-			return err
-		}
-
-		_, err = migratoryLayerStore.MountByGraphID(id, id, layerID)
+		_, err = migratoryLayerStore.MountByGraphID(id, id, img.GetTopLayerID())
 		if err != nil {
 			return err
 		}
@@ -299,10 +294,7 @@ func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map
 		history = parentImg.History
 	}
 
-	parentLayer, err := layer.CreateID(layerDigests...)
-	if err != nil {
-		return err
-	}
+	parentLayer := layer.CreateID(layerDigests)
 
 	layer, err := migratoryLayerStore.RegisterByGraphID(id, parentLayer, filepath.Join(filepath.Join(root, graphDirName, id, tarDataFileName)))
 	if err != nil {

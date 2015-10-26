@@ -106,10 +106,7 @@ func (l *tarexporter) loadLayer(filename string, parentDiffs []layer.DiffID) (la
 	defer rawTar.Close()
 	defer inflatedLayerData.Close()
 
-	parentLayerID, err := layer.CreateID(parentDiffs...)
-	if err != nil {
-		return nil, err
-	}
+	parentLayerID := layer.CreateID(parentDiffs)
 
 	return l.ls.Register(inflatedLayerData, parentLayerID)
 }

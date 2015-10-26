@@ -71,8 +71,8 @@ func (img *Image) RawJSON() []byte {
 }
 
 // GetTopLayerID returns the top layer ID for this image.
-func (img *Image) GetTopLayerID() (layer.ID, error) {
-	return layer.CreateID(img.RootFS.DiffIDs...)
+func (img *Image) GetTopLayerID() layer.ID {
+	return layer.CreateID(img.RootFS.DiffIDs)
 }
 
 // History stores build commands that were used to create an image
