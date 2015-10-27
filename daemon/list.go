@@ -9,7 +9,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/image"
+	"github.com/docker/docker/images"
 	"github.com/docker/docker/pkg/graphdb"
 	"github.com/docker/docker/pkg/nat"
 	"github.com/docker/docker/pkg/parsers/filters"
@@ -65,7 +65,7 @@ type listContext struct {
 	// names is a list of container names to filter with
 	names map[string][]string
 	// images is a list of images to filter with
-	images map[string]bool
+	images map[images.ID]bool
 	// filters is a collection of arguments to filter with, specified by the user
 	filters filters.Args
 	// exitAllowed is a list of exit codes allowed to filter with
@@ -155,25 +155,24 @@ func (daemon *Daemon) foldFilter(config *ContainersConfig) (*listContext, error)
 		}
 	}
 
-	imagesFilter := map[string]bool{}
+	imagesFilter := map[images.ID]bool{}
 	var ancestorFilter bool
 	if ancestors, ok := psFilters["ancestor"]; ok {
 		ancestorFilter = true
-		byParents := daemon.Graph().ByParent()
 		// The idea is to walk the graph down the most "efficient" way.
 		for _, ancestor := range ancestors {
 			// First, get the imageId of the ancestor filter (yay)
-			image, err := daemon.repositories.LookupImage(ancestor)
+			id, err := daemon.GetImageID(ancestor)
 			if err != nil {
 				logrus.Warnf("Error while looking up for image %v", ancestor)
 				continue
 			}
-			if imagesFilter[ancestor] {
+			if imagesFilter[id] {
 				// Already seen this ancestor, skip it
 				continue
 			}
 			// Then walk down the graph and put the imageIds in imagesFilter
-			populateImageFilterByParents(imagesFilter, image.ID, byParents)
+			populateImageFilterByParents(imagesFilter, id, daemon.imageStore.Children)
 		}
 	}
 
@@ -277,7 +276,7 @@ func includeContainerInList(container *Container, ctx *listContext) iterationAct
 		if len(ctx.images) == 0 {
 			return excludeContainer
 		}
-		if !ctx.images[string(container.ImageID)] {
+		if !ctx.images[container.ImageID] {
 			return excludeContainer
 		}
 	}
@@ -395,12 +394,10 @@ func (daemon *Daemon) Volumes(filter string) ([]*types.Volume, error) {
 	return volumesOut, nil
 }
 
-func populateImageFilterByParents(ancestorMap map[string]bool, imageID string, byParents map[string][]*image.Image) {
+func populateImageFilterByParents(ancestorMap map[images.ID]bool, imageID images.ID, getChildren func(images.ID) []images.ID) {
 	if !ancestorMap[imageID] {
-		if images, ok := byParents[imageID]; ok {
-			for _, image := range images {
-				populateImageFilterByParents(ancestorMap, image.ID, byParents)
-			}
+		for _, id := range getChildren(imageID) {
+			populateImageFilterByParents(ancestorMap, id, getChildren)
 		}
 		ancestorMap[imageID] = true
 	}

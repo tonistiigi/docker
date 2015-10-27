@@ -130,7 +130,7 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 			}
 		}
 		if newImage.RepoDigests == nil && newImage.RepoTags == nil {
-			if all || !daemon.imageStore.HasChild(id) {
+			if all || len(daemon.imageStore.Children(id)) == 0 {
 				if filter != "" { // skip images with no references if filtering by tag
 					continue
 				}
@@ -153,7 +153,7 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 
 func newImage(image *images.Image, size int64) *types.Image {
 	newImage := new(types.Image)
-	newImage.ParentID = image.Parent
+	newImage.ParentID = image.Parent.String()
 	newImage.ID = image.ID.String()
 	newImage.Created = image.Created.Unix()
 	newImage.Size = size

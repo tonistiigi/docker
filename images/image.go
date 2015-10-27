@@ -49,6 +49,7 @@ type ImageV1 struct {
 type Image struct {
 	ImageV1
 	ID      ID        `json:"id,omitempty"`
+	Parent  ID        `json:"parent,omitempty"`
 	RootFS  *RootFS   `json:"rootfs,omitempty"`
 	History []History `json:"history,omitempty"`
 

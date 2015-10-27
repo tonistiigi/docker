@@ -30,7 +30,8 @@ func (daemon *Daemon) ContainerCreate(name string, config *runconfig.Config, hos
 
 	container, err := daemon.Create(config, hostConfig, name)
 	if err != nil {
-		if daemon.Graph().IsNotExist(err, config.Image) {
+
+		if _, err := daemon.GetImageID(config.Image); err != nil {
 			if strings.Contains(config.Image, "@") {
 				return types.ContainerCreateResponse{"", warnings}, derr.ErrorCodeNoSuchImageHash.WithArgs(config.Image)
 			}

@@ -109,12 +109,14 @@ func (d Docker) Commit(c *daemon.Container, cfg *daemon.ContainerCommitConfig) (
 
 // Retain retains an image avoiding it to be removed or overwritten until a corresponding Release() call.
 func (d Docker) Retain(sessionID, imgID string) {
-	d.Daemon.Graph().Retain(sessionID, imgID)
+	// FIXME: This will be solved with tags in client-side builder
+	//d.Daemon.Graph().Retain(sessionID, imgID)
 }
 
 // Release releases a list of images that were retained for the time of a build.
 func (d Docker) Release(sessionID string, activeImages []string) {
-	d.Daemon.Graph().Release(sessionID, activeImages...)
+	// FIXME: This will be solved with tags in client-side builder
+	//d.Daemon.Graph().Release(sessionID, activeImages...)
 }
 
 // Copy copies/extracts a source FileInfo to a destination path inside a container

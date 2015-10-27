@@ -18,7 +18,7 @@ type Store interface {
 	Search(partialID string) (ID, error)
 	SetParent(id ID, parent ID) error
 	GetParent(id ID) (ID, error)
-	HasChild(id ID) bool
+	Children(id ID) []ID
 	Map() map[ID]*Image
 	Heads() map[ID]*Image
 }
@@ -178,6 +178,11 @@ func (is *store) Get(id ID) (*Image, error) {
 	img.ID = id
 	img.rawJSON = config
 
+	img.Parent, err = is.GetParent(id)
+	if err != nil {
+		return nil, err
+	}
+
 	return &img, nil
 }
 
@@ -221,15 +226,21 @@ func (is *store) GetParent(id ID) (ID, error) {
 	return ID(d), nil // todo: validate?
 }
 
-func (is *store) HasChild(id ID) bool {
+func (is *store) Children(id ID) []ID {
 	is.Lock()
 	defer is.Unlock()
 
-	return is.hasChild(id)
+	return is.children(id)
 }
 
-func (is *store) hasChild(id ID) bool {
-	return is.images[id] != nil && len(is.images[id].children) > 0
+func (is *store) children(id ID) []ID {
+	var ids []ID
+	if is.images[id] != nil {
+		for id := range is.images[id].children {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func (is *store) Heads() map[ID]*Image {
@@ -247,7 +258,7 @@ func (is *store) imagesMap(all bool) map[ID]*Image {
 	images := make(map[ID]*Image)
 
 	for id := range is.images {
-		if !all && is.hasChild(id) {
+		if !all && len(is.children(id)) > 0 {
 			continue
 		}
 		img, err := is.Get(id)

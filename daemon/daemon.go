@@ -1045,16 +1045,6 @@ func (daemon *Daemon) changes(container *Container) ([]archive.Change, error) {
 	return daemon.layerStore.Changes(container.ID)
 }
 
-// Graph needs to be removed.
-//
-// FIXME: this is a convenience function for integration tests
-// which need direct access to daemon.graph.
-// Once the tests switch to using engine and jobs, this method
-// can go away.
-func (daemon *Daemon) Graph() *graph.Graph {
-	return daemon.graph
-}
-
 // TagImage creates a tag in the repository reponame, pointing to the image named
 // imageName. If force is true, an existing tag with the same name may be
 // overwritten.
@@ -1129,8 +1119,6 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 		return nil, err
 	}
 
-	parent, _ := daemon.imageStore.GetParent(img.ID) // probably better in graph.lookupImage()
-
 	refs := daemon.tagStore.References(img.ID)
 	var tags = make([]string, len(refs))
 	for i := range refs {
@@ -1160,7 +1148,7 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 	imageInspect := &types.ImageInspect{
 		ID:              img.ID.String(),
 		Tags:            tags,
-		Parent:          string(parent),
+		Parent:          img.Parent.String(),
 		Comment:         img.Comment,
 		Created:         img.Created.Format(time.RFC3339Nano),
 		Container:       img.Container,
@@ -1289,9 +1277,8 @@ func (daemon *Daemon) ImageGetCached(imgID images.ID, config *runconfig.Config) 
 
 	// Store the tree in a map of map (map[parentId][childId])
 	siblings := make([]images.ID, 0)
-	for id := range imgs {
-		parentID, _ := daemon.imageStore.GetParent(id) // empty parent also handled
-		if parentID == imgID {
+	for id, img := range imgs {
+		if img.Parent == imgID {
 			siblings = append(siblings, id)
 		}
 	}
