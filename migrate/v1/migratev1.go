@@ -65,9 +65,15 @@ func migrateImages(root string, ls layer.Store, is images.Store, mappings map[st
 		return errUnsupported
 	}
 
-	mfile := filepath.Join(root, migrationFileName)
 	graphDir := filepath.Join(root, graphDirName)
+	if _, err := os.Lstat(graphDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
 
+	mfile := filepath.Join(root, migrationFileName)
 	f, err := os.Open(mfile)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -200,6 +206,9 @@ func migrateTags(root, driverName string, ts tag.Store, mappings map[string]imag
 
 	f, err := os.Open(filepath.Join(root, repositoriesFilePrefixLegacy+driverName))
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
 	defer f.Close()
