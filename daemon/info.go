@@ -19,7 +19,7 @@ import (
 
 // SystemInfo returns information about the host server the daemon is running on.
 func (daemon *Daemon) SystemInfo() (*types.Info, error) {
-	images := daemon.Graph().Map()
+	images := daemon.imageStore.Map()
 	var imgcount int
 	if images == nil {
 		imgcount = 0
