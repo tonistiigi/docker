@@ -309,14 +309,6 @@ func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map
 		return err
 	}
 
-	// todo: handle empty layers
-
-	// todo: blobsumStore.add(checksum, diffid)
-
-	// todo: new makeConfig function
-
-	// todo: fallback default fields removal for old clients
-
 	layerDigests = append(layerDigests, layer.DiffID())
 
 	h, err := HistoryFromV1Config(imageJSON)
