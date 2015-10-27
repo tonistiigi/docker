@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -527,11 +529,16 @@ func (s *DockerRegistrySuite) TestPullFailsWithAlteredLayer(c *check.C) {
 	// Now try pulling that image by digest. We should get an error about
 	// digest verification for the target layer digest.
 
+	// Remove distribution cache to force a re-pull of the blobs
+	if err := os.RemoveAll(filepath.Join(dockerBasePath, "distribution")); err != nil {
+		c.Fatalf("error clearing distribution cache: %v", err)
+	}
+
 	// Pull from the registry using the <name>@<digest> reference.
 	imageReference := fmt.Sprintf("%s@%s", repoName, manifestDigest)
 	out, exitStatus, _ := dockerCmdWithError("pull", imageReference)
 	if exitStatus == 0 {
-		c.Fatalf("expected a zero exit status but got: %d", exitStatus)
+		c.Fatalf("expected a non-zero exit status but got: %d", exitStatus)
 	}
 
 	expectedErrorMsg := fmt.Sprintf("filesystem layer verification failed for digest %s", targetLayerDigest)
