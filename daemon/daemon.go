@@ -1058,15 +1058,6 @@ func (daemon *Daemon) PullImage(ref reference.Named, metaHeaders map[string][]st
 	return distribution.Pull(ref, imagePullConfig)
 }
 
-// ImportImage imports an image, getting the archived layer data either from
-// inConfig (if src is "-"), or from a URI specified in src. Progress output is
-// written to outStream. Repository and tag names can optionally be given in
-// the repo and tag arguments, respectively.
-func (daemon *Daemon) ImportImage(src, repo, tag, msg string, inConfig io.ReadCloser, outStream io.Writer, containerConfig *runconfig.Config) error {
-	return fmt.Errorf("not implemented")
-	//return daemon.repositories.Import(src, repo, tag, msg, inConfig, outStream, containerConfig)
-}
-
 // ExportImage exports a list of images to the given output stream. The
 // exported images are archived into a tar when written to the output
 // stream. All images with the given tag and all versions containing
