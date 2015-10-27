@@ -417,7 +417,7 @@ func V1ConfigFromConfig(img *images.Image, v1ID, parentV1ID string) ([]byte, err
 	}
 
 	// Delete fields that didn't exist in old manifest
-	delete(configAsMap, "diff_ids")
+	delete(configAsMap, "rootfs")
 	delete(configAsMap, "history")
 	configAsMap["id"] = rawJSON(v1ID)
 	if parentV1ID != "" {

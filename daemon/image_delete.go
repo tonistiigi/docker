@@ -54,7 +54,7 @@ func (daemon *Daemon) ImageDelete(imageRef string, force, prune bool) ([]types.I
 
 	imgID, err := daemon.GetImageID(imageRef)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("No such image: %s", imageRef)
 	}
 
 	repoRefs := daemon.tagStore.References(imgID)

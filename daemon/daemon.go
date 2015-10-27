@@ -1088,7 +1088,7 @@ func (daemon *Daemon) PushImage(ref reference.Named, metaHeaders map[string][]st
 func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 	img, err := daemon.GetImage(name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("No such image: %s", name)
 	}
 
 	refs := daemon.tagStore.References(img.ID)
