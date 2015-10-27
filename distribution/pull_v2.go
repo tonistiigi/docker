@@ -58,13 +58,19 @@ func (p *v2Puller) Pull(ref reference.Named) (fallback bool, err error) {
 }
 
 func (p *v2Puller) pullV2Repository(ref reference.Named) (err error) {
-	var refs []reference.NamedTagged
+	var refs []reference.Named
 	if tagged, isTagged := ref.(reference.Tagged); isTagged {
 		tagRef, err := reference.WithTag(p.repoInfo.LocalName, tagged.Tag())
 		if err != nil {
 			return err
 		}
-		refs = []reference.NamedTagged{tagRef}
+		refs = []reference.Named{tagRef}
+	} else if digested, isDigested := ref.(reference.Digested); isDigested {
+		digestRef, err := reference.WithDigest(p.repoInfo.LocalName, digested.Digest())
+		if err != nil {
+			return err
+		}
+		refs = []reference.Named{digestRef}
 	} else {
 		var err error
 
@@ -178,22 +184,29 @@ func (p *v2Puller) download(di *downloadInfo) {
 	di.err <- nil
 }
 
-func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.NamedTagged) (tagUpdated bool, err error) {
-	tag := ref.Tag()
+func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated bool, err error) {
+	tagOrDigest := ""
+	if tagged, isTagged := ref.(reference.Tagged); isTagged {
+		tagOrDigest = tagged.Tag()
+	} else if digested, isDigested := ref.(reference.Digested); isDigested {
+		tagOrDigest = digested.Digest().String()
+	} else {
+		return false, fmt.Errorf("internal error: reference has neither a tag nor a digest: %s", ref.String())
+	}
 
-	logrus.Debugf("Pulling ref from V2 registry: %q", tag)
+	logrus.Debugf("Pulling ref from V2 registry: %q", tagOrDigest)
 
 	manSvc, err := p.repo.Manifests(context.Background())
 	if err != nil {
 		return false, err
 	}
 
-	unverifiedManifest, err := manSvc.GetByTag(tag)
+	unverifiedManifest, err := manSvc.GetByTag(tagOrDigest)
 	if err != nil {
 		return false, err
 	}
 	if unverifiedManifest == nil {
-		return false, fmt.Errorf("image manifest does not exist for tag %q", tag)
+		return false, fmt.Errorf("image manifest does not exist for tag or digest %q", tagOrDigest)
 	}
 	var verifiedManifest *manifest.Manifest
 	verifiedManifest, err = verifyManifest(unverifiedManifest, ref)
@@ -207,7 +220,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.NamedTagged) (tagUpdat
 		return false, err
 	}
 
-	out.Write(p.sf.FormatStatus(tag, "Pulling from %s", p.repo.Name()))
+	out.Write(p.sf.FormatStatus(tagOrDigest, "Pulling from %s", p.repo.Name()))
 
 	var downloads []*downloadInfo
 
