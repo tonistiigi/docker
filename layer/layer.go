@@ -38,10 +38,6 @@ var (
 	// ErrNotMounted is used when requesting an active
 	// mount but the layer is not mounted.
 	ErrNotMounted = errors.New("not mounted")
-
-	// DigestSha256EmptyTar is the canonical sha256 digest of empty tar file -
-	// (1024 NULL bytes)
-	DigestSha256EmptyTar = DiffID("sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef")
 )
 
 // ID is the content-addressable ID of a layer.

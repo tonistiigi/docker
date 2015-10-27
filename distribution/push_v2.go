@@ -98,12 +98,18 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 	out := p.config.OutStream
 
 	var fsLayers []manifest.FSLayer
+	var l layer.Layer
 
-	l, err := p.config.LayerStore.Get(img.GetTopLayerID())
-	if err != nil {
-		return fmt.Errorf("failed to get top layer from image: %v", err)
+	topLayerID := img.GetTopLayerID()
+	if topLayerID == "" {
+		l = layer.EmptyLayer
+	} else {
+		l, err = p.config.LayerStore.Get(topLayerID)
+		if err != nil {
+			return fmt.Errorf("failed to get top layer from image: %v", err)
+		}
+		defer p.config.LayerStore.Release(l)
 	}
-	defer p.config.LayerStore.Release(l)
 
 	var blobsums []digest.Digest
 
