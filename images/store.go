@@ -180,7 +180,7 @@ func (is *store) Get(id ID) (*Image, error) {
 
 	img.Parent, err = is.GetParent(id)
 	if err != nil {
-		return nil, err
+		img.Parent = ""
 	}
 
 	return &img, nil
