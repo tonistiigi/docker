@@ -46,19 +46,19 @@ func (s *DockerHubPullSuite) TestPullFromCentralRegistry(c *check.C) {
 func (s *DockerHubPullSuite) TestPullNonExistingImage(c *check.C) {
 	testRequires(c, DaemonIsLinux)
 	for _, e := range []struct {
-		Image string
+		Repo  string
 		Alias string
 	}{
-		{"library/asdfasdf:foobar", "asdfasdf:foobar"},
-		{"library/asdfasdf:foobar", "library/asdfasdf:foobar"},
-		{"library/asdfasdf:latest", "asdfasdf"},
-		{"library/asdfasdf:latest", "asdfasdf:latest"},
-		{"library/asdfasdf:latest", "library/asdfasdf"},
-		{"library/asdfasdf:latest", "library/asdfasdf:latest"},
+		{"library/asdfasdf", "asdfasdf:foobar"},
+		{"library/asdfasdf", "library/asdfasdf:foobar"},
+		{"library/asdfasdf", "asdfasdf"},
+		{"library/asdfasdf", "asdfasdf:latest"},
+		{"library/asdfasdf", "library/asdfasdf"},
+		{"library/asdfasdf", "library/asdfasdf:latest"},
 	} {
 		out, err := s.CmdWithError("pull", e.Alias)
 		c.Assert(err, checker.NotNil, check.Commentf("expected non-zero exit status when pulling non-existing image: %s", out))
-		c.Assert(out, checker.Contains, fmt.Sprintf("Error: image %s not found", e.Image), check.Commentf("expected image not found error messages"))
+		c.Assert(out, checker.Contains, fmt.Sprintf("Error: image %s not found", e.Repo), check.Commentf("expected image not found error messages"))
 	}
 }
 

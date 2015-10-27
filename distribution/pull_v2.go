@@ -59,21 +59,20 @@ func (p *v2Puller) Pull(ref reference.Named) (fallback bool, err error) {
 
 func (p *v2Puller) pullV2Repository(ref reference.Named) (err error) {
 	var refs []reference.Named
+	taggedName := p.repoInfo.LocalName
 	if tagged, isTagged := ref.(reference.Tagged); isTagged {
-		tagRef, err := reference.WithTag(p.repoInfo.LocalName, tagged.Tag())
+		taggedName, err = reference.WithTag(p.repoInfo.LocalName, tagged.Tag())
 		if err != nil {
 			return err
 		}
-		refs = []reference.Named{tagRef}
+		refs = []reference.Named{taggedName}
 	} else if digested, isDigested := ref.(reference.Digested); isDigested {
-		digestRef, err := reference.WithDigest(p.repoInfo.LocalName, digested.Digest())
+		taggedName, err = reference.WithDigest(p.repoInfo.LocalName, digested.Digest())
 		if err != nil {
 			return err
 		}
-		refs = []reference.Named{digestRef}
+		refs = []reference.Named{taggedName}
 	} else {
-		var err error
-
 		manSvc, err := p.repo.Manifests(context.Background())
 		if err != nil {
 			return err
@@ -106,7 +105,7 @@ func (p *v2Puller) pullV2Repository(ref reference.Named) (err error) {
 		layersDownloaded = layersDownloaded || pulledNew
 	}
 
-	writeStatus(ref.String(), p.config.OutStream, p.sf, layersDownloaded)
+	writeStatus(taggedName.String(), p.config.OutStream, p.sf, layersDownloaded)
 
 	return nil
 }
