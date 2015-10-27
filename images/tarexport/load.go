@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
+	"github.com/docker/docker/pkg/symlink"
 )
 
 func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer) error {
@@ -27,9 +28,12 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer) error {
 	if err := chrootarchive.Untar(inTar, tmpDir, nil); err != nil {
 		return err
 	}
-
 	// read manifest, if no file then load in legacy mode
-	manifestFile, err := os.Open(filepath.Join(tmpDir, manifestFileName))
+	manifestPath, err := safePath(tmpDir, manifestFileName)
+	if err != nil {
+		return err
+	}
+	manifestFile, err := os.Open(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return l.legacyLoad(tmpDir, outStream)
@@ -46,7 +50,11 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer) error {
 	var layers []layer.DiffID
 	for _, m := range manifest {
 		for _, layerFile := range m.Layers {
-			newLayer, err := l.loadLayer(filepath.Join(tmpDir, layerFile), layers)
+			layerPath, err := safePath(tmpDir, layerFile)
+			if err != nil {
+				return err
+			}
+			newLayer, err := l.loadLayer(layerPath, layers)
 			if err != nil {
 				return err
 			}
@@ -54,8 +62,11 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer) error {
 			defer l.ls.Release(newLayer)
 		}
 
-		// FIXME: all these paths must be protected against breaksouts
-		config, err := ioutil.ReadFile(filepath.Join(tmpDir, m.Config))
+		configPath, err := safePath(tmpDir, m.Config)
+		if err != nil {
+			return err
+		}
+		config, err := ioutil.ReadFile(configPath)
 		if err != nil {
 			return err
 		}
@@ -87,7 +98,6 @@ func (l *tarexporter) loadLayer(filename string, parentDiffs []layer.DiffID) (la
 		logrus.Debugf("Error reading embedded tar: %v", err)
 		return nil, err
 	}
-
 	inflatedLayerData, err := archive.DecompressStream(rawTar)
 	if err != nil {
 		return nil, err
@@ -133,17 +143,21 @@ func (l *tarexporter) legacyLoad(tmpDir string, outStream io.Writer) error {
 	}
 
 	// load tags from repositories file
-	reposJSONFile, err := os.Open(filepath.Join(tmpDir, legacyRepositoriesFileName))
+	repositoriesPath, err := safePath(tmpDir, legacyRepositoriesFileName)
+	if err != nil {
+		return err
+	}
+	repositoriesFile, err := os.Open(repositoriesPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return err
 		}
-		return reposJSONFile.Close()
+		return repositoriesFile.Close()
 	}
-	defer reposJSONFile.Close()
+	defer repositoriesFile.Close()
 
 	repositories := make(map[string]map[string]string)
-	if err := json.NewDecoder(reposJSONFile).Decode(&repositories); err != nil {
+	if err := json.NewDecoder(repositoriesFile).Decode(&repositories); err != nil {
 		return err
 	}
 
@@ -175,8 +189,11 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 	if _, loaded := loadedMap[oldID]; loaded {
 		return nil
 	}
-
-	imageJSON, err := ioutil.ReadFile(filepath.Join(sourceDir, oldID, legacyConfigFileName))
+	configPath, err := safePath(sourceDir, filepath.Join(oldID, legacyConfigFileName))
+	if err != nil {
+		return err
+	}
+	imageJSON, err := ioutil.ReadFile(configPath)
 	if err != nil {
 		logrus.Debugf("Error reading json: %v", err)
 		return err
@@ -215,7 +232,11 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 		history = parentImg.History
 	}
 
-	newLayer, err := l.loadLayer(filepath.Join(sourceDir, oldID, legacyLayerFileName), layerDigests)
+	layerPath, err := safePath(sourceDir, filepath.Join(oldID, legacyLayerFileName))
+	if err != nil {
+		return err
+	}
+	newLayer, err := l.loadLayer(layerPath, layerDigests)
 	if err != nil {
 		return err
 	}
@@ -250,4 +271,8 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 
 	loadedMap[oldID] = imgID
 	return nil
+}
+
+func safePath(base, path string) (string, error) {
+	return symlink.FollowSymlinkInScope(filepath.Join(base, path), base)
 }
