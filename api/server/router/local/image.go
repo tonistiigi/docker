@@ -113,30 +113,30 @@ func (s *router) postImagesCreate(ctx context.Context, w http.ResponseWriter, r 
 		// compatibility.
 		image = strings.TrimSuffix(image, ":")
 
-		ref, err := reference.ParseNamed(image)
-		if err != nil {
-			return err
-		}
-		if tag != "" {
-			// The "tag" could actually be a digest.
-			dgst, err := digest.ParseDigest(tag)
+		var ref reference.Named
+		ref, err = reference.ParseNamed(image)
+		if err == nil {
+			if tag != "" {
+				// The "tag" could actually be a digest.
+				var dgst digest.Digest
+				dgst, err = digest.ParseDigest(tag)
+				if err == nil {
+					ref, err = reference.WithDigest(ref, dgst)
+				} else {
+					ref, err = reference.WithTag(ref, tag)
+				}
+			}
 			if err == nil {
-				ref, err = reference.WithDigest(ref, dgst)
-			} else {
-				ref, err = reference.WithTag(ref, tag)
-			}
-			if err != nil {
-				return err
-			}
-		}
-		metaHeaders := map[string][]string{}
-		for k, v := range r.Header {
-			if strings.HasPrefix(k, "X-Meta-") {
-				metaHeaders[k] = v
-			}
-		}
+				metaHeaders := map[string][]string{}
+				for k, v := range r.Header {
+					if strings.HasPrefix(k, "X-Meta-") {
+						metaHeaders[k] = v
+					}
+				}
 
-		err = s.daemon.PullImage(ref, metaHeaders, authConfig, output)
+				err = s.daemon.PullImage(ref, metaHeaders, authConfig, output)
+			}
+		}
 	} else { //import
 		if tag == "" {
 			repo, tag = parsers.ParseRepositoryTag(repo)
