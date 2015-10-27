@@ -33,7 +33,6 @@ import (
 	"github.com/docker/docker/distribution"
 	dmetadata "github.com/docker/docker/distribution/metadata"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/graph"
 	"github.com/docker/docker/images"
 	"github.com/docker/docker/images/tarexport"
 	"github.com/docker/docker/layer"
@@ -113,8 +112,6 @@ type Daemon struct {
 	sysInitPath               string
 	containers                *contStore
 	execCommands              *execStore
-	graph                     *graph.Graph    // FIXME remove
-	repositories              *graph.TagStore // FIXME remove
 	tagStore                  tag.Store
 	distributionPool          *distribution.Pool
 	distributionMetadataStore dmetadata.Store
@@ -752,12 +749,6 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 		return nil, err
 	}
 
-	logrus.Debug("Creating images graph")
-	g, err := graph.NewGraph(filepath.Join(config.Root, "graph"), d.driver, uidMaps, gidMaps)
-	if err != nil {
-		return nil, err
-	}
-
 	// Configure the volumes driver
 	volStore, err := configureVolumes(config, rootUID, rootGID)
 	if err != nil {
@@ -778,24 +769,18 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 	distributionMetadataStore := dmetadata.NewFSMetadataStore(filepath.Join(config.Root, "distribution"))
 
 	eventsService := events.New()
-	logrus.Debug("Creating repository list")
-	tagCfg := &graph.TagStoreConfig{
-		Graph: g,
-	}
-	repositories, err := graph.NewTagStore(filepath.Join(config.Root, "repositories-"+d.driver.String()), tagCfg)
-	if err != nil {
-		return nil, fmt.Errorf("Couldn't create Tag store repositories-%s: %s", d.driver.String(), err)
-	}
+
 	tagStore, err := tag.NewTagStore(filepath.Join(config.Root, "repositories.v2-"+d.driver.String()))
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't create Tag store repositories-%s: %s", d.driver.String(), err)
 	}
 
-	if restorer, ok := d.driver.(graphdriver.ImageRestorer); ok {
-		if _, err := restorer.RestoreCustomImages(repositories, g); err != nil {
-			return nil, fmt.Errorf("Couldn't restore custom images: %s", err)
-		}
-	}
+	// FIXME: Windows
+	// if restorer, ok := d.driver.(graphdriver.ImageRestorer); ok {
+	// 	if _, err := restorer.RestoreCustomImages(repositories, g); err != nil {
+	// 		return nil, fmt.Errorf("Couldn't restore custom images: %s", err)
+	// 	}
+	// }
 
 	if err := v1.Migrate(filepath.Join(config.Root), d.driver.String(), d.layerStore, d.imageStore, tagStore); err != nil {
 		return nil, err
@@ -858,8 +843,6 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 	d.distributionPool = distributionPool
 	d.distributionMetadataStore = distributionMetadataStore
 	d.trustKey = trustKey
-	d.graph = g
-	d.repositories = repositories
 	d.idIndex = truncindex.NewTruncIndex([]string{})
 	d.configStore = config
 	d.sysInitPath = sysInitPath
@@ -1080,7 +1063,8 @@ func (daemon *Daemon) PullImage(ref reference.Named, metaHeaders map[string][]st
 // written to outStream. Repository and tag names can optionally be given in
 // the repo and tag arguments, respectively.
 func (daemon *Daemon) ImportImage(src, repo, tag, msg string, inConfig io.ReadCloser, outStream io.Writer, containerConfig *runconfig.Config) error {
-	return daemon.repositories.Import(src, repo, tag, msg, inConfig, outStream, containerConfig)
+	return fmt.Errorf("not implemented")
+	//return daemon.repositories.Import(src, repo, tag, msg, inConfig, outStream, containerConfig)
 }
 
 // ExportImage exports a list of images to the given output stream. The
