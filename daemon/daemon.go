@@ -570,7 +570,7 @@ func (daemon *Daemon) GetLabels(id string) map[string]string {
 		return container.Config.Labels
 	}
 
-	img, err := daemon.repositories.LookupImage(id)
+	img, err := daemon.GetImage(id)
 	if err == nil {
 		return img.ContainerConfig.Labels
 	}
