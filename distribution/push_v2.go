@@ -125,7 +125,6 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 				return err
 			}
 			if exists {
-				blobsums = append(blobsums, dgst)
 				out.Write(p.sf.FormatProgress(stringid.TruncateID(string(l.DiffID())), "Layer already exists", nil))
 			}
 		}
@@ -195,7 +194,7 @@ func (p *v2Pusher) blobSumAlreadyExists(blobsums []digest.Digest) (digest.Digest
 		if p.layersPushed[dgst] {
 			// it is already known that the push is not needed and
 			// therefore doing a stat is unnecessary
-			return "", true, nil
+			return dgst, true, nil
 		}
 		_, err := p.repo.Blobs(context.Background()).Stat(context.Background(), dgst)
 		switch err {
