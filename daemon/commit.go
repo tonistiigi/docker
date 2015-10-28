@@ -63,7 +63,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 	}
 	defer daemon.layerStore.Release(l)
 
-	if diffID := l.DiffID(); layer.DigestSha256EmptyTar != diffID {
+	if diffID := l.DiffID(); layer.DigestSHA256EmptyTar != diffID {
 		diffIDs = append(diffIDs, diffID)
 	}
 

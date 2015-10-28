@@ -6,9 +6,9 @@ import (
 	"io"
 )
 
-// DigestSha256EmptyTar is the canonical sha256 digest of empty tar file -
+// DigestSHA256EmptyTar is the canonical sha256 digest of empty tar file -
 // (1024 NULL bytes)
-const DigestSha256EmptyTar = DiffID("sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef")
+const DigestSHA256EmptyTar = DiffID("sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef")
 
 type emptyLayer struct{}
 
@@ -22,11 +22,11 @@ func (el *emptyLayer) TarStream() (io.Reader, error) {
 }
 
 func (el *emptyLayer) ID() ID {
-	return ID(DigestSha256EmptyTar)
+	return ID(DigestSHA256EmptyTar)
 }
 
 func (el *emptyLayer) DiffID() DiffID {
-	return DigestSha256EmptyTar
+	return DigestSHA256EmptyTar
 }
 
 func (el *emptyLayer) Parent() Layer {
