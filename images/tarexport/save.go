@@ -41,6 +41,34 @@ func (l *tarexporter) Save(names []string, outStream io.Writer) error {
 
 func (l *tarexporter) parseNames(names []string) (map[images.ID]*imageDescriptor, error) {
 	imgDescr := make(map[images.ID]*imageDescriptor)
+
+	addAssoc := func(id images.ID, ref reference.Named) {
+		if _, ok := imgDescr[id]; !ok {
+			imgDescr[id] = &imageDescriptor{}
+		}
+
+		if ref != nil {
+			var tagged reference.NamedTagged
+			if _, ok := ref.(reference.Digested); ok {
+				return
+			}
+			var ok bool
+			if tagged, ok = ref.(reference.NamedTagged); !ok {
+				var err error
+				if tagged, err = reference.WithTag(ref, tag.DefaultTag); err != nil {
+					return
+				}
+			}
+
+			for _, t := range imgDescr[id].refs {
+				if tagged.String() == t.String() {
+					return
+				}
+			}
+			imgDescr[id].refs = append(imgDescr[id].refs, tagged)
+		}
+	}
+
 	for _, name := range names {
 		ref, err := reference.ParseNamed(name)
 		// FIXME: normalize
@@ -48,38 +76,28 @@ func (l *tarexporter) parseNames(names []string) (map[images.ID]*imageDescriptor
 			return nil, err
 		}
 
-		var imgID images.ID
-		if imgID, err = l.ts.Get(ref); err != nil {
-			imgID, err = l.is.Search(name)
-			if err != nil {
-				return nil, err
-			}
-			ref = nil
-		}
-
-		if _, ok := imgDescr[imgID]; !ok {
-			imgDescr[imgID] = &imageDescriptor{}
-		}
-
-		if ref != nil {
-			var tagged reference.NamedTagged
-			if _, ok := ref.(reference.Digested); ok {
+		if _, ok := ref.(reference.Digested); !ok {
+			if _, ok := ref.(reference.NamedTagged); !ok {
+				assocs := l.ts.ReferencesByName(ref)
+				for _, assoc := range assocs {
+					addAssoc(assoc.ImageID, assoc.Ref)
+				}
+				if len(assocs) == 0 {
+					imgID, err := l.is.Search(name)
+					if err != nil {
+						return nil, err
+					}
+					addAssoc(imgID, nil)
+				}
 				continue
 			}
-			var ok bool
-			if tagged, ok = ref.(reference.NamedTagged); !ok {
-				if tagged, err = reference.WithTag(ref, tag.DefaultTag); err != nil {
-					return nil, err
-				}
-			}
-
-			for _, t := range imgDescr[imgID].refs {
-				if tagged.String() == t.String() {
-					continue
-				}
-			}
-			imgDescr[imgID].refs = append(imgDescr[imgID].refs, tagged)
 		}
+
+		var imgID images.ID
+		if imgID, err = l.ts.Get(ref); err != nil {
+			return nil, err
+		}
+		addAssoc(imgID, ref)
 
 	}
 	return imgDescr, nil
