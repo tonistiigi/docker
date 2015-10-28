@@ -48,10 +48,6 @@ func (p *v2Pusher) Push() (fallback bool, err error) {
 	}
 
 	localName := p.repoInfo.LocalName.Name()
-	if _, found := p.config.Pool.add("push", localName); found {
-		return false, fmt.Errorf("push or pull %s is already in progress", localName)
-	}
-	defer p.config.Pool.remove("push", localName)
 
 	var associations []tag.Association
 	if _, isTagged := p.ref.(reference.Tagged); isTagged {

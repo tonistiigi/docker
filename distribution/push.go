@@ -45,8 +45,6 @@ type ImagePushConfig struct {
 	ImageStore images.Store
 	// TagStore manages tags.
 	TagStore tag.Store
-	// Pool manages concurrent pulls and pushes.
-	Pool *Pool
 	// TrustKey is the private key for legacy signatures. This is typically
 	// an ephemeral key, since these signatures are no longer verified.
 	TrustKey libtrust.PrivateKey

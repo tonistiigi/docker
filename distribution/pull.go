@@ -41,7 +41,7 @@ type ImagePullConfig struct {
 	ImageStore images.Store
 	// TagStore manages tags.
 	TagStore tag.Store
-	// Pool manages concurrent pulls and pushes.
+	// Pool manages concurrent pulls.
 	Pool *Pool
 }
 

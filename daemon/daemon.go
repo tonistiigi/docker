@@ -1076,7 +1076,6 @@ func (daemon *Daemon) PushImage(ref reference.Named, metaHeaders map[string][]st
 		LayerStore:      daemon.layerStore,
 		ImageStore:      daemon.imageStore,
 		TagStore:        daemon.tagStore,
-		Pool:            daemon.distributionPool,
 		TrustKey:        daemon.trustKey,
 	}
 

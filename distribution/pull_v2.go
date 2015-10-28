@@ -230,7 +230,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		}
 
 		for _, d := range downloads {
-			p.config.Pool.removeWithError("pull", d.poolKey, err)
+			p.config.Pool.removeWithError(d.poolKey, err)
 			if d.tmpFile != nil {
 				d.tmpFile.Close()
 				if err := os.RemoveAll(d.tmpFile.Name()); err != nil {
@@ -298,7 +298,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 
 		downloads = append(downloads, d)
 
-		broadcaster, found := p.config.Pool.add("pull", d.poolKey)
+		broadcaster, found := p.config.Pool.add(d.poolKey)
 		broadcaster.Add(out)
 		d.broadcaster = broadcaster
 		if found {

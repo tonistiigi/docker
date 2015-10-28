@@ -359,7 +359,7 @@ func (p *v1Puller) downloadLayerConfig(out io.Writer, v1LayerID, endpoint string
 func (p *v1Puller) downloadLayer(out io.Writer, v1LayerID, endpoint string, parentID layer.ID, layerSize int64, layersDownloaded *bool) (l layer.Layer, err error) {
 	// ensure no two downloads of the same layer happen at the same time
 	poolKey := "layer:" + v1LayerID
-	broadcaster, found := p.config.Pool.add("pull", poolKey)
+	broadcaster, found := p.config.Pool.add(poolKey)
 	broadcaster.Add(out)
 	if found {
 		logrus.Debugf("Image (id: %s) pull is already running, skipping", v1LayerID)
@@ -381,7 +381,7 @@ func (p *v1Puller) downloadLayer(out io.Writer, v1LayerID, endpoint string, pare
 	// This must use a closure so it captures the value of err when
 	// the function returns, not when the 'defer' is evaluated.
 	defer func() {
-		p.config.Pool.removeWithError("pull", poolKey, err)
+		p.config.Pool.removeWithError(poolKey, err)
 	}()
 
 	retries := 5
