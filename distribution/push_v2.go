@@ -178,7 +178,11 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 		return err
 	}
 	if manifestDigest != "" {
-		out.Write(p.sf.FormatStatus("", "%s: digest: %s size: %d", ref.String(), manifestDigest, manifestSize))
+		if tagged, isTagged := ref.(reference.Tagged); isTagged {
+			// NOTE: do not change this format without first changing the trust client
+			// code. This information is used to determine what was pushed and should be signed.
+			out.Write(p.sf.FormatStatus("", "%s: digest: %s size: %d", tagged.Tag(), manifestDigest, manifestSize))
+		}
 	}
 
 	manSvc, err := p.repo.Manifests(context.Background())
