@@ -9,6 +9,7 @@ import (
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/images"
 	"github.com/docker/docker/pkg/stringid"
+	"github.com/docker/docker/registry"
 	tagpkg "github.com/docker/docker/tag"
 )
 
@@ -141,6 +142,7 @@ func (daemon *Daemon) getContainerUsingImage(imageID images.ID) *Container {
 // optional tag or digest reference. If tag or digest is omitted, the default
 // tag is used. Returns the resolved image reference and an error.
 func (daemon *Daemon) removeImageRef(ref reference.Named) (reference.Named, error) {
+	ref = registry.NormalizeLocalReference(ref)
 	switch ref.(type) {
 	case reference.Tagged:
 	case reference.Digested:
