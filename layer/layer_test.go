@@ -21,12 +21,7 @@ func init() {
 	vfs.CopyWithTar = archive.CopyWithTar
 }
 
-func newTestGraphDriver(t *testing.T) (graphdriver.Driver, func()) {
-	td, err := ioutil.TempDir("", "graph-")
-	if err != nil {
-		t.Fatal(err)
-	}
-
+func newVFSGraphDriver(td string) (graphdriver.Driver, error) {
 	uidMap := []idtools.IDMap{
 		{
 			ContainerID: 0,
@@ -42,7 +37,16 @@ func newTestGraphDriver(t *testing.T) (graphdriver.Driver, func()) {
 		},
 	}
 
-	driver, err := graphdriver.GetDriver("vfs", td, nil, uidMap, gidMap)
+	return graphdriver.GetDriver("vfs", td, nil, uidMap, gidMap)
+}
+
+func newTestGraphDriver(t *testing.T) (graphdriver.Driver, func()) {
+	td, err := ioutil.TempDir("", "graph-")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	driver, err := newVFSGraphDriver(td)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,25 +166,24 @@ func getCachedLayer(l Layer) *cacheLayer {
 	return l.(*cacheLayer)
 }
 
-func releaseAndCheckDeleted(t *testing.T, ls Store, layer Layer, removed ...Layer) {
-	layerCount := len(ls.(*layerStore).layerMap)
-	expectedMetadata := make([]Metadata, len(removed))
-	for i := range removed {
-		size, err := removed[i].Size()
+func createMetadata(layers ...Layer) []Metadata {
+	metadata := make([]Metadata, len(layers))
+	for i := range layers {
+		size, err := layers[i].Size()
 		if err != nil {
-			t.Fatal(err)
+			panic(err)
 		}
 
-		expectedMetadata[i].LayerID = removed[i].ID()
-		expectedMetadata[i].DiffID = removed[i].DiffID()
-		expectedMetadata[i].Size = size
-		expectedMetadata[i].DiffSize = getCachedLayer(removed[i]).size
-	}
-	metadata, err := ls.Release(layer)
-	if err != nil {
-		t.Fatal(err)
+		metadata[i].LayerID = layers[i].ID()
+		metadata[i].DiffID = layers[i].DiffID()
+		metadata[i].Size = size
+		metadata[i].DiffSize = getCachedLayer(layers[i]).size
 	}
 
+	return metadata
+}
+
+func assertMetadata(t *testing.T, metadata, expectedMetadata []Metadata) {
 	if len(metadata) != len(expectedMetadata) {
 		t.Fatalf("Unexpected number of deletes %d, expected %d", len(metadata), len(expectedMetadata))
 	}
@@ -193,11 +196,21 @@ func releaseAndCheckDeleted(t *testing.T, ls Store, layer Layer, removed ...Laye
 	if t.Failed() {
 		t.FailNow()
 	}
+}
+
+func releaseAndCheckDeleted(t *testing.T, ls Store, layer Layer, removed ...Layer) {
+	layerCount := len(ls.(*layerStore).layerMap)
+	expectedMetadata := createMetadata(removed...)
+	metadata, err := ls.Release(layer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertMetadata(t, metadata, expectedMetadata)
 
 	if expected := layerCount - len(removed); len(ls.(*layerStore).layerMap) != expected {
 		t.Fatalf("Unexpected number of layers %d, expected %d", len(ls.(*layerStore).layerMap), expected)
 	}
-	// TODO: Done
 }
 
 func cacheID(l Layer) string {
@@ -588,16 +601,13 @@ func assertReferences(t *testing.T, references ...Layer) {
 		return
 	}
 	base := references[0].(*referencedCacheLayer).cacheLayer
-	if rc := len(base.references); rc != len(references) {
-		t.Fatalf("Unexpected number of references %d, expecting %d", rc, len(references))
-	}
 	seenReferences := map[Layer]struct{}{
 		references[0]: struct{}{},
 	}
 	for i := 1; i < len(references); i++ {
 		other := references[i].(*referencedCacheLayer).cacheLayer
 		if base != other {
-			t.Fatalf("Unexpected referenced cache layer %v, expecting %v", other, base)
+			t.Fatalf("Unexpected referenced cache layer %s, expecting %s", other.ID(), base.ID())
 		}
 		if _, ok := base.references[references[i]]; !ok {
 			t.Fatalf("Reference not part of reference list: %v", references[i])
@@ -605,6 +615,9 @@ func assertReferences(t *testing.T, references ...Layer) {
 		if _, ok := seenReferences[references[i]]; ok {
 			t.Fatalf("Duplicated reference %v", references[i])
 		}
+	}
+	if rc := len(base.references); rc != len(references) {
+		t.Fatalf("Unexpected number of references %d, expecting %d", rc, len(references))
 	}
 }
 
