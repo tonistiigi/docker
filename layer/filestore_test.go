@@ -101,20 +101,6 @@ func TestStartTransactionFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := os.MkdirAll(filepath.Join(td, "tmp"), 0555); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = fms.StartTransaction()
-	if err == nil {
-		t.Fatalf("Expected error starting transaction with invalid layer parent directory")
-	}
-	assertPermissionError(t, err)
-
-	if err := os.Chmod(filepath.Join(td, "tmp"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
 	tx, err := fms.StartTransaction()
 	if err != nil {
 		t.Fatal(err)
