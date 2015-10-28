@@ -178,6 +178,11 @@ func (container *Container) writeHostConfig() error {
 		return err
 	}
 
+	dir := filepath.Dir(pth)
+	if err := os.MkdirAll(dir, 0600); err != nil {
+		return err
+	}
+
 	return ioutil.WriteFile(pth, data, 0666)
 }
 
