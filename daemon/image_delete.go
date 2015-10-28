@@ -90,6 +90,11 @@ func (daemon *Daemon) ImageDelete(imageRef string, force, prune bool) ([]types.I
 		daemon.EventsService.Log("untag", imgID.String(), "")
 		records = append(records, untaggedRecord)
 
+		// If has remaining references then untag finishes the remove
+		if len(repoRefs) > 1 {
+			return records, nil
+		}
+
 		removedRepositoryRef = true
 	} else {
 		// If an ID reference was given AND there is exactly one
