@@ -75,7 +75,14 @@ func (l *tarexporter) parseNames(names []string) (map[images.ID]*imageDescriptor
 		if err != nil {
 			return nil, err
 		}
-
+		if ref.Name() == string(digest.Canonical) {
+			imgID, err := l.is.Search(name)
+			if err != nil {
+				return nil, err
+			}
+			addAssoc(imgID, nil)
+			continue
+		}
 		if _, ok := ref.(reference.Digested); !ok {
 			if _, ok := ref.(reference.NamedTagged); !ok {
 				assocs := l.ts.ReferencesByName(ref)
@@ -92,7 +99,6 @@ func (l *tarexporter) parseNames(names []string) (map[images.ID]*imageDescriptor
 				continue
 			}
 		}
-
 		var imgID images.ID
 		if imgID, err = l.ts.Get(ref); err != nil {
 			return nil, err
