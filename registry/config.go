@@ -403,14 +403,16 @@ func NormalizeLocalReference(ref reference.Named) reference.Named {
 	localName := NormalizeLocalName(ref)
 	if tagged, isTagged := ref.(reference.Tagged); isTagged {
 		newRef, err := reference.WithTag(localName, tagged.Tag())
-		if err == nil {
-			return newRef
+		if err != nil {
+			return ref
 		}
+		return newRef
 	} else if digested, isDigested := ref.(reference.Digested); isDigested {
 		newRef, err := reference.WithDigest(localName, digested.Digest())
-		if err == nil {
-			return newRef
+		if err != nil {
+			return ref
 		}
+		return newRef
 	}
-	return ref
+	return localName
 }
