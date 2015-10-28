@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/pkg/integration/checker"
 	"github.com/go-check/check"
 )
@@ -100,7 +101,7 @@ func (s *DockerSuite) TestSaveCheckTimes(c *check.C) {
 	out, _, err = runCommandPipelineWithOutput(
 		exec.Command(dockerBinary, "save", repoName),
 		exec.Command("tar", "tv"),
-		exec.Command("grep", "-E", fmt.Sprintf("%s %s", data[0].Created.Format(tarTvTimeFormat), data[0].ID)))
+		exec.Command("grep", "-E", fmt.Sprintf("%s %s", data[0].Created.Format(tarTvTimeFormat), digest.Digest(data[0].ID).Hex())))
 	c.Assert(err, checker.IsNil, check.Commentf("failed to save repo with image ID and 'repositories' file: %s, %v", out, err))
 }
 

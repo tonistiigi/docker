@@ -202,7 +202,7 @@ func (s *saveSession) saveImage(id images.ID) error {
 			v1Img.Parent = parent.Hex()
 		}
 
-		if err := s.saveLayer(layerID, v1Img); err != nil {
+		if err := s.saveLayer(layerID, v1Img, img.Created); err != nil {
 			return err
 		}
 		layers = append(layers, v1Img.ID)
@@ -213,7 +213,7 @@ func (s *saveSession) saveImage(id images.ID) error {
 	if err := ioutil.WriteFile(configFile, img.RawJSON(), 0644); err != nil {
 		return err
 	}
-	if err := os.Chtimes(configFile, time.Unix(0, 0), time.Unix(0, 0)); err != nil {
+	if err := os.Chtimes(configFile, img.Created, img.Created); err != nil {
 		return err
 	}
 
@@ -221,7 +221,7 @@ func (s *saveSession) saveImage(id images.ID) error {
 	return nil
 }
 
-func (s *saveSession) saveLayer(id layer.ID, legacyImg images.ImageV1) error {
+func (s *saveSession) saveLayer(id layer.ID, legacyImg images.ImageV1, createdTime time.Time) error {
 	if _, exists := s.savedLayers[legacyImg.ID]; exists {
 		return nil
 	}
@@ -268,7 +268,7 @@ func (s *saveSession) saveLayer(id layer.ID, legacyImg images.ImageV1) error {
 
 	for _, fname := range []string{"", legacyVersionFileName, legacyConfigFileName, legacyLayerFileName} {
 		// todo: maybe save layer created timestamp?
-		if err := os.Chtimes(filepath.Join(outDir, fname), time.Unix(0, 0), time.Unix(0, 0)); err != nil {
+		if err := os.Chtimes(filepath.Join(outDir, fname), createdTime, createdTime); err != nil {
 			return err
 		}
 	}
