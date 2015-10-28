@@ -272,6 +272,8 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		}
 	}
 
+	poolKey := "v2layer:"
+
 	// Everything that wasn't found on disk needs to be downloaded.
 	// Note that the order of this loop is in the direction of bottom-most
 	// to top-most, so that the downloads slice gets ordered correctly.
@@ -280,8 +282,10 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 
 		out.Write(p.sf.FormatProgress(stringid.TruncateID(blobSum.String()), "Pulling fs layer", nil))
 
+		poolKey += blobSum.String()
+
 		d := &downloadInfo{
-			poolKey:       "v2layer:" + blobSum.String(),
+			poolKey:       poolKey,
 			digest:        blobSum,
 			layerBlobSums: allBlobSums[:i+1],
 			// TODO: seems like this chan buffer solved hanging problem in go1.5,
