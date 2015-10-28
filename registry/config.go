@@ -386,7 +386,7 @@ func ParseIndexInfo(reposName reference.Named) (*IndexInfo, error) {
 	return indexInfo, nil
 }
 
-// NormalizeLocalName transforms a repository name into a normalize LocalName
+// NormalizeLocalName transforms a repository name into a normalized LocalName
 // Passes through the name without transformation on error (image id, etc)
 func NormalizeLocalName(name reference.Named) reference.Named {
 	repoInfo, err := ParseRepositoryInfo(name)
@@ -394,4 +394,23 @@ func NormalizeLocalName(name reference.Named) reference.Named {
 		return name
 	}
 	return repoInfo.LocalName
+}
+
+// NormalizeLocalReference transforms a reference to use a normalized LocalName
+// for the name poriton. Passes through the reference without transformation on
+// error.
+func NormalizeLocalReference(ref reference.Named) reference.Named {
+	localName := NormalizeLocalName(ref)
+	if tagged, isTagged := ref.(reference.Tagged); isTagged {
+		newRef, err := reference.WithTag(localName, tagged.Tag())
+		if err == nil {
+			return newRef
+		}
+	} else if digested, isDigested := ref.(reference.Digested); isDigested {
+		newRef, err := reference.WithDigest(localName, digested.Digest())
+		if err == nil {
+			return newRef
+		}
+	}
+	return ref
 }

@@ -108,7 +108,7 @@ func (store *store) Add(ref reference.Named, id images.ID, force bool) error {
 		}
 
 		if !force {
-			return fmt.Errorf("Conflict: Tag %s is already set to image %s, if you want to replace it, please use -f option", ref.(reference.Tagged).Tag(), oldID.String())
+			return fmt.Errorf("Conflict: Tag %s is already set to image %s, if you want to replace it, please use -f option", ref.String(), oldID.String())
 		}
 	}
 

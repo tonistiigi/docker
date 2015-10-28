@@ -1029,6 +1029,7 @@ func (daemon *Daemon) changes(container *Container) ([]archive.Change, error) {
 // imageName. If force is true, an existing tag with the same name may be
 // overwritten.
 func (daemon *Daemon) TagImage(newTag reference.Named, imageName string, force bool) error {
+	newTag = registry.NormalizeLocalReference(newTag)
 	imageID, err := daemon.GetImageID(imageName)
 	if err != nil {
 		return err
@@ -1174,6 +1175,7 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 func (daemon *Daemon) GetImageID(refOrID string) (images.ID, error) {
 	// Treat it as a possible tag or digest reference
 	if ref, err := reference.ParseNamed(refOrID); err == nil {
+		ref = registry.NormalizeLocalReference(ref)
 		if id, err := daemon.tagStore.Get(ref); err == nil {
 			return id, nil
 		}

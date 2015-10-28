@@ -102,12 +102,7 @@ func Pull(ref reference.Named, imagePullConfig *ImagePullConfig) error {
 		return err
 	}
 
-	logName := repoInfo.LocalName
-	if tagged, isTagged := ref.(reference.Tagged); isTagged {
-		if logName, err = reference.WithTag(repoInfo.LocalName, tagged.Tag()); err != nil {
-			return err
-		}
-	}
+	logName := registry.NormalizeLocalReference(ref)
 
 	var (
 		lastErr error
