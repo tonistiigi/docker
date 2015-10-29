@@ -247,7 +247,6 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		allBlobSums = append(allBlobSums, verifiedManifest.FSLayers[i].BlobSum)
 	}
 
-	var layerDiffIDs []layer.DiffID
 	var parentID layer.ID
 
 	// Iterating from top-most to bottom-most layer
@@ -266,7 +265,6 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 				out.Write(p.sf.FormatProgress(stringid.TruncateID(blobSum.String()), "Already exists", nil))
 			}
 			referencedLayers = append(referencedLayers, l)
-			layerDiffIDs = addLayerDiffIDs(l)
 			parentID = layerID
 			break
 		}
@@ -329,6 +327,11 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 			if err != nil {
 				return false, err
 			}
+			l, err := p.config.LayerStore.Get(parentID)
+			if err != nil {
+				return false, err
+			}
+			referencedLayers = append(referencedLayers, l)
 
 			continue
 		}
@@ -356,8 +359,6 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		logrus.Debugf("layer %s registered successfully", l.DiffID())
 		referencedLayers = append(referencedLayers, l)
 
-		layerDiffIDs = append(layerDiffIDs, l.DiffID())
-
 		// Cache mapping from the set of blobsums so far to this layer ID
 		if err := p.blobSumLookupService.Set(d.layerBlobSums, l.ID()); err != nil {
 			return false, err
@@ -382,7 +383,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		}
 		history = append(history, h)
 	}
-	config, err := v1.ConfigFromV1Config([]byte(verifiedManifest.History[0].V1Compatibility), layerDiffIDs, history)
+	config, err := v1.ConfigFromV1Config([]byte(verifiedManifest.History[0].V1Compatibility), referencedLayers[len(referencedLayers)-1], history)
 	if err != nil {
 		return false, err
 	}

@@ -238,8 +238,6 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 		return err
 	}
 
-	layerDigests = append(layerDigests, newLayer.DiffID())
-
 	h, err := v1.HistoryFromV1Config(imageJSON)
 	if err != nil {
 		return err
@@ -250,7 +248,7 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 	}
 	history = append(history, h)
 
-	config, err := v1.ConfigFromV1Config(imageJSON, layerDigests, history)
+	config, err := v1.ConfigFromV1Config(imageJSON, newLayer, history)
 	if err != nil {
 		return err
 	}

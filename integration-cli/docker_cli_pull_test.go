@@ -181,10 +181,6 @@ func imageID(c *check.C, imageRef string) string {
 	return inspectImage(c, imageRef).ID
 }
 
-func imageParent(c *check.C, imageRef string) string {
-	return inspectImage(c, imageRef).Parent
-}
-
 // TestPullMigration verifies that pulling an image based on layers
 // that already exists locally will reuse those existing layers.
 func (s *DockerRegistrySuite) TestPullMigration(c *check.C) {

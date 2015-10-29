@@ -231,6 +231,9 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 	if err != nil {
 		return false, err
 	}
+	if len(history) < 1 {
+		return false, fmt.Errorf("empty history for image %s", v1ID)
+	}
 	out.Write(p.sf.FormatProgress(stringid.TruncateID(v1ID), "Pulling dependent layers", nil))
 	// FIXME: Try to stream the images?
 	// FIXME: Launch the getRemoteImage() in goroutines
@@ -245,12 +248,11 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 	layersDownloaded = false
 
 	var (
-		layerDiffIDs []layer.DiffID
-		parentID     layer.ID
-		newHistory   []images.History
-		img          *images.ImageV1
-		imgJSON      []byte
-		imgSize      int64
+		parentID   layer.ID
+		newHistory []images.History
+		img        *images.ImageV1
+		imgJSON    []byte
+		imgSize    int64
 	)
 
 	// Iterate over layers from top-most to bottom-most, checking if any
@@ -268,7 +270,6 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 					out.Write(p.sf.FormatProgress(stringid.TruncateID(history[j]), "Already exists", nil))
 				}
 				referencedLayers = append(referencedLayers, l)
-				layerDiffIDs = addLayerDiffIDs(l)
 				parentID = layerID
 				break
 			}
@@ -306,8 +307,6 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 			return layersDownloaded, err
 		}
 
-		layerDiffIDs = append(layerDiffIDs, l.DiffID())
-
 		parentID = l.ID()
 
 		// Create a new-style config from the legacy configs
@@ -323,7 +322,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 
 	}
 
-	config, err := v1.ConfigFromV1Config(imgJSON, layerDiffIDs, newHistory)
+	config, err := v1.ConfigFromV1Config(imgJSON, referencedLayers[len(referencedLayers)-1], newHistory)
 	if err != nil {
 		return layersDownloaded, err
 	}

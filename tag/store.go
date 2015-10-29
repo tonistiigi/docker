@@ -104,7 +104,7 @@ func (store *store) Add(ref reference.Named, id images.ID, force bool) error {
 	if exists {
 		// force only works for tags
 		if digested, isDigest := ref.(reference.Digested); isDigest {
-			return fmt.Errorf("Cannot overwrite digest %s", digested.Digest().String)
+			return fmt.Errorf("Cannot overwrite digest %s", digested.Digest().String())
 		}
 
 		if !force {

@@ -310,8 +310,6 @@ func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map
 		return err
 	}
 
-	layerDigests = append(layerDigests, layer.DiffID())
-
 	h, err := HistoryFromV1Config(imageJSON)
 	if err != nil {
 		return err
@@ -322,7 +320,7 @@ func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map
 	}
 	history = append(history, h)
 
-	config, err := ConfigFromV1Config(imageJSON, layerDigests, history)
+	config, err := ConfigFromV1Config(imageJSON, layer, history)
 	if err != nil {
 		return err
 	}
@@ -389,8 +387,20 @@ func CreateV1ID(v1Image images.ImageV1, layerID layer.ID, parent digest.Digest) 
 	return digest.FromBytes(configJSON)
 }
 
+// addLayerDiffIDs creates a slice containing all layer diff IDs for the given
+// layer, ordered from base to top-most.
+func addLayerDiffIDs(l layer.Layer) []layer.DiffID {
+	parent := l.Parent()
+	if parent == nil {
+		return []layer.DiffID{l.DiffID()}
+	}
+	return append(addLayerDiffIDs(parent), l.DiffID())
+}
+
 // ConfigFromV1Config creates an image config from the legacy V1 config format.
-func ConfigFromV1Config(imageJSON []byte, layerDigests []layer.DiffID, history []images.History) ([]byte, error) {
+func ConfigFromV1Config(imageJSON []byte, l layer.Layer, history []images.History) ([]byte, error) {
+	layerDigests := addLayerDiffIDs(l)
+
 	var c map[string]*json.RawMessage
 	if err := json.Unmarshal(imageJSON, &c); err != nil {
 		return nil, err
