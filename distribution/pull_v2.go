@@ -381,6 +381,15 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		if err != nil {
 			return false, err
 		}
+
+		layerID, err := p.blobSumLookupService.Get(allBlobSums[:len(verifiedManifest.History)-i])
+		if err == nil {
+			if l, err := p.config.LayerStore.Get(layerID); err == nil {
+				h.Size, _ = l.DiffSize()
+				p.config.LayerStore.Release(l)
+			}
+		}
+
 		history = append(history, h)
 	}
 	config, err := v1.ConfigFromV1Config([]byte(verifiedManifest.History[0].V1Compatibility), referencedLayers[len(referencedLayers)-1], history)

@@ -238,7 +238,15 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 	// FIXME: Try to stream the images?
 	// FIXME: Launch the getRemoteImage() in goroutines
 
-	var referencedLayers []layer.Layer
+	var (
+		referencedLayers []layer.Layer
+		parentID         layer.ID
+		newHistory       []images.History
+		img              *images.ImageV1
+		imgJSON          []byte
+		imgSize          int64
+	)
+
 	defer func() {
 		for _, l := range referencedLayers {
 			p.config.LayerStore.Release(l)
@@ -246,14 +254,6 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 	}()
 
 	layersDownloaded = false
-
-	var (
-		parentID   layer.ID
-		newHistory []images.History
-		img        *images.ImageV1
-		imgJSON    []byte
-		imgSize    int64
-	)
 
 	// Iterate over layers from top-most to bottom-most, checking if any
 	// already exist on disk.
@@ -292,34 +292,33 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 			return layersDownloaded, err
 		}
 
-		if i >= needsDownload {
-			continue
-		}
+		if i < needsDownload {
+			l, err := p.downloadLayer(out, v1LayerID, endpoint, parentID, imgSize, &layersDownloaded)
 
-		l, err := p.downloadLayer(out, v1LayerID, endpoint, parentID, imgSize, &layersDownloaded)
+			// Note: This needs to be done even in the error case to avoid
+			// stale references to the layer.
+			if l != nil {
+				referencedLayers = append(referencedLayers, l)
+			}
+			if err != nil {
+				return layersDownloaded, err
+			}
 
-		// Note: This needs to be done even in the error case to avoid
-		// stale references to the layer.
-		if l != nil {
-			referencedLayers = append(referencedLayers, l)
+			parentID = l.ID()
 		}
-		if err != nil {
-			return layersDownloaded, err
-		}
-
-		parentID = l.ID()
 
 		// Create a new-style config from the legacy configs
 		h, err := v1.HistoryFromV1Config(imgJSON)
 		if err != nil {
 			return layersDownloaded, err
 		}
-		h.Size, err = l.DiffSize()
-		if err != nil {
-			return layersDownloaded, err
+		if layerID, err := p.v1IDService.Get(v1LayerID, p.repoInfo.Index.Name); err == nil {
+			if l, err := p.config.LayerStore.Get(layerID); err == nil {
+				h.Size, _ = l.DiffSize()
+				p.config.LayerStore.Release(l)
+			}
 		}
 		newHistory = append(newHistory, h)
-
 	}
 
 	config, err := v1.ConfigFromV1Config(imgJSON, referencedLayers[len(referencedLayers)-1], newHistory)
