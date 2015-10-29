@@ -1156,24 +1156,37 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 	history := []*types.ImageHistory{}
 
 	histImg := img
-	id := img.ID.String()
+	id := img.ID
 
 	for i := len(img.History) - 1; i >= 0; i-- {
+		var tags []string
+		if id != "" {
+			for _, r := range daemon.tagStore.References(id) {
+				if _, ok := r.(reference.NamedTagged); ok {
+					tags = append(tags, r.String())
+				}
+			}
+		}
+
+		idstr := id.String()
+		if idstr == "" {
+			idstr = "<missing>"
+		}
+
 		history = append(history, &types.ImageHistory{
-			ID:        id,
+			ID:        idstr,
 			Created:   img.History[i].Created.Unix(),
 			CreatedBy: img.History[i].CreatedBy,
 			Comment:   img.History[i].Comment,
+			Tags:      tags,
 		})
 		if histImg != nil {
-			id = histImg.Parent.String()
+			id = histImg.Parent
 			if id != "" {
-				histImg, err = daemon.GetImage(id)
+				histImg, err = daemon.GetImage(id.String())
 				if err != nil {
 					histImg = nil
 				}
-			} else {
-				id = "<missing>"
 			}
 		}
 	}
