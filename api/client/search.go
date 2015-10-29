@@ -8,9 +8,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/docker/distribution/reference"
 	Cli "github.com/docker/docker/cli"
 	flag "github.com/docker/docker/pkg/mflag"
+	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/stringutils"
 	"github.com/docker/docker/registry"
 )
@@ -40,12 +40,9 @@ func (cli *DockerCli) CmdSearch(args ...string) error {
 	v.Set("term", name)
 
 	// Resolve the Repository name from fqn to hostname + name
-	ref, err := reference.ParseNamed(name)
-	if err != nil {
-		return err
-	}
+	taglessRemote, _ := parsers.ParseRepositoryTag(name)
 
-	indexInfo, err := registry.ParseIndexInfo(ref)
+	indexInfo, err := registry.ParseSearchIndexInfo(taglessRemote)
 	if err != nil {
 		return err
 	}

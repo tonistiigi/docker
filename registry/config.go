@@ -295,17 +295,15 @@ func splitReposName(reposName reference.Named) (indexName string, remoteName str
 }
 
 // NewRepositoryInfo validates and breaks down a repository name into a RepositoryInfo
-func (config *ServiceConfig) NewRepositoryInfo(reposName reference.Named, bySearch bool) (*RepositoryInfo, error) {
+func (config *ServiceConfig) NewRepositoryInfo(reposName reference.Named) (*RepositoryInfo, error) {
 	if err := validateNoSchema(reposName.Name()); err != nil {
 		return nil, err
 	}
 
 	indexName, remoteName := splitReposName(reposName)
 
-	if !bySearch {
-		if err := validateRemoteName(remoteName); err != nil {
-			return nil, err
-		}
+	if err := validateRemoteName(remoteName); err != nil {
+		return nil, err
 	}
 
 	repoInfo := &RepositoryInfo{}
@@ -360,24 +358,15 @@ func (config *ServiceConfig) NewRepositoryInfo(reposName reference.Named, bySear
 	return repoInfo, nil
 }
 
-// GetSearchTerm special-cases using local name for official index, and
-// remote name for private indexes.
-func (repoInfo *RepositoryInfo) GetSearchTerm() reference.Named {
-	if repoInfo.Index.Official {
-		return repoInfo.LocalName
-	}
-	return repoInfo.RemoteName
-}
-
 // ParseRepositoryInfo performs the breakdown of a repository name into a RepositoryInfo, but
 // lacks registry configuration.
 func ParseRepositoryInfo(reposName reference.Named) (*RepositoryInfo, error) {
-	return emptyServiceConfig.NewRepositoryInfo(reposName, false)
+	return emptyServiceConfig.NewRepositoryInfo(reposName)
 }
 
-// ParseIndexInfo will use repository name to get back an indexInfo.
-func ParseIndexInfo(reposName reference.Named) (*IndexInfo, error) {
-	indexName, _ := splitReposName(reposName)
+// ParseSearchIndexInfo will use repository name to get back an indexInfo.
+func ParseSearchIndexInfo(reposName string) (*IndexInfo, error) {
+	indexName, _ := splitReposSearchTerm(reposName)
 
 	indexInfo, err := emptyServiceConfig.NewIndexInfo(indexName)
 	if err != nil {

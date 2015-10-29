@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/client/auth"
@@ -52,20 +53,39 @@ func (s *Service) Auth(authConfig *cliconfig.AuthConfig) (string, error) {
 	return Login(authConfig, endpoint)
 }
 
+// splitReposSearchTerm breaks a search term into an index name and remote name
+func splitReposSearchTerm(reposName string) (string, string) {
+	nameParts := strings.SplitN(reposName, "/", 2)
+	var indexName, remoteName string
+	if len(nameParts) == 1 || (!strings.Contains(nameParts[0], ".") &&
+		!strings.Contains(nameParts[0], ":") && nameParts[0] != "localhost") {
+		// This is a Docker Index repos (ex: samalba/hipache or ubuntu)
+		// 'docker.io'
+		indexName = IndexName
+		remoteName = reposName
+	} else {
+		indexName = nameParts[0]
+		remoteName = nameParts[1]
+	}
+	return indexName, remoteName
+}
+
 // Search queries the public registry for images matching the specified
 // search terms, and returns the results.
 func (s *Service) Search(term string, authConfig *cliconfig.AuthConfig, headers map[string][]string) (*SearchResults, error) {
-	termNamed, err := reference.WithName(term)
-	if err != nil {
+	if err := validateNoSchema(term); err != nil {
 		return nil, err
 	}
-	repoInfo, err := s.ResolveRepositoryBySearch(termNamed)
+
+	indexName, remoteName := splitReposSearchTerm(term)
+
+	index, err := s.Config.NewIndexInfo(indexName)
 	if err != nil {
 		return nil, err
 	}
 
 	// *TODO: Search multiple indexes.
-	endpoint, err := NewEndpoint(repoInfo.Index, http.Header(headers), APIVersionUnknown)
+	endpoint, err := NewEndpoint(index, http.Header(headers), APIVersionUnknown)
 	if err != nil {
 		return nil, err
 	}
@@ -74,19 +94,23 @@ func (s *Service) Search(term string, authConfig *cliconfig.AuthConfig, headers 
 	if err != nil {
 		return nil, err
 	}
-	return r.SearchRepositories(repoInfo.GetSearchTerm().Name())
+
+	if index.Official {
+		localName := remoteName
+		if strings.HasPrefix(localName, "library/") {
+			// If pull "library/foo", it's stored locally under "foo"
+			localName = strings.SplitN(localName, "/", 2)[1]
+		}
+
+		return r.SearchRepositories(localName)
+	}
+	return r.SearchRepositories(remoteName)
 }
 
 // ResolveRepository splits a repository name into its components
 // and configuration of the associated registry.
 func (s *Service) ResolveRepository(name reference.Named) (*RepositoryInfo, error) {
-	return s.Config.NewRepositoryInfo(name, false)
-}
-
-// ResolveRepositoryBySearch splits a repository name into its components
-// and configuration of the associated registry.
-func (s *Service) ResolveRepositoryBySearch(name reference.Named) (*RepositoryInfo, error) {
-	return s.Config.NewRepositoryInfo(name, true)
+	return s.Config.NewRepositoryInfo(name)
 }
 
 // ResolveIndex takes indexName and returns index info
