@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
 )
 
@@ -44,39 +45,38 @@ func newFSStore(root string) (*fs, error) {
 	s := &fs{
 		root: root,
 	}
-	if err := os.MkdirAll(filepath.Join(root, contentDirName), 0600); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, contentDirName, string(digest.Canonical)), 0600); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Join(root, metadataDirName), 0600); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, metadataDirName, string(digest.Canonical)), 0600); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
+func (s *fs) contentDir(dgst digest.Digest) string {
+	return filepath.Join(s.root, contentDirName, string(dgst.Algorithm()), dgst.Hex())
+}
+
+func (s *fs) metadataDir(dgst digest.Digest) string {
+	return filepath.Join(s.root, metadataDirName, string(dgst.Algorithm()), dgst.Hex())
+}
+
 func (s *fs) Walk(f IDWalKFunc) error {
-	dir, err := ioutil.ReadDir(filepath.Join(s.root, contentDirName))
+	// Only Canonical digest (sha256) is currently supported
+	dir, err := ioutil.ReadDir(filepath.Join(s.root, contentDirName, string(digest.Canonical)))
 	if err != nil {
 		return err
 	}
 	for _, v := range dir {
-		dgst := digest.Digest(v.Name())
-		if err := validateCanonicalDigest(dgst); err != nil {
-			// todo: log error
+		dgst := digest.NewDigestFromHex(string(digest.Canonical), v.Name())
+		if err := dgst.Validate(); err != nil {
+			logrus.Debugf("Skipping invalid digest %s: %s", dgst, err)
 			continue
 		}
 		if err := f(dgst); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func validateCanonicalDigest(dgst digest.Digest) error {
-	if err := dgst.Validate(); err != nil {
-		return err
-	}
-	if dgst.Algorithm() != digest.Canonical {
-		return fmt.Errorf("unsupported digest algorithm: %v", dgst.Algorithm())
 	}
 	return nil
 }
@@ -90,11 +90,7 @@ func (s *fs) Get(id digest.Digest) ([]byte, error) {
 }
 
 func (s *fs) get(id digest.Digest) ([]byte, error) {
-	if err := validateCanonicalDigest(id); err != nil {
-		return nil, err
-	}
-
-	content, err := ioutil.ReadFile(filepath.Join(s.root, contentDirName, id.String()))
+	content, err := ioutil.ReadFile(s.contentDir(id))
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +116,7 @@ func (s *fs) Set(data []byte) (digest.Digest, error) {
 		return "", err
 	}
 
-	if err := ioutil.WriteFile(filepath.Join(s.root, contentDirName, dgst.String()), data, 0600); err != nil {
+	if err := ioutil.WriteFile(s.contentDir(dgst), data, 0600); err != nil {
 		return "", err
 	}
 
@@ -132,10 +128,10 @@ func (s *fs) Delete(id digest.Digest) error {
 	s.Lock()
 	defer s.Unlock()
 
-	if err := os.RemoveAll(filepath.Join(s.root, metadataDirName, id.String())); err != nil {
+	if err := os.RemoveAll(s.metadataDir(id)); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(filepath.Join(s.root, contentDirName, id.String())); err != nil {
+	if err := os.RemoveAll(s.contentDir(id)); err != nil {
 		return err
 	}
 	return nil
@@ -149,7 +145,7 @@ func (s *fs) SetMetadata(id digest.Digest, key string, data []byte) error {
 		return err
 	}
 
-	baseDir := filepath.Join(s.root, metadataDirName, string(id))
+	baseDir := filepath.Join(s.metadataDir(id))
 	if err := os.MkdirAll(baseDir, 0600); err != nil {
 		return err
 	}
@@ -167,5 +163,5 @@ func (s *fs) GetMetadata(id digest.Digest, key string) ([]byte, error) {
 	if _, err := s.get(id); err != nil {
 		return nil, err
 	}
-	return ioutil.ReadFile(filepath.Join(s.root, metadataDirName, id.String(), key))
+	return ioutil.ReadFile(filepath.Join(s.metadataDir(id), key))
 }
