@@ -960,7 +960,7 @@ func (daemon *Daemon) Mount(container *Container) error {
 		}
 		layerID = img.GetTopLayerID()
 	}
-	rwlayer, err := daemon.layerStore.Mount(container.ID, layerID, "", daemon.setupInitLayer) // FIXME: init
+	rwlayer, err := daemon.layerStore.Mount(container.ID, layerID, "", daemon.setupInitLayer)
 	if err != nil {
 		return err
 	}

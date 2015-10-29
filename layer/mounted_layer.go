@@ -24,7 +24,20 @@ func (ml *mountedLayer) cacheParent() string {
 
 func (ml *mountedLayer) TarStream() (io.Reader, error) {
 	archiver, err := ml.layerStore.driver.Diff(ml.mountID, ml.cacheParent())
-	return io.Reader(archiver), err
+	if err != nil {
+		return nil, err
+	}
+	r, w := io.Pipe()
+	go func() {
+		if _, err := io.Copy(w, archiver); err != nil {
+			archiver.Close()
+			w.CloseWithError(err)
+			return
+		}
+		archiver.Close()
+		w.Close()
+	}()
+	return r, nil
 }
 
 func (ml *mountedLayer) Path() (string, error) {
