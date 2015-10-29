@@ -244,6 +244,10 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 	if err != nil {
 		return err
 	}
+	h.Size, err = newLayer.DiffSize()
+	if err != nil {
+		return err
+	}
 	history = append(history, h)
 
 	config, err := v1.ConfigFromV1Config(imageJSON, layerDigests, history)

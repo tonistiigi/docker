@@ -72,6 +72,10 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 	h.Created = time.Now().UTC()
 	h.CreatedBy = strings.Join(container.Config.Cmd.Slice(), " ")
 	h.Comment = c.Comment
+	h.Size, err = l.DiffSize()
+	if err != nil {
+		return "", err
+	}
 
 	history = append(history, h)
 

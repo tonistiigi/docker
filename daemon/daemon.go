@@ -1178,6 +1178,7 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 			Created:   img.History[i].Created.Unix(),
 			CreatedBy: img.History[i].CreatedBy,
 			Comment:   img.History[i].Comment,
+			Size:      img.History[i].Size,
 			Tags:      tags,
 		})
 		if histImg != nil {

@@ -154,7 +154,7 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 			return nil, err
 		}
 		digester := digest.Canonical.New()
-		_, err = io.Copy(digester.Hash(), ar)
+		layer.size, err = io.Copy(digester.Hash(), ar)
 		if err != nil {
 			return nil, err
 		}

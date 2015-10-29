@@ -316,6 +316,10 @@ func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map
 	if err != nil {
 		return err
 	}
+	h.Size, err = layer.DiffSize()
+	if err != nil {
+		return err
+	}
 	history = append(history, h)
 
 	config, err := ConfigFromV1Config(imageJSON, layerDigests, history)

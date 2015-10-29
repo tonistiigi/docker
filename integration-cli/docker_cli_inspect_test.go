@@ -16,7 +16,7 @@ import (
 func (s *DockerSuite) TestInspectImage(c *check.C) {
 	testRequires(c, DaemonIsLinux)
 	imageTest := "emptyfs"
-	imageTestID := "sha256:92a325b497677a2e0ae4c6f2930e3f3021dcc5cb77c400d452b029add04674d7"
+	imageTestID := "sha256:4f6b9de8034658a8d206e99111180ae3d958ecd7673d46ed0dee69f375fd0137"
 	id, err := inspectField(imageTest, "Id")
 	c.Assert(err, check.IsNil)
 

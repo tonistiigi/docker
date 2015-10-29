@@ -72,6 +72,10 @@ func (daemon *Daemon) ImportImage(src, repo, tag, msg string, inConfig io.ReadCl
 	defer daemon.layerStore.Release(l)
 
 	created := time.Now().UTC()
+	size, err := l.DiffSize()
+	if err != nil {
+		return err
+	}
 	imgConfig, err := json.Marshal(&images.Image{
 		ImageV1: images.ImageV1{
 			DockerVersion: dockerversion.VERSION,
@@ -88,6 +92,7 @@ func (daemon *Daemon) ImportImage(src, repo, tag, msg string, inConfig io.ReadCl
 		History: []images.History{{
 			Created: created,
 			Comment: msg,
+			Size:    size,
 		}},
 	})
 	if err != nil {

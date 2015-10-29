@@ -85,6 +85,8 @@ type History struct {
 	CreatedBy string `json:"created_by,omitempty"`
 	// Comment is custom mesage set by the user when creating the image.
 	Comment string `json:"comment,omitempty"`
+	// Size in bytes how much data was added with the layer.
+	Size int64 `json:"size,omitempty"`
 }
 
 // Exporter provides interface for exporting and importing images

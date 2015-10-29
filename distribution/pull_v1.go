@@ -291,13 +291,6 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 			return layersDownloaded, err
 		}
 
-		// Create a new-style config from the legacy configs
-		h, err := v1.HistoryFromV1Config(imgJSON)
-		if err != nil {
-			return layersDownloaded, err
-		}
-		newHistory = append(newHistory, h)
-
 		if i >= needsDownload {
 			continue
 		}
@@ -316,6 +309,18 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 		layerDiffIDs = append(layerDiffIDs, l.DiffID())
 
 		parentID = l.ID()
+
+		// Create a new-style config from the legacy configs
+		h, err := v1.HistoryFromV1Config(imgJSON)
+		if err != nil {
+			return layersDownloaded, err
+		}
+		h.Size, err = l.DiffSize()
+		if err != nil {
+			return layersDownloaded, err
+		}
+		newHistory = append(newHistory, h)
+
 	}
 
 	config, err := v1.ConfigFromV1Config(imgJSON, layerDiffIDs, newHistory)
