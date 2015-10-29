@@ -81,8 +81,10 @@ type History struct {
 	Created time.Time `json:"created"`
 	// Author of the build point
 	Author string `json:"author,omitempty"`
-	// Description for build point. Command and comment for Dockerfiles.
-	Description string `json:"description,omitempty"`
+	// CreatedBy keeps the Dockerfile command used while building image.
+	CreatedBy string `json:"created_by,omitempty"`
+	// Comment is custom mesage set by the user when creating the image.
+	Comment string `json:"comment,omitempty"`
 }
 
 // Exporter provides interface for exporting and importing images

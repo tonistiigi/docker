@@ -1162,7 +1162,8 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 		history = append(history, &types.ImageHistory{
 			ID:        id,
 			Created:   img.History[i].Created.Unix(),
-			CreatedBy: img.History[i].Description,
+			CreatedBy: img.History[i].CreatedBy,
+			Comment:   img.History[i].Comment,
 		})
 		if histImg != nil {
 			id = histImg.Parent.String()
@@ -1171,6 +1172,8 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 				if err != nil {
 					histImg = nil
 				}
+			} else {
+				id = "<missing>"
 			}
 		}
 	}

@@ -70,11 +70,8 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 	h := images.History{}
 	h.Author = c.Author
 	h.Created = time.Now().UTC()
-	h.Description = strings.Join(container.Config.Cmd.Slice(), " ")
-
-	if len(c.Comment) > 0 {
-		h.Description += "(" + c.Comment + ")"
-	}
+	h.CreatedBy = strings.Join(container.Config.Cmd.Slice(), " ")
+	h.Comment = c.Comment
 
 	history = append(history, h)
 

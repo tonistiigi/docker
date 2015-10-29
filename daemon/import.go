@@ -79,14 +79,15 @@ func (daemon *Daemon) ImportImage(src, repo, tag, msg string, inConfig io.ReadCl
 			Architecture:  runtime.GOARCH,
 			OS:            runtime.GOOS,
 			Created:       created,
+			Comment:       msg,
 		},
 		RootFS: &images.RootFS{
 			Type:    "layers",
 			DiffIDs: []layer.DiffID{l.DiffID()},
 		},
 		History: []images.History{{
-			Created:     created,
-			Description: msg,
+			Created: created,
+			Comment: msg,
 		}},
 	})
 	if err != nil {

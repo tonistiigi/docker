@@ -352,11 +352,8 @@ func HistoryFromV1Config(imageJSON []byte) (images.History, error) {
 
 	h.Author = v1Image.Author
 	h.Created = v1Image.Created
-	h.Description = strings.Join(v1Image.ContainerConfig.Cmd.Slice(), " ")
-
-	if len(v1Image.Comment) > 0 {
-		h.Description += "(" + v1Image.Comment + ")"
-	}
+	h.CreatedBy = strings.Join(v1Image.ContainerConfig.Cmd.Slice(), " ")
+	h.Comment = v1Image.Comment
 
 	return h, nil
 }
