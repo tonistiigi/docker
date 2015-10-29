@@ -669,6 +669,15 @@ func TestRegisterExistingLayer(t *testing.T) {
 	assertReferences(t, layer2a, layer2b, layer2c)
 }
 
+func graphDiffSize(ls Store, l Layer) (int64, error) {
+	cl := getCachedLayer(l)
+	var parent string
+	if cl.parent != nil {
+		parent = cl.parent.cacheID
+	}
+	return ls.(*layerStore).driver.DiffSize(cl.cacheID, parent)
+}
+
 func TestLayerSize(t *testing.T) {
 	ls, cleanup := newTestStore(t)
 	defer cleanup()
@@ -686,7 +695,7 @@ func TestLayerSize(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	layer1DiffSize, err := layer1.DiffSize()
+	layer1DiffSize, err := graphDiffSize(ls, layer1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -700,11 +709,11 @@ func TestLayerSize(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if int(layer1Size) != len(content1) {
-		t.Fatalf("Unexpected size %d, expected %d", layer1Size, len(content1))
+	if expected := 2048; int(layer1Size) != expected {
+		t.Fatalf("Unexpected size %d, expected %d", layer1Size, expected)
 	}
 
-	layer2DiffSize, err := layer2.DiffSize()
+	layer2DiffSize, err := graphDiffSize(ls, layer2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -718,7 +727,7 @@ func TestLayerSize(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if expected := len(content1) + len(content2); int(layer2Size) != expected {
+	if expected := 4096; int(layer2Size) != expected {
 		t.Fatalf("Unexpected size %d, expected %d", layer2Size, expected)
 	}
 }
