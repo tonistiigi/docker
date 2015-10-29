@@ -1155,16 +1155,24 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 
 	history := []*types.ImageHistory{}
 
+	histImg := img
+	id := img.ID.String()
+
 	for i := len(img.History) - 1; i >= 0; i-- {
-		id := ""
-		if i == len(img.History)-1 {
-			id = img.ID.String()
-		}
 		history = append(history, &types.ImageHistory{
 			ID:        id,
 			Created:   img.History[i].Created.Unix(),
 			CreatedBy: img.History[i].Description,
 		})
+		if histImg != nil {
+			id = histImg.Parent.String()
+			if id != "" {
+				histImg, err = daemon.GetImage(id)
+				if err != nil {
+					histImg = nil
+				}
+			}
+		}
 	}
 
 	return history, nil
