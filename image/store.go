@@ -155,28 +155,25 @@ func (is *store) Search(term string) (ID, error) {
 }
 
 func (is *store) Get(id ID) (*Image, error) {
-	// todo: validate digest(maybe imageID)
-	// check if image is in images, detect manual insertions and start using them
+	// todo: Check if image is in images
+	// todo: Detect manual insertions and start using them
 	config, err := is.fs.Get(digest.Digest(id))
 	if err != nil {
 		return nil, err
 	}
 
-	var img Image
-	err = json.Unmarshal(config, &img)
+	img, err := NewFromJSON(config)
 	if err != nil {
 		return nil, err
 	}
-
 	img.ID = id
-	img.rawJSON = config
 
 	img.Parent, err = is.GetParent(id)
 	if err != nil {
 		img.Parent = ""
 	}
 
-	return &img, nil
+	return img, nil
 }
 
 func (is *store) Delete(id ID) ([]layer.Metadata, error) {
