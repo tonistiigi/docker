@@ -80,7 +80,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 	history = append(history, h)
 
 	config, err := json.Marshal(&image.Image{
-		ImageV1: image.ImageV1{
+		V1Image: image.V1Image{
 			DockerVersion:   dockerversion.VERSION,
 			Config:          c.Config,
 			Architecture:    runtime.GOARCH,

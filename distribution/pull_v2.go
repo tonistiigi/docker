@@ -477,9 +477,9 @@ func verifyManifest(signedManifest *manifest.SignedManifest, ref reference.Refer
 // fixManifestLayers removes repeated layers from the manifest and checks the
 // correctness of the parent chain.
 func fixManifestLayers(m *manifest.Manifest) error {
-	imgs := make([]*image.ImageV1, len(m.FSLayers))
+	imgs := make([]*image.V1Image, len(m.FSLayers))
 	for i := range m.FSLayers {
-		img := &image.ImageV1{}
+		img := &image.V1Image{}
 
 		if err := json.Unmarshal([]byte(m.History[i].V1Compatibility), img); err != nil {
 			return err

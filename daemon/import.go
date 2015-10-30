@@ -77,7 +77,7 @@ func (daemon *Daemon) ImportImage(src, repo, tag, msg string, inConfig io.ReadCl
 		return err
 	}
 	imgConfig, err := json.Marshal(&image.Image{
-		ImageV1: image.ImageV1{
+		V1Image: image.V1Image{
 			DockerVersion: dockerversion.VERSION,
 			Config:        config,
 			Architecture:  runtime.GOARCH,

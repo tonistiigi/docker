@@ -211,9 +211,9 @@ func (s *saveSession) saveImage(id image.ID) error {
 	var parent digest.Digest
 	var layers []string
 	for i := range diffIDs {
-		v1Img := image.ImageV1{}
+		v1Img := image.V1Image{}
 		if i == len(diffIDs)-1 {
-			v1Img = img.ImageV1
+			v1Img = img.V1Image
 		}
 		layerID := layer.CreateID(diffIDs[:i+1])
 		v1ID, err := v1.CreateV1ID(v1Img, layerID, parent)
@@ -245,7 +245,7 @@ func (s *saveSession) saveImage(id image.ID) error {
 	return nil
 }
 
-func (s *saveSession) saveLayer(id layer.ID, legacyImg image.ImageV1, createdTime time.Time) error {
+func (s *saveSession) saveLayer(id layer.ID, legacyImg image.V1Image, createdTime time.Time) error {
 	if _, exists := s.savedLayers[legacyImg.ID]; exists {
 		return nil
 	}

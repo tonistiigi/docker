@@ -17,8 +17,8 @@ func (id ID) String() string {
 	return string(id)
 }
 
-// ImageV1 stores the V1 image configuration.
-type ImageV1 struct {
+// V1Image stores the V1 image configuration.
+type V1Image struct {
 	// ID a unique 64 character identifier of the image
 	ID string `json:"id,omitempty"`
 	// Parent id of the image
@@ -47,7 +47,7 @@ type ImageV1 struct {
 
 // Image stores the image configuration
 type Image struct {
-	ImageV1
+	V1Image
 	ID      ID        `json:"id,omitempty"`
 	Parent  ID        `json:"parent,omitempty"`
 	RootFS  *RootFS   `json:"rootfs,omitempty"`

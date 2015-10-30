@@ -242,7 +242,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 		referencedLayers []layer.Layer
 		parentID         layer.ID
 		newHistory       []image.History
-		img              *image.ImageV1
+		img              *image.V1Image
 		imgJSON          []byte
 		imgSize          int64
 	)
@@ -287,7 +287,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 			return layersDownloaded, err
 		}
 
-		img = &image.ImageV1{}
+		img = &image.V1Image{}
 		if err := json.Unmarshal(imgJSON, img); err != nil {
 			return layersDownloaded, err
 		}

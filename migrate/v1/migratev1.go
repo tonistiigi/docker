@@ -353,7 +353,7 @@ func migrateImage(id, root string, ls layer.Store, is image.Store, mappings map[
 // HistoryFromV1Config creates a History struct from v1 configuration JSON
 func HistoryFromV1Config(imageJSON []byte) (image.History, error) {
 	h := image.History{}
-	var v1Image image.ImageV1
+	var v1Image image.V1Image
 	if err := json.Unmarshal(imageJSON, &v1Image); err != nil {
 		return h, err
 	}
@@ -366,7 +366,7 @@ func HistoryFromV1Config(imageJSON []byte) (image.History, error) {
 	return h, nil
 }
 
-func CreateV1ID(v1Image image.ImageV1, layerID layer.ID, parent digest.Digest) (digest.Digest, error) {
+func CreateV1ID(v1Image image.V1Image, layerID layer.ID, parent digest.Digest) (digest.Digest, error) {
 	v1Image.ID = ""
 	v1JSON, err := json.Marshal(v1Image)
 	if err != nil {
@@ -413,7 +413,7 @@ func ConfigFromV1Config(imageJSON []byte, l layer.Layer, history []image.History
 	useFallback := version.Version(dver.DockerVersion).LessThan(noFallbackMinVersion)
 
 	if useFallback {
-		var v1Image image.ImageV1
+		var v1Image image.V1Image
 		err := json.Unmarshal(imageJSON, &v1Image)
 		if err != nil {
 			return nil, err

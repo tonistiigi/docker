@@ -13,7 +13,7 @@ import (
 func TestCreateV2Manifest(t *testing.T) {
 	// Don't bother filling in the image fields because they aren't used
 	img := &image.Image{
-		ImageV1: image.ImageV1{
+		V1Image: image.V1Image{
 			Architecture: "testarch",
 			OS:           "testos",
 		},
