@@ -107,7 +107,12 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 		defer p.config.LayerStore.Release(l)
 	}
 
-	var blobsums []digest.Digest
+	// Blobsums of layers involved in this push operation (including those
+	// which already exist on the registery), ordered from bottom-most to
+	// top-most.
+	var layerBlobsums []digest.Digest
+	// Layer objects, ordered the same way.
+	var layers []layer.Layer
 
 	for l != nil {
 		logrus.Debugf("Pushing layer: %s", l.DiffID())
@@ -115,9 +120,9 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 		// Do we have any blobsums associated with this layer's DiffID?
 		var exists bool
 		var dgst digest.Digest
-		blobsums, err = p.blobSumStorageService.Get(l.DiffID())
+		possibleBlobsums, err := p.blobSumStorageService.Get(l.DiffID())
 		if err == nil {
-			dgst, exists, err = p.blobSumAlreadyExists(blobsums)
+			dgst, exists, err = p.blobSumAlreadyExists(possibleBlobsums)
 			if err != nil {
 				out.Write(p.sf.FormatProgress(stringid.TruncateID(string(l.DiffID())), "Image push failed", nil))
 				return err
@@ -134,12 +139,7 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 			if err != nil {
 				return err
 			}
-			// Cache mapping from the set of blobsums so far to this layer ID
-			blobsums = append(blobsums, pushDigest)
-			if err := p.blobSumLookupService.Set(blobsums, l.ID()); err != nil {
-				return err
-			}
-			// // Cache mapping from this layer's DiffID to the blobsum
+			// Cache mapping from this layer's DiffID to the blobsum
 			if err := p.blobSumStorageService.Add(l.DiffID(), pushDigest); err != nil {
 				return err
 			}
@@ -147,11 +147,21 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 			dgst = pushDigest
 		}
 
+		layers = append([]layer.Layer{l}, layers...)
+		layerBlobsums = append([]digest.Digest{dgst}, layerBlobsums...)
+
 		fsLayers = append(fsLayers, manifest.FSLayer{BlobSum: dgst})
 
 		p.layersPushed[dgst] = true
 
 		l = l.Parent()
+	}
+
+	// Cache mapping from each layer's set of blobsums to that layer's ID
+	for i, l := range layers {
+		if err := p.blobSumLookupService.Set(layerBlobsums[:i+1], l.ID()); err != nil {
+			return err
+		}
 	}
 
 	var tag string
