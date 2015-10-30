@@ -15,11 +15,17 @@ import (
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/images"
 	"github.com/docker/docker/layer"
+	"github.com/docker/docker/pkg/version"
 	"github.com/docker/docker/tag"
 	"github.com/jfrazelle/go/canonical/json"
 )
 
 var validHex = regexp.MustCompile(`^([a-f0-9]{64})$`)
+
+// noFallbackMinVersion is the minimum version for which v1compatibility
+// information will not be marshaled through the Image struct to remove
+// blank fields.
+var noFallbackMinVersion = version.Version("1.8.3")
 
 type migratoryLayerStore interface {
 	RegisterByGraphID(string, layer.ID, string) (layer.Layer, error)
@@ -399,7 +405,24 @@ func addLayerDiffIDs(l layer.Layer) []layer.DiffID {
 
 // ConfigFromV1Config creates an image config from the legacy V1 config format.
 func ConfigFromV1Config(imageJSON []byte, l layer.Layer, history []images.History) ([]byte, error) {
-	layerDigests := addLayerDiffIDs(l)
+
+	var dver struct {
+		DockerVersion string `json:"docker_version"`
+	}
+
+	useFallback := version.Version(dver.DockerVersion).LessThan(noFallbackMinVersion)
+
+	if useFallback {
+		var v1Image images.ImageV1
+		err := json.Unmarshal(imageJSON, &v1Image)
+		if err != nil {
+			return nil, err
+		}
+		imageJSON, err = json.Marshal(v1Image)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	var c map[string]*json.RawMessage
 	if err := json.Unmarshal(imageJSON, &c); err != nil {
@@ -412,6 +435,7 @@ func ConfigFromV1Config(imageJSON []byte, l layer.Layer, history []images.Histor
 	delete(c, "parent_id")
 	delete(c, "layer_id")
 
+	layerDigests := addLayerDiffIDs(l)
 	c["rootfs"] = rawJSON(&images.RootFS{Type: "layers", DiffIDs: layerDigests})
 	c["history"] = rawJSON(history)
 
