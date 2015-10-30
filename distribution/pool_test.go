@@ -2,13 +2,7 @@ package distribution
 
 import (
 	"testing"
-
-	"github.com/docker/docker/pkg/reexec"
 )
-
-func init() {
-	reexec.Init()
-}
 
 func TestPools(t *testing.T) {
 	p := NewPool()
