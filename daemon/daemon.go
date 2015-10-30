@@ -1204,6 +1204,15 @@ func (daemon *Daemon) GetImageID(refOrID string) (image.ID, error) {
 		if id, err := daemon.tagStore.Get(ref); err == nil {
 			return id, nil
 		}
+		if tagged, ok := ref.(reference.Tagged); ok {
+			if id, err := daemon.imageStore.Search(tagged.Tag()); err == nil {
+				for _, namedRef := range daemon.tagStore.References(id) {
+					if namedRef.Name() == ref.Name() {
+						return id, nil
+					}
+				}
+			}
+		}
 	}
 
 	// Search based on ID
