@@ -121,7 +121,15 @@ func (daemon *Daemon) ImageDelete(imageRef string, force, prune bool) ([]types.I
 // isImageIDPrefix returns whether the given possiblePrefix is a prefix of the
 // given imageID.
 func isImageIDPrefix(imageID, possiblePrefix string) bool {
-	return strings.HasPrefix(imageID, possiblePrefix)
+	if strings.HasPrefix(imageID, possiblePrefix) {
+		return true
+	}
+
+	if i := strings.IndexRune(imageID, ':'); i >= 0 {
+		return strings.HasPrefix(imageID[i+1:], possiblePrefix)
+	}
+
+	return false
 }
 
 // getContainerUsingImage returns a container that was created using the given

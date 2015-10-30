@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/docker/docker/pkg/stringid"
 	"github.com/go-check/check"
 )
 
@@ -109,7 +110,7 @@ func (s *DockerSuite) TestRmiImgIDMultipleTag(c *check.C) {
 
 	// first checkout without force it fails
 	out, _, err = dockerCmdWithError("rmi", imgID)
-	expected := fmt.Sprintf("conflict: unable to delete %s (cannot be forced) - image is being used by running container %s", imgID[:12], containerID[:12])
+	expected := fmt.Sprintf("conflict: unable to delete %s (cannot be forced) - image is being used by running container %s", stringid.TruncateID(imgID), stringid.TruncateID(containerID))
 	if err == nil || !strings.Contains(out, expected) {
 		c.Fatalf("rmi tagged in multiple repos should have failed without force: %s, %v, expected: %s", out, err, expected)
 	}
