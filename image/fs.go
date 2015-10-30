@@ -11,8 +11,6 @@ import (
 	"github.com/docker/distribution/digest"
 )
 
-// FIXME: unit-test this
-
 // IDWalKFunc is function called by StoreBackgend.Walk
 type IDWalKFunc func(id digest.Digest) error
 
@@ -45,10 +43,10 @@ func newFSStore(root string) (*fs, error) {
 	s := &fs{
 		root: root,
 	}
-	if err := os.MkdirAll(filepath.Join(root, contentDirName, string(digest.Canonical)), 0600); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, contentDirName, string(digest.Canonical)), 0700); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Join(root, metadataDirName, string(digest.Canonical)), 0600); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, metadataDirName, string(digest.Canonical)), 0700); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -111,11 +109,14 @@ func (s *fs) Set(data []byte) (digest.Digest, error) {
 	s.Lock()
 	defer s.Unlock()
 
+	if len(data) == 0 {
+		return "", fmt.Errorf("Invalid empty data")
+	}
+
 	dgst, err := digest.FromBytes(data)
 	if err != nil {
 		return "", err
 	}
-
 	if err := ioutil.WriteFile(s.contentDir(dgst), data, 0600); err != nil {
 		return "", err
 	}
@@ -146,7 +147,7 @@ func (s *fs) SetMetadata(id digest.Digest, key string, data []byte) error {
 	}
 
 	baseDir := filepath.Join(s.metadataDir(id))
-	if err := os.MkdirAll(baseDir, 0600); err != nil {
+	if err := os.MkdirAll(baseDir, 0700); err != nil {
 		return err
 	}
 	if err := ioutil.WriteFile(filepath.Join(baseDir, key), data, 0600); err != nil {
