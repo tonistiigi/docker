@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/vbatts/tar-split/tar/asm"
@@ -122,6 +123,106 @@ func TestLayerMigration(t *testing.T) {
 	}
 
 	layer2b, err := ls.(*layerStore).RegisterByGraphID(graphID2, layer1a.ID(), tf2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertReferences(t, layer2a, layer2b)
+
+	if metadata, err := ls.Release(layer2a); err != nil {
+		t.Fatal(err)
+	} else if len(metadata) > 0 {
+		t.Fatalf("Unexpected layer removal after first release: %#v", metadata)
+	}
+
+	metadata, err := ls.Release(layer2b)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertMetadata(t, metadata, createMetadata(layer2a))
+}
+
+func tarFromFilesInGraph(graph graphdriver.Driver, graphID, parentID string, files ...FileApplier) ([]byte, error) {
+	t, err := tarFromFiles(files...)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := graph.Create(graphID, parentID); err != nil {
+		return nil, err
+	}
+	if _, err := graph.ApplyDiff(graphID, parentID, archive.Reader(bytes.NewReader(t))); err != nil {
+		return nil, err
+	}
+
+	ar, err := graph.Diff(graphID, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer ar.Close()
+
+	return ioutil.ReadAll(ar)
+}
+
+func TestLayerMigrationNoTarsplit(t *testing.T) {
+	td, err := ioutil.TempDir("", "migration-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(td)
+
+	layer1Files := []FileApplier{
+		newTestFile("/root/.bashrc", []byte("# Boring configuration"), 0644),
+		newTestFile("/etc/profile", []byte("# Base configuration"), 0644),
+	}
+
+	layer2Files := []FileApplier{
+		newTestFile("/root/.bashrc", []byte("# Updated configuration"), 0644),
+	}
+
+	graph, err := newVFSGraphDriver(filepath.Join(td, "graphdriver-"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	graphID1 := stringid.GenerateRandomID()
+	graphID2 := stringid.GenerateRandomID()
+
+	tar1, err := tarFromFilesInGraph(graph, graphID1, "", layer1Files...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tar2, err := tarFromFilesInGraph(graph, graphID2, graphID1, layer2Files...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fms := NewFileMetadataStore(filepath.Join(td, "layers"))
+	ls, err := NewStore(fms, graph)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer1a, err := ls.(*layerStore).RegisterByGraphID(graphID1, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer1b, err := ls.Register(bytes.NewReader(tar1), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertReferences(t, layer1a, layer1b)
+
+	// Attempt register, should be same
+	layer2a, err := ls.Register(bytes.NewReader(tar2), layer1a.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer2b, err := ls.(*layerStore).RegisterByGraphID(graphID2, layer1a.ID(), "")
 	if err != nil {
 		t.Fatal(err)
 	}

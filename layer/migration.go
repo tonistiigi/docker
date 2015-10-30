@@ -10,6 +10,8 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/pkg/ioutils"
+	"github.com/vbatts/tar-split/tar/asm"
+	"github.com/vbatts/tar-split/tar/storage"
 )
 
 func (ls *layerStore) MountByGraphID(name string, graphID string, parent ID) (RWLayer, error) {
@@ -78,6 +80,71 @@ func (ls *layerStore) MountByGraphID(name string, graphID string, parent ID) (RW
 	return m, nil
 }
 
+func (ls *layerStore) migrateLayer(tx MetadataTransaction, tarDataFile string, layer *cacheLayer) error {
+	var ar io.Reader
+	if tarDataFile != "" {
+		tsw, err := tx.TarSplitWriter()
+		if err != nil {
+			return err
+		}
+
+		defer tsw.Close()
+		tdf, err := os.Open(tarDataFile)
+		if err != nil {
+			return err
+		}
+		defer tdf.Close()
+
+		uncompressed, err := gzip.NewReader(tdf)
+		if err != nil {
+			return err
+		}
+		defer uncompressed.Close()
+
+		tr := io.TeeReader(uncompressed, tsw)
+		trc := ioutils.NewReadCloserWrapper(tr, uncompressed.Close)
+
+		ar, err = ls.assembleTar(layer.cacheID, trc)
+		if err != nil {
+			return err
+		}
+
+	} else {
+		var graphParent string
+		if layer.parent != nil {
+			graphParent = layer.parent.cacheID
+		}
+		archiver, err := ls.driver.Diff(layer.cacheID, graphParent)
+		if err != nil {
+			return err
+		}
+		defer archiver.Close()
+
+		tsw, err := tx.TarSplitWriter()
+		if err != nil {
+			return err
+		}
+		metaPacker := storage.NewJSONPacker(tsw)
+		defer tsw.Close()
+
+		ar, err = asm.NewInputTarStream(archiver, metaPacker, nil)
+		if err != nil {
+			return err
+		}
+	}
+
+	digester := digest.Canonical.New()
+	n, err := io.Copy(digester.Hash(), ar)
+	if err != nil {
+		return err
+	}
+
+	layer.size = n
+	layer.digest = DiffID(digester.Digest())
+
+	return nil
+}
+
 func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile string) (Layer, error) {
 	var err error
 	var p *cacheLayer
@@ -120,50 +187,8 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ID, tarDataFile s
 		}
 	}()
 
-	if tarDataFile != "" {
-		var (
-			tdf          *os.File
-			tsw          io.WriteCloser
-			uncompressed io.ReadCloser
-			ar           io.Reader
-		)
-
-		tsw, err = tx.TarSplitWriter()
-		if err != nil {
-			return nil, err
-		}
-
-		defer tsw.Close()
-		tdf, err = os.Open(tarDataFile)
-		if err != nil {
-			return nil, err
-		}
-		defer tdf.Close()
-
-		uncompressed, err = gzip.NewReader(tdf)
-		if err != nil {
-			return nil, err
-		}
-		defer uncompressed.Close()
-
-		tr := io.TeeReader(uncompressed, tsw)
-		trc := ioutils.NewReadCloserWrapper(tr, uncompressed.Close)
-
-		ar, err = ls.assembleTar(graphID, trc)
-		if err != nil {
-			return nil, err
-		}
-		digester := digest.Canonical.New()
-		layer.size, err = io.Copy(digester.Hash(), ar)
-		if err != nil {
-			return nil, err
-		}
-
-		layer.digest = DiffID(digester.Digest())
-	} else {
-		// TODO Create tar stream
-		// Write both
-		return nil, errors.New("migrating without tar split data not supported")
+	if err = ls.migrateLayer(tx, tarDataFile, layer); err != nil {
+		return nil, err
 	}
 
 	layer.address = createIDFromParent(parent, layer.digest)
