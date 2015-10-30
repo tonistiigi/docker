@@ -80,11 +80,11 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer) error {
 			if err != nil {
 				return err
 			}
-			if ref, ok := named.(reference.NamedTagged); !ok {
+			ref, ok := named.(reference.NamedTagged)
+			if !ok {
 				return fmt.Errorf("invalid tag %q", repoTag)
-			} else {
-				l.setLoadedTag(ref, imgID, outStream)
 			}
+			l.setLoadedTag(ref, imgID, outStream)
 		}
 
 	}
@@ -160,22 +160,19 @@ func (l *tarexporter) legacyLoad(tmpDir string, outStream io.Writer) error {
 
 	for name, tagMap := range repositories {
 		for tag, oldID := range tagMap {
-			if imgID, ok := legacyLoadedMap[oldID]; !ok {
+			imgID, ok := legacyLoadedMap[oldID]
+			if !ok {
 				return fmt.Errorf("invalid target ID: %v", oldID)
-			} else {
-
-				named, err := reference.WithName(name)
-				if err != nil {
-					return err
-				}
-				ref, err := reference.WithTag(named, tag)
-				if err != nil {
-					return err
-				}
-
-				l.setLoadedTag(ref, imgID, outStream)
-
 			}
+			named, err := reference.WithName(name)
+			if err != nil {
+				return err
+			}
+			ref, err := reference.WithTag(named, tag)
+			if err != nil {
+				return err
+			}
+			l.setLoadedTag(ref, imgID, outStream)
 		}
 	}
 

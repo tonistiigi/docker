@@ -12,6 +12,7 @@ const DigestSHA256EmptyTar = DiffID("sha256:5f70bf18a086007016e948b04aed3b82103a
 
 type emptyLayer struct{}
 
+// EmptyLayer is a layer that corresponds to empty tar.
 var EmptyLayer = &emptyLayer{}
 
 func (el *emptyLayer) TarStream() (io.Reader, error) {
@@ -41,6 +42,6 @@ func (el *emptyLayer) DiffSize() (size int64, err error) {
 	return 0, nil
 }
 
-func (cl *emptyLayer) Metadata() (map[string]string, error) {
+func (el *emptyLayer) Metadata() (map[string]string, error) {
 	return make(map[string]string), nil
 }
