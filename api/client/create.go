@@ -101,6 +101,9 @@ func (cli *DockerCli) createContainer(config *runconfig.Config, hostConfig *runc
 	}
 
 	ref, err := reference.ParseNamed(config.Image)
+	if err != nil {
+		return nil, err
+	}
 
 	isDigested := false
 	switch ref.(type) {
