@@ -827,7 +827,11 @@ func TestValidRemoteName(t *testing.T) {
 		"jess/t",
 	}
 	for _, repositoryName := range validRepositoryNames {
-		if err := validateRemoteName(repositoryName); err != nil {
+		repositoryRef, err := reference.WithName(repositoryName)
+		if err != nil {
+			t.Errorf("Repository name should be valid: %v. Error: %v", repositoryName, err)
+		}
+		if err := validateRemoteName(repositoryRef); err != nil {
 			t.Errorf("Repository name should be valid: %v. Error: %v", repositoryName, err)
 		}
 	}
@@ -852,8 +856,7 @@ func TestValidRemoteName(t *testing.T) {
 
 		"_docker/_docker",
 
-		// Disallow consecutive underscores and periods.
-		"dock__er/docker",
+		// Disallow consecutive periods in hostname.
 		"dock..er/docker",
 		"dock_.er/docker",
 		"dock-.er/docker",
@@ -865,7 +868,11 @@ func TestValidRemoteName(t *testing.T) {
 		"this_is_not_a_valid_namespace_because_its_lenth_is_greater_than_255_this_is_not_a_valid_namespace_because_its_lenth_is_greater_than_255_this_is_not_a_valid_namespace_because_its_lenth_is_greater_than_255_this_is_not_a_valid_namespace_because_its_lenth_is_greater_than_255/docker",
 	}
 	for _, repositoryName := range invalidRepositoryNames {
-		if err := validateRemoteName(repositoryName); err == nil {
+		repositoryRef, err := reference.ParseNamed(repositoryName)
+		if err != nil {
+			continue
+		}
+		if err := validateRemoteName(repositoryRef); err == nil {
 			t.Errorf("Repository name should be invalid: %v", repositoryName)
 		}
 	}

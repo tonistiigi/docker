@@ -11,6 +11,7 @@ import (
 	"github.com/docker/distribution"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/manifest"
+	"github.com/docker/distribution/manifest/schema1"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/image"
@@ -93,7 +94,7 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 
 	out := p.config.OutStream
 
-	var fsLayers []manifest.FSLayer
+	var fsLayers []schema1.FSLayer
 	var l layer.Layer
 
 	topLayerID := img.GetTopLayerID()
@@ -150,7 +151,7 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 		layers = append([]layer.Layer{l}, layers...)
 		layerBlobsums = append([]digest.Digest{dgst}, layerBlobsums...)
 
-		fsLayers = append(fsLayers, manifest.FSLayer{BlobSum: dgst})
+		fsLayers = append(fsLayers, schema1.FSLayer{BlobSum: dgst})
 
 		p.layersPushed[dgst] = true
 
@@ -174,7 +175,7 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 	}
 
 	logrus.Infof("Signed manifest for %s using daemon's key: %s", ref.String(), p.config.TrustKey.KeyID())
-	signed, err := manifest.Sign(m, p.config.TrustKey)
+	signed, err := schema1.Sign(m, p.config.TrustKey)
 	if err != nil {
 		return err
 	}
@@ -225,7 +226,7 @@ func (p *v2Pusher) blobSumAlreadyExists(blobsums []digest.Digest) (digest.Digest
 // FSLayer digests.
 // FIXME: This should be moved to the distribution repo, since it will also
 // be useful for converting new manifests to the old format.
-func CreateV2Manifest(name, tag string, img *image.Image, fsLayers []manifest.FSLayer) (*manifest.Manifest, error) {
+func CreateV2Manifest(name, tag string, img *image.Image, fsLayers []schema1.FSLayer) (*schema1.Manifest, error) {
 	if len(fsLayers) == 0 {
 		return nil, errors.New("empty fsLayers list when trying to create V2 manifest")
 	}
@@ -252,7 +253,7 @@ func CreateV2Manifest(name, tag string, img *image.Image, fsLayers []manifest.FS
 	}
 	v1IDs[0] = dgst.Hex()
 
-	history := make([]manifest.History, len(fsLayers))
+	history := make([]schema1.History, len(fsLayers))
 
 	// Top-level v1compatibility string should be a modified version of the
 	// image config.
@@ -275,7 +276,7 @@ func CreateV2Manifest(name, tag string, img *image.Image, fsLayers []manifest.FS
 		}
 	}
 
-	return &manifest.Manifest{
+	return &schema1.Manifest{
 		Versioned: manifest.Versioned{
 			SchemaVersion: 1,
 		},

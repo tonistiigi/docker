@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/docker/distribution/reference"
-	"github.com/docker/distribution/registry/api/v2"
 	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/opts"
 	flag "github.com/docker/docker/pkg/mflag"
@@ -217,15 +216,15 @@ func ValidateIndexName(val string) (string, error) {
 	return val, nil
 }
 
-func validateRemoteName(remoteName string) error {
-	if !strings.Contains(remoteName, "/") {
+func validateRemoteName(remoteName reference.Named) error {
+	remoteNameStr := remoteName.Name()
+	if !strings.Contains(remoteNameStr, "/") {
 		// the repository name must not be a valid image ID
-		if err := v1.ValidateV1ID(remoteName); err == nil {
+		if err := v1.ValidateV1ID(remoteNameStr); err == nil {
 			return fmt.Errorf("Invalid repository name (%s), cannot specify 64-byte hexadecimal strings", remoteName)
 		}
 	}
-
-	return v2.ValidateRepositoryName(remoteName)
+	return nil
 }
 
 func validateNoSchema(reposName string) error {
@@ -238,12 +237,14 @@ func validateNoSchema(reposName string) error {
 
 // ValidateRepositoryName validates a repository name
 func ValidateRepositoryName(reposName reference.Named) error {
-	var err error
-	if err = validateNoSchema(reposName.Name()); err != nil {
+	if err := validateNoSchema(reposName.Name()); err != nil {
 		return err
 	}
-	indexName, remoteName := splitReposName(reposName)
-	if _, err = ValidateIndexName(indexName); err != nil {
+	indexName, remoteName, err := splitReposName(reposName)
+	if err != nil {
+		return err
+	}
+	if _, err := ValidateIndexName(indexName); err != nil {
 		return err
 	}
 	return validateRemoteName(remoteName)
@@ -282,14 +283,17 @@ func (index *IndexInfo) GetAuthConfigKey() string {
 }
 
 // splitReposName breaks a reposName into an index name and remote name
-func splitReposName(reposName reference.Named) (indexName string, remoteName string) {
-	indexName, remoteName = reference.SplitHostname(reposName)
+func splitReposName(reposName reference.Named) (indexName string, remoteName reference.Named, err error) {
+	var remoteNameStr string
+	indexName, remoteNameStr = reference.SplitHostname(reposName)
 	if indexName == "" || (!strings.Contains(indexName, ".") &&
 		!strings.Contains(indexName, ":") && indexName != "localhost") {
 		// This is a Docker Index repos (ex: samalba/hipache or ubuntu)
 		// 'docker.io'
 		indexName = IndexName
-		remoteName = reposName.Name()
+		remoteName = reposName
+	} else {
+		remoteName, err = reference.WithName(remoteNameStr)
 	}
 	return
 }
@@ -300,17 +304,18 @@ func (config *ServiceConfig) NewRepositoryInfo(reposName reference.Named) (*Repo
 		return nil, err
 	}
 
-	indexName, remoteName := splitReposName(reposName)
+	repoInfo := &RepositoryInfo{}
+	var (
+		indexName string
+		err       error
+	)
 
-	if err := validateRemoteName(remoteName); err != nil {
+	indexName, repoInfo.RemoteName, err = splitReposName(reposName)
+	if err != nil {
 		return nil, err
 	}
 
-	repoInfo := &RepositoryInfo{}
-
-	var err error
-	repoInfo.RemoteName, err = reference.WithName(remoteName)
-	if err != nil {
+	if err := validateRemoteName(repoInfo.RemoteName); err != nil {
 		return nil, err
 	}
 

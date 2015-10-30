@@ -11,7 +11,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution"
 	"github.com/docker/distribution/digest"
-	"github.com/docker/distribution/manifest"
+	"github.com/docker/distribution/manifest/schema1"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/image"
@@ -207,7 +207,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 	if unverifiedManifest == nil {
 		return false, fmt.Errorf("image manifest does not exist for tag or digest %q", tagOrDigest)
 	}
-	var verifiedManifest *manifest.Manifest
+	var verifiedManifest *schema1.Manifest
 	verifiedManifest, err = verifyManifest(unverifiedManifest, ref)
 	if err != nil {
 		return false, err
@@ -429,7 +429,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 	return tagUpdated, nil
 }
 
-func verifyManifest(signedManifest *manifest.SignedManifest, ref reference.Reference) (m *manifest.Manifest, err error) {
+func verifyManifest(signedManifest *schema1.SignedManifest, ref reference.Reference) (m *schema1.Manifest, err error) {
 	// If pull by digest, then verify the manifest digest. NOTE: It is
 	// important to do this first, before any other content validation. If the
 	// digest cannot be verified, don't even bother with those other things.
@@ -453,7 +453,7 @@ func verifyManifest(signedManifest *manifest.SignedManifest, ref reference.Refer
 			return nil, err
 		}
 
-		var verifiedManifest manifest.Manifest
+		var verifiedManifest schema1.Manifest
 		if err = json.Unmarshal(payload, &verifiedManifest); err != nil {
 			return nil, err
 		}
@@ -476,7 +476,7 @@ func verifyManifest(signedManifest *manifest.SignedManifest, ref reference.Refer
 
 // fixManifestLayers removes repeated layers from the manifest and checks the
 // correctness of the parent chain.
-func fixManifestLayers(m *manifest.Manifest) error {
+func fixManifestLayers(m *schema1.Manifest) error {
 	imgs := make([]*image.V1Image, len(m.FSLayers))
 	for i := range m.FSLayers {
 		img := &image.V1Image{}
