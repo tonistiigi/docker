@@ -10,7 +10,7 @@ import (
 
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/autogen/dockerversion"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/httputils"
 	"github.com/docker/docker/pkg/progressreader"
@@ -76,8 +76,8 @@ func (daemon *Daemon) ImportImage(src, repo, tag, msg string, inConfig io.ReadCl
 	if err != nil {
 		return err
 	}
-	imgConfig, err := json.Marshal(&images.Image{
-		ImageV1: images.ImageV1{
+	imgConfig, err := json.Marshal(&image.Image{
+		ImageV1: image.ImageV1{
 			DockerVersion: dockerversion.VERSION,
 			Config:        config,
 			Architecture:  runtime.GOARCH,
@@ -85,11 +85,11 @@ func (daemon *Daemon) ImportImage(src, repo, tag, msg string, inConfig io.ReadCl
 			Created:       created,
 			Comment:       msg,
 		},
-		RootFS: &images.RootFS{
+		RootFS: &image.RootFS{
 			Type:    "layers",
 			DiffIDs: []layer.DiffID{l.DiffID()},
 		},
-		History: []images.History{{
+		History: []image.History{{
 			Created: created,
 			Comment: msg,
 			Size:    size,

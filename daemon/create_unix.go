@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/docker/volume"
@@ -15,7 +15,7 @@ import (
 )
 
 // createContainerPlatformSpecificSettings performs platform specific container create functionality
-func createContainerPlatformSpecificSettings(container *Container, config *runconfig.Config, hostConfig *runconfig.HostConfig, img *images.Image) error {
+func createContainerPlatformSpecificSettings(container *Container, config *runconfig.Config, hostConfig *runconfig.HostConfig, img *image.Image) error {
 	for spec := range config.Volumes {
 		name := stringid.GenerateNonCryptoID()
 		destination := filepath.Clean(spec)

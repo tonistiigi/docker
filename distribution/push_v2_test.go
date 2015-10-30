@@ -7,13 +7,13 @@ import (
 
 	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/manifest"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 )
 
 func TestCreateV2Manifest(t *testing.T) {
 	// Don't bother filling in the image fields because they aren't used
-	img := &images.Image{
-		ImageV1: images.ImageV1{
+	img := &image.Image{
+		ImageV1: image.ImageV1{
 			Architecture: "testarch",
 			OS:           "testos",
 		},
@@ -25,7 +25,7 @@ func TestCreateV2Manifest(t *testing.T) {
 	}
 
 	// To fill in rawJSON
-	img, err = images.NewFromJSON(imgJSON)
+	img, err = image.NewFromJSON(imgJSON)
 	if err != nil {
 		t.Fatalf("json decoding failed: %v")
 	}

@@ -23,7 +23,7 @@ import (
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/daemon"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/httputils"
 	"github.com/docker/docker/pkg/ioutils"
@@ -416,7 +416,7 @@ func containsWildcards(name string) bool {
 	return false
 }
 
-func (b *Builder) processImageFrom(img *images.Image) error {
+func (b *Builder) processImageFrom(img *image.Image) error {
 	b.image = img.ID.String() // FIXME: check type
 
 	if img.Config != nil {

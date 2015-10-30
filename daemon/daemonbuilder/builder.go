@@ -14,7 +14,7 @@ import (
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/cliconfig"
 	"github.com/docker/docker/daemon"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/httputils"
 	"github.com/docker/docker/pkg/ioutils"
@@ -37,12 +37,12 @@ type Docker struct {
 var _ builder.Docker = Docker{}
 
 // LookupImage looks up a Docker image referenced by `name`.
-func (d Docker) LookupImage(name string) (*images.Image, error) {
+func (d Docker) LookupImage(name string) (*image.Image, error) {
 	return d.Daemon.GetImage(name)
 }
 
 // Pull tells Docker to pull image referenced by `name`.
-func (d Docker) Pull(name string) (*images.Image, error) {
+func (d Docker) Pull(name string) (*image.Image, error) {
 	ref, err := reference.ParseNamed(name)
 	if err != nil {
 		return nil, err
@@ -198,7 +198,7 @@ func (d Docker) Copy(c *daemon.Container, destPath string, src builder.FileInfo,
 // GetCachedImage returns a reference to a cached image whose parent equals `parent`
 // and runconfig equals `cfg`. A cache miss is expected to return an empty ID and a nil error.
 func (d Docker) GetCachedImage(imgID string, cfg *runconfig.Config) (string, error) {
-	cache, err := d.Daemon.ImageGetCached(images.ID(imgID), cfg)
+	cache, err := d.Daemon.ImageGetCached(image.ID(imgID), cfg)
 	if cache == nil || err != nil {
 		return "", err
 	}

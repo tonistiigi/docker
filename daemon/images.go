@@ -8,7 +8,7 @@ import (
 
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/parsers/filters"
 )
 
@@ -26,7 +26,7 @@ func (r byCreated) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
 func (r byCreated) Less(i, j int) bool { return r[i].Created < r[j].Created }
 
 // Map returns a map of all images in the ImageStore
-func (daemon *Daemon) Map() map[images.ID]*images.Image {
+func (daemon *Daemon) Map() map[image.ID]*image.Image {
 	return daemon.imageStore.Map()
 }
 
@@ -37,7 +37,7 @@ func (daemon *Daemon) Map() map[images.ID]*images.Image {
 // the heads.
 func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Image, error) {
 	var (
-		allImages    map[images.ID]*images.Image
+		allImages    map[image.ID]*image.Image
 		err          error
 		danglingOnly = false
 	)
@@ -148,7 +148,7 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 	return images, nil
 }
 
-func newImage(image *images.Image, size int64) *types.Image {
+func newImage(image *image.Image, size int64) *types.Image {
 	newImage := new(types.Image)
 	newImage.ParentID = image.Parent.String()
 	newImage.ID = image.ID.String()

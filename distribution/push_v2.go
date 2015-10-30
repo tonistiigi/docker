@@ -13,7 +13,7 @@ import (
 	"github.com/docker/distribution/manifest"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/distribution/metadata"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/progressreader"
@@ -225,7 +225,7 @@ func (p *v2Pusher) blobSumAlreadyExists(blobsums []digest.Digest) (digest.Digest
 // FSLayer digests.
 // FIXME: This should be moved to the distribution repo, since it will also
 // be useful for converting new manifests to the old format.
-func CreateV2Manifest(name, tag string, img *images.Image, fsLayers []manifest.FSLayer) (*manifest.Manifest, error) {
+func CreateV2Manifest(name, tag string, img *image.Image, fsLayers []manifest.FSLayer) (*manifest.Manifest, error) {
 	if len(fsLayers) == 0 {
 		return nil, errors.New("empty fsLayers list when trying to create V2 manifest")
 	}

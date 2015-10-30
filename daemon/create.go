@@ -6,7 +6,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/runconfig"
@@ -51,8 +51,8 @@ func (daemon *Daemon) ContainerCreate(name string, config *runconfig.Config, hos
 func (daemon *Daemon) Create(config *runconfig.Config, hostConfig *runconfig.HostConfig, name string) (retC *Container, retErr error) {
 	var (
 		container *Container
-		img       *images.Image
-		imgID     images.ID
+		img       *image.Image
+		imgID     image.ID
 		err       error
 	)
 

@@ -15,7 +15,7 @@ import (
 	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/client/transport"
 	"github.com/docker/docker/distribution/metadata"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
@@ -241,8 +241,8 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 	var (
 		referencedLayers []layer.Layer
 		parentID         layer.ID
-		newHistory       []images.History
-		img              *images.ImageV1
+		newHistory       []image.History
+		img              *image.ImageV1
 		imgJSON          []byte
 		imgSize          int64
 	)
@@ -287,7 +287,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 			return layersDownloaded, err
 		}
 
-		img = &images.ImageV1{}
+		img = &image.ImageV1{}
 		if err := json.Unmarshal(imgJSON, img); err != nil {
 			return layersDownloaded, err
 		}

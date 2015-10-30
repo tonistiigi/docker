@@ -13,7 +13,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/reference"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/version"
 	"github.com/docker/docker/tag"
@@ -48,8 +48,8 @@ var (
 	errUnsupported = errors.New("migration is not supported")
 )
 
-func Migrate(root, driverName string, ls layer.Store, is images.Store, ts tag.Store) error {
-	mappings := make(map[string]images.ID)
+func Migrate(root, driverName string, ls layer.Store, is image.Store, ts tag.Store) error {
+	mappings := make(map[string]image.ID)
 
 	if err := migrateImages(root, ls, is, mappings); err != nil {
 		return err
@@ -66,7 +66,7 @@ func Migrate(root, driverName string, ls layer.Store, is images.Store, ts tag.St
 	return nil
 }
 
-func migrateImages(root string, ls layer.Store, is images.Store, mappings map[string]images.ID) error {
+func migrateImages(root string, ls layer.Store, is image.Store, mappings map[string]image.ID) error {
 	if _, ok := ls.(migratoryLayerStore); !ok {
 		return errUnsupported
 	}
@@ -124,7 +124,7 @@ func migrateImages(root string, ls layer.Store, is images.Store, mappings map[st
 	return nil
 }
 
-func migrateContainers(root string, ls layer.Store, is images.Store, imageMappings map[string]images.ID) error {
+func migrateContainers(root string, ls layer.Store, is image.Store, imageMappings map[string]image.ID) error {
 	containersDir := path.Join(root, containersDirName)
 	dir, err := ioutil.ReadDir(containersDir)
 	if err != nil {
@@ -198,7 +198,7 @@ func migrateContainers(root string, ls layer.Store, is images.Store, imageMappin
 	return nil
 }
 
-func migrateTags(root, driverName string, ts tag.Store, mappings map[string]images.ID) error {
+func migrateTags(root, driverName string, ts tag.Store, mappings map[string]image.ID) error {
 	migrationFile := filepath.Join(root, migrationTagsFileName)
 	if _, err := os.Lstat(migrationFile); !os.IsNotExist(err) {
 		return err
@@ -256,7 +256,7 @@ func migrateTags(root, driverName string, ts tag.Store, mappings map[string]imag
 	return nil
 }
 
-func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map[string]images.ID) (err error) {
+func migrateImage(id, root string, ls layer.Store, is image.Store, mappings map[string]image.ID) (err error) {
 	defer func() {
 		if err != nil {
 			logrus.Errorf("migration failed for %v, err: %v", id, err)
@@ -279,7 +279,7 @@ func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map
 		parent.Parent = parent.ParentID.Hex()
 	}
 
-	var parentID images.ID
+	var parentID image.ID
 	if parent.Parent != "" {
 		var exists bool
 		if parentID, exists = mappings[parent.Parent]; !exists {
@@ -297,7 +297,7 @@ func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map
 	}
 
 	var layerDigests []layer.DiffID
-	var history []images.History
+	var history []image.History
 
 	if parentID != "" {
 		parentImg, err := is.Get(parentID)
@@ -351,9 +351,9 @@ func migrateImage(id, root string, ls layer.Store, is images.Store, mappings map
 }
 
 // HistoryFromV1Config creates a History struct from v1 configuration JSON
-func HistoryFromV1Config(imageJSON []byte) (images.History, error) {
-	h := images.History{}
-	var v1Image images.ImageV1
+func HistoryFromV1Config(imageJSON []byte) (image.History, error) {
+	h := image.History{}
+	var v1Image image.ImageV1
 	if err := json.Unmarshal(imageJSON, &v1Image); err != nil {
 		return h, err
 	}
@@ -366,7 +366,7 @@ func HistoryFromV1Config(imageJSON []byte) (images.History, error) {
 	return h, nil
 }
 
-func CreateV1ID(v1Image images.ImageV1, layerID layer.ID, parent digest.Digest) (digest.Digest, error) {
+func CreateV1ID(v1Image image.ImageV1, layerID layer.ID, parent digest.Digest) (digest.Digest, error) {
 	v1Image.ID = ""
 	v1JSON, err := json.Marshal(v1Image)
 	if err != nil {
@@ -404,7 +404,7 @@ func addLayerDiffIDs(l layer.Layer) []layer.DiffID {
 }
 
 // ConfigFromV1Config creates an image config from the legacy V1 config format.
-func ConfigFromV1Config(imageJSON []byte, l layer.Layer, history []images.History) ([]byte, error) {
+func ConfigFromV1Config(imageJSON []byte, l layer.Layer, history []image.History) ([]byte, error) {
 
 	var dver struct {
 		DockerVersion string `json:"docker_version"`
@@ -413,7 +413,7 @@ func ConfigFromV1Config(imageJSON []byte, l layer.Layer, history []images.Histor
 	useFallback := version.Version(dver.DockerVersion).LessThan(noFallbackMinVersion)
 
 	if useFallback {
-		var v1Image images.ImageV1
+		var v1Image image.ImageV1
 		err := json.Unmarshal(imageJSON, &v1Image)
 		if err != nil {
 			return nil, err
@@ -436,14 +436,14 @@ func ConfigFromV1Config(imageJSON []byte, l layer.Layer, history []images.Histor
 	delete(c, "layer_id")
 
 	layerDigests := addLayerDiffIDs(l)
-	c["rootfs"] = rawJSON(&images.RootFS{Type: "layers", DiffIDs: layerDigests})
+	c["rootfs"] = rawJSON(&image.RootFS{Type: "layers", DiffIDs: layerDigests})
 	c["history"] = rawJSON(history)
 
 	return json.MarshalCanonical(c)
 }
 
 // V1ConfigFromConfig creates an legacy V1 image config from an Image struct
-func V1ConfigFromConfig(img *images.Image, v1ID, parentV1ID string) ([]byte, error) {
+func V1ConfigFromConfig(img *image.Image, v1ID, parentV1ID string) ([]byte, error) {
 	// Top-level v1compatibility string should be a modified version of the
 	// image config.
 	var configAsMap map[string]*json.RawMessage

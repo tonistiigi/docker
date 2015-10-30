@@ -11,7 +11,7 @@ import (
 	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/client/transport"
 	"github.com/docker/docker/distribution/metadata"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/ioutils"
@@ -92,10 +92,10 @@ func (common *v1ImageCommon) Layer() layer.Layer {
 // registry.
 type v1TopImage struct {
 	v1ImageCommon
-	imageID images.ID
+	imageID image.ID
 }
 
-func newV1TopImage(imageID images.ID, img *images.Image, l layer.Layer, parent *v1DependencyImage) (*v1TopImage, error) {
+func newV1TopImage(imageID image.ID, img *image.Image, l layer.Layer, parent *v1DependencyImage) (*v1TopImage, error) {
 	v1ID := digest.Digest(imageID).Hex()
 	parentV1ID := ""
 	if parent != nil {
@@ -141,8 +141,8 @@ func newV1DependencyImage(l layer.Layer, parent *v1DependencyImage) (*v1Dependen
 }
 
 // Retrieve the all the images to be uploaded in the correct order
-func (p *v1Pusher) getImageList() (imageList []v1Image, tagsByImage map[images.ID][]string, referencedLayers []layer.Layer, err error) {
-	tagsByImage = make(map[images.ID][]string)
+func (p *v1Pusher) getImageList() (imageList []v1Image, tagsByImage map[image.ID][]string, referencedLayers []layer.Layer, err error) {
+	tagsByImage = make(map[image.ID][]string)
 
 	// Ignore digest references
 	_, isDigested := p.ref.(reference.Digested)
@@ -153,7 +153,7 @@ func (p *v1Pusher) getImageList() (imageList []v1Image, tagsByImage map[images.I
 	tagged, isTagged := p.ref.(reference.Tagged)
 	if isTagged {
 		// Push a specific tag
-		var imgID images.ID
+		var imgID image.ID
 		imgID, err = p.config.TagStore.Get(p.ref)
 		if err != nil {
 			return
@@ -169,7 +169,7 @@ func (p *v1Pusher) getImageList() (imageList []v1Image, tagsByImage map[images.I
 		return
 	}
 
-	imagesSeen := make(map[images.ID]struct{})
+	imagesSeen := make(map[image.ID]struct{})
 	dependenciesSeen := make(map[layer.ID]*v1DependencyImage)
 
 	associations := p.config.TagStore.ReferencesByName(p.ref)
@@ -204,7 +204,7 @@ func (p *v1Pusher) getImageList() (imageList []v1Image, tagsByImage map[images.I
 	return
 }
 
-func (p *v1Pusher) imageListForTag(imgID images.ID, dependenciesSeen map[layer.ID]*v1DependencyImage, referencedLayers *[]layer.Layer) (imageListForThisTag []v1Image, err error) {
+func (p *v1Pusher) imageListForTag(imgID image.ID, dependenciesSeen map[layer.ID]*v1DependencyImage, referencedLayers *[]layer.Layer) (imageListForThisTag []v1Image, err error) {
 	img, err := p.config.ImageStore.Get(imgID)
 	if err != nil {
 		return nil, err
@@ -267,7 +267,7 @@ func generateDependencyImages(l layer.Layer, dependenciesSeen map[layer.ID]*v1De
 }
 
 // createImageIndex returns an index of an image's layer IDs and tags.
-func createImageIndex(images []v1Image, tags map[images.ID][]string) []*registry.ImgData {
+func createImageIndex(images []v1Image, tags map[image.ID][]string) []*registry.ImgData {
 	var imageIndex []*registry.ImgData
 	for _, img := range images {
 		v1ID := img.V1ID()
@@ -311,7 +311,7 @@ func (p *v1Pusher) lookupImageOnEndpoint(wg *sync.WaitGroup, endpoint string, im
 	}
 }
 
-func (p *v1Pusher) pushImageToEndpoint(endpoint string, imageList []v1Image, tags map[images.ID][]string, repo *registry.RepositoryData) error {
+func (p *v1Pusher) pushImageToEndpoint(endpoint string, imageList []v1Image, tags map[image.ID][]string, repo *registry.RepositoryData) error {
 	workerCount := len(imageList)
 	// start a maximum of 5 workers to check if images exist on the specified endpoint.
 	if workerCount > 5 {

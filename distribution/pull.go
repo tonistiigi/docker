@@ -9,7 +9,7 @@ import (
 	"github.com/docker/docker/cliconfig"
 	"github.com/docker/docker/daemon/events"
 	"github.com/docker/docker/distribution/metadata"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/registry"
@@ -38,7 +38,7 @@ type ImagePullConfig struct {
 	// LayerStore manages layers.
 	LayerStore layer.Store
 	// ImageStore manages images.
-	ImageStore images.Store
+	ImageStore image.Store
 	// TagStore manages tags.
 	TagStore tag.Store
 	// Pool manages concurrent pulls.

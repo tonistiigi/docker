@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/docker/distribution/reference"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 )
 
 // DefaultTag defines the default tag used when performing images related actions and no tag string is specified
@@ -25,16 +25,16 @@ var (
 // An Association is a tuple associating a reference with an image ID.
 type Association struct {
 	Ref     reference.Named
-	ImageID images.ID
+	ImageID image.ID
 }
 
 // Store provides the set of methods which can operate on a tag store.
 type Store interface {
-	References(id images.ID) []reference.Named
+	References(id image.ID) []reference.Named
 	ReferencesByName(ref reference.Named) []Association
-	Add(ref reference.Named, id images.ID, force bool) error
+	Add(ref reference.Named, id image.ID, force bool) error
 	Delete(ref reference.Named) (bool, error)
-	Get(ref reference.Named) (images.ID, error)
+	Get(ref reference.Named) (image.ID, error)
 }
 
 type store struct {
@@ -46,7 +46,7 @@ type store struct {
 
 // Repository maps tags to image IDs. The key is a a stringified Reference,
 // including the repository name.
-type repository map[string]images.ID
+type repository map[string]image.ID
 
 func defaultTagIfNameOnly(ref reference.Named) reference.Named {
 	switch ref.(type) {
@@ -86,7 +86,7 @@ func NewTagStore(jsonPath string) (Store, error) {
 
 // Add adds a tag or digest to the store. If force is set to true, existing
 // references can be overwritten. This only works for tags, not digests.
-func (store *store) Add(ref reference.Named, id images.ID, force bool) error {
+func (store *store) Add(ref reference.Named, id image.ID, force bool) error {
 	ref = defaultTagIfNameOnly(ref)
 
 	store.Lock()
@@ -94,7 +94,7 @@ func (store *store) Add(ref reference.Named, id images.ID, force bool) error {
 
 	repository, exists := store.Repositories[ref.Name()]
 	if !exists || repository == nil {
-		repository = make(map[string]images.ID)
+		repository = make(map[string]image.ID)
 		store.Repositories[ref.Name()] = repository
 	}
 
@@ -145,7 +145,7 @@ func (store *store) Delete(ref reference.Named) (bool, error) {
 }
 
 // Get retrieves an item from the store by reference.
-func (store *store) Get(ref reference.Named) (images.ID, error) {
+func (store *store) Get(ref reference.Named) (image.ID, error) {
 	ref = defaultTagIfNameOnly(ref)
 
 	store.RLock()
@@ -166,7 +166,7 @@ func (store *store) Get(ref reference.Named) (images.ID, error) {
 
 // References returns a slice of references to the given image ID. The slice
 // will be nil if there are no references to this image ID.
-func (store *store) References(id images.ID) []reference.Named {
+func (store *store) References(id image.ID) []reference.Named {
 	store.RLock()
 	defer store.RUnlock()
 

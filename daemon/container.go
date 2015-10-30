@@ -20,7 +20,7 @@ import (
 	"github.com/docker/docker/daemon/logger/jsonfilelog"
 	"github.com/docker/docker/daemon/network"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/broadcaster"
@@ -64,7 +64,7 @@ type CommonContainer struct {
 	Path            string
 	Args            []string
 	Config          *runconfig.Config
-	ImageID         images.ID `json:"Image"`
+	ImageID         image.ID `json:"Image"`
 	NetworkSettings *network.Settings
 	LogPath         string
 	Name            string
@@ -603,7 +603,7 @@ func (container *Container) changes() ([]archive.Change, error) {
 	return container.daemon.changes(container)
 }
 
-func (container *Container) getImage() (*images.Image, error) {
+func (container *Container) getImage() (*image.Image, error) {
 	if container.daemon == nil {
 		return nil, derr.ErrorCodeImageUnregContainer
 	}

@@ -8,7 +8,7 @@ import (
 
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/autogen/dockerversion"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/runconfig"
 )
@@ -26,7 +26,7 @@ type ContainerCommitConfig struct {
 
 // Commit creates a new filesystem image from the current state of a container.
 // The image can optionally be tagged into a repository.
-func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (string, error) { // FIXME: change type to images.ID
+func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (string, error) { // FIXME: change type to image.ID
 
 	if c.Pause && !container.isPaused() {
 		container.pause()
@@ -43,7 +43,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 		}
 	}()
 
-	var history []images.History
+	var history []image.History
 	var diffIDs []layer.DiffID
 	var layerID layer.ID
 
@@ -67,7 +67,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 		diffIDs = append(diffIDs, diffID)
 	}
 
-	h := images.History{}
+	h := image.History{}
 	h.Author = c.Author
 	h.Created = time.Now().UTC()
 	h.CreatedBy = strings.Join(container.Config.Cmd.Slice(), " ")
@@ -79,8 +79,8 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 
 	history = append(history, h)
 
-	config, err := json.Marshal(&images.Image{
-		ImageV1: images.ImageV1{
+	config, err := json.Marshal(&image.Image{
+		ImageV1: image.ImageV1{
 			DockerVersion:   dockerversion.VERSION,
 			Config:          c.Config,
 			Architecture:    runtime.GOARCH,
@@ -90,7 +90,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 			Author:          c.Author,
 			Created:         h.Created,
 		},
-		RootFS: &images.RootFS{
+		RootFS: &image.RootFS{
 			Type:    "layers",
 			DiffIDs: diffIDs,
 		},

@@ -33,8 +33,8 @@ import (
 	"github.com/docker/docker/distribution"
 	dmetadata "github.com/docker/docker/distribution/metadata"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/images"
-	"github.com/docker/docker/images/tarexport"
+	"github.com/docker/docker/image"
+	"github.com/docker/docker/image/tarexport"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
@@ -133,8 +133,8 @@ type Daemon struct {
 	uidMaps                   []idtools.IDMap
 	gidMaps                   []idtools.IDMap
 	layerStore                layer.Store
-	imageStore                images.Store
-	imageExporter             images.Exporter
+	imageStore                image.Store
+	imageExporter             image.Exporter
 }
 
 // Get looks for a container using the provided information, which could be
@@ -370,7 +370,7 @@ func (daemon *Daemon) restore() error {
 	return nil
 }
 
-func (daemon *Daemon) mergeAndVerifyConfig(config *runconfig.Config, img *images.Image) error {
+func (daemon *Daemon) mergeAndVerifyConfig(config *runconfig.Config, img *image.Image) error {
 	if img != nil && img.Config != nil {
 		if err := runconfig.Merge(config, img.Config); err != nil {
 			return err
@@ -486,7 +486,7 @@ func (daemon *Daemon) getEntrypointAndArgs(configEntrypoint *stringutils.StrSlic
 	return entrypoint, args
 }
 
-func (daemon *Daemon) newContainer(name string, config *runconfig.Config, imgID images.ID) (*Container, error) {
+func (daemon *Daemon) newContainer(name string, config *runconfig.Config, imgID image.ID) (*Container, error) {
 	var (
 		id  string
 		err error
@@ -739,12 +739,12 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 
 	distributionPool := distribution.NewPool()
 
-	ifs, err := images.NewFSStoreBackend(filepath.Join(config.Root, "images"))
+	ifs, err := image.NewFSStoreBackend(filepath.Join(config.Root, "images"))
 	if err != nil {
 		return nil, err
 	}
 
-	d.imageStore, err = images.NewImageStore(ifs, d.layerStore)
+	d.imageStore, err = image.NewImageStore(ifs, d.layerStore)
 	if err != nil {
 		return nil, err
 	}
@@ -1197,7 +1197,7 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 
 // GetImageID returns an image ID corresponding to the image referred to by
 // refOrID.
-func (daemon *Daemon) GetImageID(refOrID string) (images.ID, error) {
+func (daemon *Daemon) GetImageID(refOrID string) (image.ID, error) {
 	// Treat it as a possible tag or digest reference
 	if ref, err := reference.ParseNamed(refOrID); err == nil {
 		ref = registry.NormalizeLocalReference(ref)
@@ -1215,7 +1215,7 @@ func (daemon *Daemon) GetImageID(refOrID string) (images.ID, error) {
 }
 
 // GetImage returns an image corresponding to the image referred to by refOrID.
-func (daemon *Daemon) GetImage(refOrID string) (*images.Image, error) {
+func (daemon *Daemon) GetImage(refOrID string) (*image.Image, error) {
 	imgID, err := daemon.GetImageID(refOrID)
 	if err != nil {
 		return nil, err
@@ -1266,12 +1266,12 @@ func (daemon *Daemon) GetRemappedUIDGID() (int, int) {
 // of the image with imgID, that had the same config when it was
 // created. nil is returned if a child cannot be found. An error is
 // returned if the parent image cannot be found.
-func (daemon *Daemon) ImageGetCached(imgID images.ID, config *runconfig.Config) (*images.Image, error) {
+func (daemon *Daemon) ImageGetCached(imgID image.ID, config *runconfig.Config) (*image.Image, error) {
 	// Retrieve all images
 	imgs := daemon.Map()
 
 	// Store the tree in a map of map (map[parentId][childId])
-	siblings := make([]images.ID, 0)
+	siblings := make([]image.ID, 0)
 	for id, img := range imgs {
 		if img.Parent == imgID {
 			siblings = append(siblings, id)
@@ -1279,7 +1279,7 @@ func (daemon *Daemon) ImageGetCached(imgID images.ID, config *runconfig.Config) 
 	}
 
 	// Loop on the children of the given image and check the config
-	var match *images.Image
+	var match *image.Image
 	for _, id := range siblings {
 		img, ok := imgs[id]
 		if !ok {

@@ -11,7 +11,7 @@ import (
 
 	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/reference"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
@@ -26,7 +26,7 @@ type imageDescriptor struct {
 type saveSession struct {
 	*tarexporter
 	outDir      string
-	images      map[images.ID]*imageDescriptor
+	images      map[image.ID]*imageDescriptor
 	savedLayers map[string]struct{}
 }
 
@@ -39,10 +39,10 @@ func (l *tarexporter) Save(names []string, outStream io.Writer) error {
 	return (&saveSession{tarexporter: l, images: images}).save(outStream)
 }
 
-func (l *tarexporter) parseNames(names []string) (map[images.ID]*imageDescriptor, error) {
-	imgDescr := make(map[images.ID]*imageDescriptor)
+func (l *tarexporter) parseNames(names []string) (map[image.ID]*imageDescriptor, error) {
+	imgDescr := make(map[image.ID]*imageDescriptor)
 
-	addAssoc := func(id images.ID, ref reference.Named) {
+	addAssoc := func(id image.ID, ref reference.Named) {
 		if _, ok := imgDescr[id]; !ok {
 			imgDescr[id] = &imageDescriptor{}
 		}
@@ -99,7 +99,7 @@ func (l *tarexporter) parseNames(names []string) (map[images.ID]*imageDescriptor
 				continue
 			}
 		}
-		var imgID images.ID
+		var imgID image.ID
 		if imgID, err = l.ts.Get(ref); err != nil {
 			return nil, err
 		}
@@ -197,7 +197,7 @@ func (s *saveSession) save(outStream io.Writer) error {
 	return nil
 }
 
-func (s *saveSession) saveImage(id images.ID) error {
+func (s *saveSession) saveImage(id image.ID) error {
 	img, err := s.is.Get(id)
 	if err != nil {
 		return err
@@ -211,7 +211,7 @@ func (s *saveSession) saveImage(id images.ID) error {
 	var parent digest.Digest
 	var layers []string
 	for i := range diffIDs {
-		v1Img := images.ImageV1{}
+		v1Img := image.ImageV1{}
 		if i == len(diffIDs)-1 {
 			v1Img = img.ImageV1
 		}
@@ -245,7 +245,7 @@ func (s *saveSession) saveImage(id images.ID) error {
 	return nil
 }
 
-func (s *saveSession) saveLayer(id layer.ID, legacyImg images.ImageV1, createdTime time.Time) error {
+func (s *saveSession) saveLayer(id layer.ID, legacyImg image.ImageV1, createdTime time.Time) error {
 	if _, exists := s.savedLayers[legacyImg.ID]; exists {
 		return nil
 	}

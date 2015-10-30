@@ -9,7 +9,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/graphdb"
 	"github.com/docker/docker/pkg/nat"
 	"github.com/docker/docker/pkg/parsers/filters"
@@ -65,7 +65,7 @@ type listContext struct {
 	// names is a list of container names to filter with
 	names map[string][]string
 	// images is a list of images to filter with
-	images map[images.ID]bool
+	images map[image.ID]bool
 	// filters is a collection of arguments to filter with, specified by the user
 	filters filters.Args
 	// exitAllowed is a list of exit codes allowed to filter with
@@ -155,7 +155,7 @@ func (daemon *Daemon) foldFilter(config *ContainersConfig) (*listContext, error)
 		}
 	}
 
-	imagesFilter := map[images.ID]bool{}
+	imagesFilter := map[image.ID]bool{}
 	var ancestorFilter bool
 	if ancestors, ok := psFilters["ancestor"]; ok {
 		ancestorFilter = true
@@ -394,7 +394,7 @@ func (daemon *Daemon) Volumes(filter string) ([]*types.Volume, error) {
 	return volumesOut, nil
 }
 
-func populateImageFilterByParents(ancestorMap map[images.ID]bool, imageID images.ID, getChildren func(images.ID) []images.ID) {
+func populateImageFilterByParents(ancestorMap map[image.ID]bool, imageID image.ID, getChildren func(image.ID) []image.ID) {
 	if !ancestorMap[imageID] {
 		for _, id := range getChildren(imageID) {
 			populateImageFilterByParents(ancestorMap, id, getChildren)

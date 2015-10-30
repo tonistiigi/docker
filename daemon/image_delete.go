@@ -7,7 +7,7 @@ import (
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/registry"
 	tagpkg "github.com/docker/docker/tag"
@@ -126,7 +126,7 @@ func isImageIDPrefix(imageID, possiblePrefix string) bool {
 
 // getContainerUsingImage returns a container that was created using the given
 // imageID. Returns nil if there is no such container.
-func (daemon *Daemon) getContainerUsingImage(imageID images.ID) *Container {
+func (daemon *Daemon) getContainerUsingImage(imageID image.ID) *Container {
 	for _, container := range daemon.List() {
 		if container.ImageID == imageID {
 			return container
@@ -167,7 +167,7 @@ func (daemon *Daemon) removeImageRef(ref reference.Named) (reference.Named, erro
 // on the first encountered error. Removed references are logged to this
 // daemon's event service. An "Untagged" types.ImageDelete is added to the
 // given list of records.
-func (daemon *Daemon) removeAllReferencesToImageID(imgID images.ID, records *[]types.ImageDelete) error {
+func (daemon *Daemon) removeAllReferencesToImageID(imgID image.ID, records *[]types.ImageDelete) error {
 	imageRefs := daemon.tagStore.References(imgID)
 
 	for _, imageRef := range imageRefs {
@@ -189,7 +189,7 @@ func (daemon *Daemon) removeAllReferencesToImageID(imgID images.ID, records *[]t
 // Implements the error interface.
 type imageDeleteConflict struct {
 	hard    bool
-	imgID   images.ID
+	imgID   image.ID
 	message string
 }
 
@@ -215,7 +215,7 @@ func (idc *imageDeleteConflict) Error() string {
 // conflict is encountered, it will be returned immediately without deleting
 // the image. If quiet is true, any encountered conflicts will be ignored and
 // the function will return nil immediately without deleting the image.
-func (daemon *Daemon) imageDeleteHelper(imgID images.ID, records *[]types.ImageDelete, force, prune, quiet bool) error {
+func (daemon *Daemon) imageDeleteHelper(imgID image.ID, records *[]types.ImageDelete, force, prune, quiet bool) error {
 	// First, determine if this image has any conflicts. Ignore soft conflicts
 	// if force is true.
 	if conflict := daemon.checkImageDeleteConflict(imgID, force); conflict != nil {
@@ -270,7 +270,7 @@ func (daemon *Daemon) imageDeleteHelper(imgID images.ID, records *[]types.ImageD
 // using the image. A soft conflict is any tags/digest referencing the given
 // image or any stopped container using the image. If ignoreSoftConflicts is
 // true, this function will not check for soft conflict conditions.
-func (daemon *Daemon) checkImageDeleteConflict(imgID images.ID, ignoreSoftConflicts bool) *imageDeleteConflict {
+func (daemon *Daemon) checkImageDeleteConflict(imgID image.ID, ignoreSoftConflicts bool) *imageDeleteConflict {
 	// Check for hard conflicts first.
 	if conflict := daemon.checkImageDeleteHardConflict(imgID); conflict != nil {
 		return conflict
@@ -285,7 +285,7 @@ func (daemon *Daemon) checkImageDeleteConflict(imgID images.ID, ignoreSoftConfli
 	return daemon.checkImageDeleteSoftConflict(imgID)
 }
 
-func (daemon *Daemon) checkImageDeleteHardConflict(imgID images.ID) *imageDeleteConflict {
+func (daemon *Daemon) checkImageDeleteHardConflict(imgID image.ID) *imageDeleteConflict {
 	// Check if the image has any descendent images.
 	if len(daemon.imageStore.Children(imgID)) > 0 {
 		return &imageDeleteConflict{
@@ -314,7 +314,7 @@ func (daemon *Daemon) checkImageDeleteHardConflict(imgID images.ID) *imageDelete
 	return nil
 }
 
-func (daemon *Daemon) checkImageDeleteSoftConflict(imgID images.ID) *imageDeleteConflict {
+func (daemon *Daemon) checkImageDeleteSoftConflict(imgID image.ID) *imageDeleteConflict {
 	// Check if any repository tags/digest reference this image.
 	if len(daemon.tagStore.References(imgID)) > 0 {
 		return &imageDeleteConflict{
@@ -344,6 +344,6 @@ func (daemon *Daemon) checkImageDeleteSoftConflict(imgID images.ID) *imageDelete
 // imageIsDangling returns whether the given image is "dangling" which means
 // that there are no repository references to the given image and it has no
 // child images.
-func (daemon *Daemon) imageIsDangling(imgID images.ID) bool {
+func (daemon *Daemon) imageIsDangling(imgID image.ID) bool {
 	return !(len(daemon.tagStore.References(imgID)) > 0 || len(daemon.imageStore.Children(imgID)) > 0)
 }

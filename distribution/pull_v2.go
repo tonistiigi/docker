@@ -14,7 +14,7 @@ import (
 	"github.com/docker/distribution/manifest"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/distribution/metadata"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
@@ -375,7 +375,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 	}
 
 	// Create a new-style config from the legacy config in the manifest
-	var history []images.History
+	var history []image.History
 	for i := len(verifiedManifest.History) - 1; i >= 0; i-- {
 		h, err := v1.HistoryFromV1Config([]byte(verifiedManifest.History[i].V1Compatibility))
 		if err != nil {
@@ -408,7 +408,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 	}
 
 	// Check for new tag if no layers downloaded
-	var oldTagImageID images.ID
+	var oldTagImageID image.ID
 	if !tagUpdated {
 		oldTagImageID, err = p.config.TagStore.Get(ref)
 		if err != nil || oldTagImageID != imageID {
@@ -477,9 +477,9 @@ func verifyManifest(signedManifest *manifest.SignedManifest, ref reference.Refer
 // fixManifestLayers removes repeated layers from the manifest and checks the
 // correctness of the parent chain.
 func fixManifestLayers(m *manifest.Manifest) error {
-	imgs := make([]*images.ImageV1, len(m.FSLayers))
+	imgs := make([]*image.ImageV1, len(m.FSLayers))
 	for i := range m.FSLayers {
-		img := &images.ImageV1{}
+		img := &image.ImageV1{}
 
 		if err := json.Unmarshal([]byte(m.History[i].V1Compatibility), img); err != nil {
 			return err

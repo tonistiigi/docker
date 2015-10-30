@@ -10,7 +10,7 @@ import (
 
 	// TODO: remove dependency on daemon
 	"github.com/docker/docker/daemon"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/runconfig"
 )
 
@@ -100,9 +100,9 @@ type Docker interface {
 	// TODO: use digest reference instead of name
 
 	// LookupImage looks up a Docker image referenced by `name`.
-	LookupImage(name string) (*images.Image, error)
+	LookupImage(name string) (*image.Image, error)
 	// Pull tells Docker to pull image referenced by `name`.
-	Pull(name string) (*images.Image, error)
+	Pull(name string) (*image.Image, error)
 
 	// TODO: move daemon.Container to its own package
 

@@ -9,11 +9,11 @@ import (
 	"testing"
 
 	"github.com/docker/distribution/reference"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 )
 
 var (
-	saveLoadTestCases = map[string]images.ID{
+	saveLoadTestCases = map[string]image.ID{
 		"registry:5000/foobar:HEAD":                                                        "sha256:470022b8af682154f57a2163d030eb369549549cba00edc69e1b99b46bb924d6",
 		"registry:5000/foobar:alternate":                                                   "sha256:ae300ebc4a4f00693702cfb0a5e0b7bc527b353828dc86ad09fb95c8a681b793",
 		"registry:5000/foobar:latest":                                                      "sha256:6153498b9ac00968d71b66cca4eac37e990b5f9eb50c26877eb8799c8847451b",
@@ -121,9 +121,9 @@ func TestAddDeleteGet(t *testing.T) {
 		t.Fatalf("error creating tag store: %v", err)
 	}
 
-	testImageID1 := images.ID("sha256:9655aef5fd742a1b4e1b7b163aa9f1c76c186304bf39102283d80927c916ca9c")
-	testImageID2 := images.ID("sha256:9655aef5fd742a1b4e1b7b163aa9f1c76c186304bf39102283d80927c916ca9d")
-	testImageID3 := images.ID("sha256:9655aef5fd742a1b4e1b7b163aa9f1c76c186304bf39102283d80927c916ca9e")
+	testImageID1 := image.ID("sha256:9655aef5fd742a1b4e1b7b163aa9f1c76c186304bf39102283d80927c916ca9c")
+	testImageID2 := image.ID("sha256:9655aef5fd742a1b4e1b7b163aa9f1c76c186304bf39102283d80927c916ca9d")
+	testImageID3 := image.ID("sha256:9655aef5fd742a1b4e1b7b163aa9f1c76c186304bf39102283d80927c916ca9e")
 
 	// Try adding a reference with no tag or digest
 	nameOnly, err := reference.WithName("username/repo")

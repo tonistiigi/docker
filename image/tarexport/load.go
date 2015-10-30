@@ -10,7 +10,7 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/reference"
-	"github.com/docker/docker/images"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
@@ -111,7 +111,7 @@ func (l *tarexporter) loadLayer(filename string, parentDiffs []layer.DiffID) (la
 	return l.ls.Register(inflatedLayerData, parentLayerID)
 }
 
-func (l *tarexporter) setLoadedTag(ref reference.NamedTagged, imgID images.ID, outStream io.Writer) error {
+func (l *tarexporter) setLoadedTag(ref reference.NamedTagged, imgID image.ID, outStream io.Writer) error {
 	if prevID, err := l.ts.Get(ref); err == nil && prevID != imgID {
 		fmt.Fprintf(outStream, "The image %s:%s already exists, renaming the old one with ID %s to empty string\n", ref.String(), string(prevID)) // todo: this message is wrong in case of multiple tags
 	}
@@ -123,7 +123,7 @@ func (l *tarexporter) setLoadedTag(ref reference.NamedTagged, imgID images.ID, o
 }
 
 func (l *tarexporter) legacyLoad(tmpDir string, outStream io.Writer) error {
-	legacyLoadedMap := make(map[string]images.ID)
+	legacyLoadedMap := make(map[string]image.ID)
 
 	dirs, err := ioutil.ReadDir(tmpDir)
 	if err != nil {
@@ -182,7 +182,7 @@ func (l *tarexporter) legacyLoad(tmpDir string, outStream io.Writer) error {
 	return nil
 }
 
-func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[string]images.ID) error {
+func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[string]image.ID) error {
 	if _, loaded := loadedMap[oldID]; loaded {
 		return nil
 	}
@@ -201,7 +201,7 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 		return err
 	}
 
-	var parentID images.ID
+	var parentID image.ID
 	if img.Parent != "" {
 		for {
 			var loaded bool
@@ -217,7 +217,7 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 
 	// todo: try to connect with migrate code
 	var layerDigests []layer.DiffID
-	var history []images.History
+	var history []image.History
 
 	if parentID != "" {
 		parentImg, err := l.is.Get(parentID)
