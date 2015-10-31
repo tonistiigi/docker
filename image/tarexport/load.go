@@ -11,8 +11,8 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/image/v1"
 	"github.com/docker/docker/layer"
-	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/symlink"
@@ -235,7 +235,7 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 		return err
 	}
 
-	h, err := v1.HistoryFromV1Config(imageJSON)
+	h, err := v1.HistoryFromConfig(imageJSON)
 	if err != nil {
 		return err
 	}

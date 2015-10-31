@@ -1,8 +1,8 @@
 package metadata
 
 import (
+	"github.com/docker/docker/image/v1"
 	"github.com/docker/docker/layer"
-	"github.com/docker/docker/migrate/v1"
 )
 
 // V1IDService maps v1 IDs to layers on disk.
@@ -24,7 +24,7 @@ func (idserv *V1IDService) namespace() string {
 
 // Get finds a layer by its V1 ID.
 func (idserv *V1IDService) Get(v1ID, registry string) (layer.ID, error) {
-	if err := v1.ValidateV1ID(v1ID); err != nil {
+	if err := v1.ValidateID(v1ID); err != nil {
 		return layer.ID(""), err
 	}
 
@@ -37,7 +37,7 @@ func (idserv *V1IDService) Get(v1ID, registry string) (layer.ID, error) {
 
 // Set associates an image with a V1 ID.
 func (idserv *V1IDService) Set(v1ID, registry string, id layer.ID) error {
-	if err := v1.ValidateV1ID(v1ID); err != nil {
+	if err := v1.ValidateID(v1ID); err != nil {
 		return err
 	}
 	return idserv.store.Set(idserv.namespace(), registry+","+v1ID, []byte(id))

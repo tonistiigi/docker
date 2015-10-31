@@ -12,8 +12,8 @@ import (
 	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/image/v1"
 	"github.com/docker/docker/layer"
-	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/tag"
 )
@@ -216,7 +216,7 @@ func (s *saveSession) saveImage(id image.ID) error {
 			v1Img = img.V1Image
 		}
 		layerID := layer.CreateID(diffIDs[:i+1])
-		v1ID, err := v1.CreateV1ID(v1Img, layerID, parent)
+		v1ID, err := v1.CreateID(v1Img, layerID, parent)
 		if err != nil {
 			return err
 		}

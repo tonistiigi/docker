@@ -16,8 +16,8 @@ import (
 	"github.com/docker/distribution/registry/client/transport"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/image/v1"
 	"github.com/docker/docker/layer"
-	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/progressreader"
 	"github.com/docker/docker/pkg/streamformatter"
@@ -176,7 +176,7 @@ func (p *v1Puller) downloadImage(out io.Writer, repoData *registry.RepositoryDat
 		errors <- retErr
 	}
 
-	if err := v1.ValidateV1ID(img.ID); err != nil {
+	if err := v1.ValidateID(img.ID); err != nil {
 		errors <- err
 		return
 	}
@@ -308,7 +308,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 		}
 
 		// Create a new-style config from the legacy configs
-		h, err := v1.HistoryFromV1Config(imgJSON)
+		h, err := v1.HistoryFromConfig(imgJSON)
 		if err != nil {
 			return layersDownloaded, err
 		}

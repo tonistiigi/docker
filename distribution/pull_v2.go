@@ -15,8 +15,8 @@ import (
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/image/v1"
 	"github.com/docker/docker/layer"
-	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/broadcaster"
 	"github.com/docker/docker/pkg/progressreader"
@@ -377,7 +377,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 	// Create a new-style config from the legacy config in the manifest
 	var history []image.History
 	for i := len(verifiedManifest.History) - 1; i >= 0; i-- {
-		h, err := v1.HistoryFromV1Config([]byte(verifiedManifest.History[i].V1Compatibility))
+		h, err := v1.HistoryFromConfig([]byte(verifiedManifest.History[i].V1Compatibility))
 		if err != nil {
 			return false, err
 		}
@@ -486,7 +486,7 @@ func fixManifestLayers(m *schema1.Manifest) error {
 		}
 
 		imgs[i] = img
-		if err := v1.ValidateV1ID(img.ID); err != nil {
+		if err := v1.ValidateID(img.ID); err != nil {
 			return err
 		}
 	}
