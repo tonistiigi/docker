@@ -1,4 +1,4 @@
-// +build daemon
+// +build linux windows
 
 package vfs
 
@@ -12,6 +12,10 @@ import (
 	"github.com/docker/docker/pkg/idtools"
 
 	"github.com/opencontainers/runc/libcontainer/label"
+)
+
+var (
+	CopyWithTar = chrootarchive.CopyWithTar
 )
 
 func init() {
@@ -89,7 +93,7 @@ func (d *Driver) Create(id, parent string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %s", parent, err)
 	}
-	if err := chrootarchive.CopyWithTar(parentDir, dir); err != nil {
+	if err := CopyWithTar(parentDir, dir); err != nil {
 		return err
 	}
 	return nil
