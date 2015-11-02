@@ -88,6 +88,17 @@ func (s *TagStore) Push(localName string, imagePushConfig *ImagePushConfig) erro
 		reposLen = len(s.Repositories[repoInfo.LocalName])
 	}
 
+	pipeReader, pipeWriter := io.Pipe()
+	go func(dst io.Writer) {
+		if _, err := io.Copy(dst, pipeReader); err != nil {
+			if err := pipeReader.CloseWithError(err); err != nil {
+				logrus.Errorf("error closing the out stream: %s", err)
+			}
+		}
+	}(imagePushConfig.OutStream)
+	defer pipeWriter.Close()
+	imagePushConfig.OutStream = pipeWriter
+
 	imagePushConfig.OutStream.Write(sf.FormatStatus("", "The push refers to a repository [%s] (len: %d)", repoInfo.CanonicalName, reposLen))
 
 	// If it fails, try to get the repository
