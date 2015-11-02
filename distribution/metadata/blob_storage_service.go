@@ -36,6 +36,7 @@ func (blobserv *BlobSumStorageService) key(diffID layer.DiffID) string {
 func (blobserv *BlobSumStorageService) Get(diffID layer.DiffID) ([]digest.Digest, error) {
 	jsonBytes, err := blobserv.store.Get(blobserv.namespace(), blobserv.key(diffID))
 	if err != nil {
+		// FIXME: empty result should probably just return empty array in this case
 		return nil, err
 	}
 

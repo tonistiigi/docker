@@ -782,7 +782,7 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 	// 	}
 	// }
 
-	if err := v1.Migrate(filepath.Join(config.Root), d.driver.String(), d.layerStore, d.imageStore, tagStore); err != nil {
+	if err := v1.Migrate(filepath.Join(config.Root), d.driver.String(), d.layerStore, d.imageStore, tagStore, distributionMetadataStore); err != nil {
 		return nil, err
 	}
 

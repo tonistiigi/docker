@@ -13,6 +13,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/reference"
+	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/image"
 	imagev1 "github.com/docker/docker/image/v1"
 	"github.com/docker/docker/layer"
@@ -40,10 +41,10 @@ var (
 	errUnsupported = errors.New("migration is not supported")
 )
 
-func Migrate(root, driverName string, ls layer.Store, is image.Store, ts tag.Store) error {
+func Migrate(root, driverName string, ls layer.Store, is image.Store, ts tag.Store, ms metadata.Store) error {
 	mappings := make(map[string]image.ID)
 
-	if err := migrateImages(root, ls, is, mappings); err != nil {
+	if err := migrateImages(root, ls, is, ms, mappings); err != nil {
 		return err
 	}
 
@@ -58,7 +59,7 @@ func Migrate(root, driverName string, ls layer.Store, is image.Store, ts tag.Sto
 	return nil
 }
 
-func migrateImages(root string, ls layer.Store, is image.Store, mappings map[string]image.ID) error {
+func migrateImages(root string, ls layer.Store, is image.Store, ms metadata.Store, mappings map[string]image.ID) error {
 	if _, ok := ls.(migratoryLayerStore); !ok {
 		return errUnsupported
 	}
@@ -97,7 +98,7 @@ func migrateImages(root string, ls layer.Store, is image.Store, mappings map[str
 		if _, exists := mappings[v1ID]; exists {
 			continue
 		} else {
-			if err := migrateImage(v1ID, root, ls, is, mappings); err != nil {
+			if err := migrateImage(v1ID, root, ls, is, ms, mappings); err != nil {
 				// todo: fail or allow broken chains?b
 				continue
 			}
@@ -248,7 +249,7 @@ func migrateTags(root, driverName string, ts tag.Store, mappings map[string]imag
 	return nil
 }
 
-func migrateImage(id, root string, ls layer.Store, is image.Store, mappings map[string]image.ID) (err error) {
+func migrateImage(id, root string, ls layer.Store, is image.Store, ms metadata.Store, mappings map[string]image.ID) (err error) {
 	defer func() {
 		if err != nil {
 			logrus.Errorf("migration failed for %v, err: %v", id, err)
@@ -275,7 +276,7 @@ func migrateImage(id, root string, ls layer.Store, is image.Store, mappings map[
 	if parent.Parent != "" {
 		var exists bool
 		if parentID, exists = mappings[parent.Parent]; !exists {
-			if err := migrateImage(parent.Parent, root, ls, is, mappings); err != nil {
+			if err := migrateImage(parent.Parent, root, ls, is, ms, mappings); err != nil {
 				// todo: fail or allow broken chains?
 				return err
 			}
@@ -327,19 +328,48 @@ func migrateImage(id, root string, ls layer.Store, is image.Store, mappings map[
 		return err
 	}
 
-	_, err = ls.Release(layer)
-	if err != nil {
-		return err
-	}
-
 	if parentID != "" {
 		if err := is.SetParent(strongID, parentID); err != nil {
 			return err
 		}
 	}
 
+	checksum, err := ioutil.ReadFile(filepath.Join(root, graphDirName, id, "checksum"))
+	if err == nil { // best effort
+		dgst, err := digest.ParseDigest(string(checksum))
+		if err == nil {
+			blobStore := metadata.NewBlobSumStorageService(ms)
+			blobStore.Add(layer.DiffID(), dgst)
+			blobLookup := metadata.NewBlobSumLookupService(ms)
+			for _, bs := range getBlobsumChains(blobStore, layer) {
+				blobLookup.Set(bs, layer.ID())
+			}
+		}
+	}
+	_, err = ls.Release(layer)
+	if err != nil {
+		return err
+	}
+
 	mappings[id] = strongID
 	return
+}
+
+func getBlobsumChains(store *metadata.BlobSumStorageService, l layer.Layer) [][]digest.Digest {
+	blobs, err := store.Get(l.DiffID())
+	if err != nil {
+		return nil
+	}
+	if l.Parent() != nil {
+		var chains [][]digest.Digest
+		for _, cb := range blobs {
+			for _, pb := range getBlobsumChains(store, l.Parent()) {
+				chains = append(chains, append(append([]digest.Digest(nil), pb...), cb))
+			}
+		}
+		return chains
+	}
+	return append([][]digest.Digest(nil), blobs)
 }
 
 func rawJSON(value interface{}) *json.RawMessage {
