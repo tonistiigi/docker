@@ -123,7 +123,7 @@ func (daemon *Daemon) getInspectData(container *Container, size bool) (*types.Co
 		Path:         container.Path,
 		Args:         container.Args,
 		State:        containerState,
-		Image:        container.ImageID,
+		Image:        container.ImageID.String(),
 		LogPath:      container.LogPath,
 		Name:         container.Name,
 		RestartCount: container.RestartCount,
@@ -148,7 +148,18 @@ func (daemon *Daemon) getInspectData(container *Container, size bool) (*types.Co
 	contJSONBase = setPlatformSpecificContainerFields(container, contJSONBase)
 
 	contJSONBase.GraphDriver.Name = container.Driver
-	graphDriverData, err := daemon.driver.GetMetadata(container.ID)
+
+	image, err := daemon.imageStore.Get(container.ImageID)
+	if err != nil {
+		return nil, err
+	}
+	layer, err := daemon.layerStore.Get(image.GetTopLayerID())
+	if err != nil {
+		return nil, err
+	}
+	defer daemon.layerStore.Release(layer)
+
+	graphDriverData, err := layer.Metadata()
 	if err != nil {
 		return nil, err
 	}

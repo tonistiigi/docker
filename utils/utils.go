@@ -273,6 +273,7 @@ func ReadDockerIgnore(reader io.ReadCloser) ([]string, error) {
 // the combination. If `ref` is a digest (meaning it's of the form
 // <algorithm>:<digest>, the returned string is <repo>@<ref>. Otherwise,
 // ref is assumed to be a tag, and the returned string is <repo>:<tag>.
+// FIXME: Remove this in favor of the references package.
 func ImageReference(repo, ref string) string {
 	if DigestReference(ref) {
 		return repo + "@" + ref

@@ -170,7 +170,7 @@ func TestLoadWithVolume(t *testing.T) {
 "UpdateDns":false,"Volumes":{"/vol1":"%s"},"VolumesRW":{"/vol1":true},"AppliedVolumesFrom":null}`
 
 	cfg := fmt.Sprintf(config, vfsPath)
-	if err = ioutil.WriteFile(filepath.Join(containerPath, "config.json"), []byte(cfg), 0644); err != nil {
+	if err = ioutil.WriteFile(filepath.Join(containerPath, configFileName), []byte(cfg), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -258,7 +258,7 @@ func TestLoadWithBindMount(t *testing.T) {
 "Name":"/ubuntu","Driver":"aufs","MountLabel":"","ProcessLabel":"","AppArmorProfile":"","RestartCount":0,
 "UpdateDns":false,"Volumes":{"/vol1": "/vol1"},"VolumesRW":{"/vol1":true},"AppliedVolumesFrom":null}`
 
-	if err = ioutil.WriteFile(filepath.Join(containerPath, "config.json"), []byte(config), 0644); err != nil {
+	if err = ioutil.WriteFile(filepath.Join(containerPath, configFileName), []byte(config), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -349,7 +349,7 @@ func TestLoadWithVolume17RC(t *testing.T) {
 "Name":"/ubuntu","Driver":"aufs","MountLabel":"","ProcessLabel":"","AppArmorProfile":"","RestartCount":0,
 "UpdateDns":false,"MountPoints":{"/vol1":{"Name":"6a3c03fc4a4e588561a543cc3bdd50089e27bd11bbb0e551e19bf735e2514101","Destination":"/vol1","Driver":"local","RW":true,"Source":"","Relabel":""}},"AppliedVolumesFrom":null}`
 
-	if err = ioutil.WriteFile(filepath.Join(containerPath, "config.json"), []byte(config), 0644); err != nil {
+	if err = ioutil.WriteFile(filepath.Join(containerPath, configFileName), []byte(config), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -454,7 +454,7 @@ func TestRemoveLocalVolumesFollowingSymlinks(t *testing.T) {
 "UpdateDns":false,"Volumes":{"/vol1":"%s"},"VolumesRW":{"/vol1":true},"AppliedVolumesFrom":null}`
 
 	cfg := fmt.Sprintf(config, vfsPath)
-	if err = ioutil.WriteFile(filepath.Join(containerPath, "config.json"), []byte(cfg), 0644); err != nil {
+	if err = ioutil.WriteFile(filepath.Join(containerPath, configFileName), []byte(cfg), 0644); err != nil {
 		t.Fatal(err)
 	}
 

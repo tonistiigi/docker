@@ -34,7 +34,7 @@ func (daemon *Daemon) ContainerCreate(params *ContainerCreateConfig) (types.Cont
 
 	container, err := daemon.create(params)
 	if err != nil {
-		return types.ContainerCreateResponse{ID: "", Warnings: warnings}, daemon.graphNotExistToErrcode(params.Config.Image, err)
+		return types.ContainerCreateResponse{ID: "", Warnings: warnings}, daemon.imageNotExistToErrcode(err)
 	}
 
 	return types.ContainerCreateResponse{ID: container.ID, Warnings: warnings}, nil
@@ -45,16 +45,13 @@ func (daemon *Daemon) create(params *ContainerCreateConfig) (retC *Container, re
 	var (
 		container *Container
 		img       *image.Image
-		imgID     string
+		imgID     image.ID
 		err       error
 	)
 
 	if params.Config.Image != "" {
-		img, err = daemon.repositories.LookupImage(params.Config.Image)
+		img, err = daemon.GetImage(params.Config.Image)
 		if err != nil {
-			return nil, err
-		}
-		if err = daemon.graph.CheckDepth(img); err != nil {
 			return nil, err
 		}
 		imgID = img.ID
@@ -85,9 +82,6 @@ func (daemon *Daemon) create(params *ContainerCreateConfig) (retC *Container, re
 	}()
 
 	if err := daemon.Register(container); err != nil {
-		return nil, err
-	}
-	if err := daemon.createRootfs(container); err != nil {
 		return nil, err
 	}
 	if err := daemon.setHostConfig(container, params.HostConfig); err != nil {

@@ -42,7 +42,7 @@ func (cli *DockerCli) CmdSearch(args ...string) error {
 	// Resolve the Repository name from fqn to hostname + name
 	taglessRemote, _ := parsers.ParseRepositoryTag(name)
 
-	indexInfo, err := registry.ParseIndexInfo(taglessRemote)
+	indexInfo, err := registry.ParseSearchIndexInfo(taglessRemote)
 	if err != nil {
 		return err
 	}
