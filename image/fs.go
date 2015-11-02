@@ -52,7 +52,7 @@ func newFSStore(root string) (*fs, error) {
 	return s, nil
 }
 
-func (s *fs) contentDir(dgst digest.Digest) string {
+func (s *fs) contentFile(dgst digest.Digest) string {
 	return filepath.Join(s.root, contentDirName, string(dgst.Algorithm()), dgst.Hex())
 }
 
@@ -88,7 +88,7 @@ func (s *fs) Get(id digest.Digest) ([]byte, error) {
 }
 
 func (s *fs) get(id digest.Digest) ([]byte, error) {
-	content, err := ioutil.ReadFile(s.contentDir(id))
+	content, err := ioutil.ReadFile(s.contentFile(id))
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,12 @@ func (s *fs) Set(data []byte) (digest.Digest, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := ioutil.WriteFile(s.contentDir(dgst), data, 0600); err != nil {
+	filePath := s.contentFile(dgst)
+	tempFilePath := s.contentFile(dgst) + ".tmp"
+	if err := ioutil.WriteFile(tempFilePath, data, 0600); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tempFilePath, filePath); err != nil {
 		return "", err
 	}
 
@@ -132,7 +137,7 @@ func (s *fs) Delete(id digest.Digest) error {
 	if err := os.RemoveAll(s.metadataDir(id)); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(s.contentDir(id)); err != nil {
+	if err := os.Remove(s.contentFile(id)); err != nil {
 		return err
 	}
 	return nil
@@ -150,11 +155,12 @@ func (s *fs) SetMetadata(id digest.Digest, key string, data []byte) error {
 	if err := os.MkdirAll(baseDir, 0700); err != nil {
 		return err
 	}
-	if err := ioutil.WriteFile(filepath.Join(baseDir, key), data, 0600); err != nil {
+	filePath := filepath.Join(s.metadataDir(id), key)
+	tempFilePath := filePath + ".tmp"
+	if err := ioutil.WriteFile(tempFilePath, data, 0600); err != nil {
 		return err
 	}
-
-	return nil
+	return os.Rename(tempFilePath, filePath)
 }
 
 func (s *fs) GetMetadata(id digest.Digest, key string) ([]byte, error) {

@@ -51,8 +51,12 @@ func (store *FSMetadataStore) Set(namespace, key string, value []byte) error {
 	defer store.Unlock()
 
 	path := store.path(namespace, key)
+	tempFilePath := path + ".tmp"
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	return ioutil.WriteFile(path, value, 0644)
+	if err := ioutil.WriteFile(tempFilePath, value, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tempFilePath, path)
 }

@@ -221,9 +221,17 @@ func (store *store) save() error {
 	if err != nil {
 		return err
 	}
-	if err := ioutil.WriteFile(store.jsonPath, jsonData, 0600); err != nil {
+
+	tempFilePath := store.jsonPath + ".tmp"
+
+	if err := ioutil.WriteFile(tempFilePath, jsonData, 0600); err != nil {
 		return err
 	}
+
+	if err := os.Rename(tempFilePath, store.jsonPath); err != nil {
+		return err
+	}
+
 	return nil
 }
 
