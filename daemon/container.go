@@ -21,6 +21,7 @@ import (
 	"github.com/docker/docker/daemon/network"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/broadcaster"
 	"github.com/docker/docker/pkg/fileutils"
@@ -35,6 +36,8 @@ import (
 	"github.com/docker/docker/volume"
 	"github.com/docker/docker/volume/store"
 )
+
+const configFileName = "config.v2.json"
 
 var (
 	// ErrRootFSReadOnly is returned when a container
@@ -57,12 +60,13 @@ type CommonContainer struct {
 	*State          `json:"State"` // Needed for remote api version <= 1.11
 	root            string         // Path to the "home" of the container, including metadata.
 	basefs          string         // Path to the graphdriver mountpoint
+	rwlayer         layer.RWLayer
 	ID              string
 	Created         time.Time
 	Path            string
 	Args            []string
 	Config          *runconfig.Config
-	ImageID         string `json:"Image"`
+	ImageID         image.ID `json:"Image"`
 	NetworkSettings *network.Settings
 	LogPath         string
 	Name            string
@@ -116,6 +120,13 @@ func (container *Container) toDisk() error {
 		return err
 	}
 
+	// todo: where was this handled before
+	dir := filepath.Dir(pth)
+
+	if err := os.MkdirAll(dir, 0600); err != nil {
+		return err
+	}
+
 	jsonSource, err := os.Create(pth)
 	if err != nil {
 		return err
@@ -164,6 +175,11 @@ func (container *Container) readHostConfig() error {
 func (container *Container) writeHostConfig() error {
 	pth, err := container.hostConfigPath()
 	if err != nil {
+		return err
+	}
+
+	dir := filepath.Dir(pth)
+	if err := os.MkdirAll(dir, 0600); err != nil {
 		return err
 	}
 
@@ -229,13 +245,17 @@ func (container *Container) exportContainerRw() (archive.Archive, error) {
 	if container.daemon == nil {
 		return nil, derr.ErrorCodeUnregisteredContainer.WithArgs(container.ID)
 	}
-	archive, err := container.daemon.diff(container)
+
+	if err := container.daemon.Mount(container); err != nil {
+		return nil, err
+	}
+
+	archive, err := container.rwlayer.TarStream()
 	if err != nil {
 		return nil, err
 	}
 	return ioutils.NewReadCloserWrapper(archive, func() error {
-			err := archive.Close()
-			return err
+			return container.daemon.layerStore.Unmount(container.ID) // FIXME
 		}),
 		nil
 }
@@ -585,7 +605,7 @@ func (container *Container) getImage() (*image.Image, error) {
 	if container.daemon == nil {
 		return nil, derr.ErrorCodeImageUnregContainer
 	}
-	return container.daemon.graph.Get(container.ImageID)
+	return container.daemon.imageStore.Get(container.ImageID)
 }
 
 // Unmount asks the daemon to release the layered filesystems that are
@@ -599,7 +619,7 @@ func (container *Container) hostConfigPath() (string, error) {
 }
 
 func (container *Container) jsonPath() (string, error) {
-	return container.getRootResourcePath("config.json")
+	return container.getRootResourcePath(configFileName)
 }
 
 // This method must be exported to be used from the lxc template
@@ -716,7 +736,7 @@ func (container *Container) getLogger() (logger.Logger, error) {
 		ContainerName:       container.Name,
 		ContainerEntrypoint: container.Path,
 		ContainerArgs:       container.Args,
-		ContainerImageID:    container.ImageID,
+		ContainerImageID:    container.ImageID.String(), // todo: use type?
 		ContainerImageName:  container.Config.Image,
 		ContainerCreated:    container.Created,
 		ContainerEnv:        container.Config.Env,

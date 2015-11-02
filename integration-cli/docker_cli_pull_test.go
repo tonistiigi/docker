@@ -3,9 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -46,19 +43,19 @@ func (s *DockerHubPullSuite) TestPullFromCentralRegistry(c *check.C) {
 func (s *DockerHubPullSuite) TestPullNonExistingImage(c *check.C) {
 	testRequires(c, DaemonIsLinux)
 	for _, e := range []struct {
-		Image string
+		Repo  string
 		Alias string
 	}{
-		{"library/asdfasdf:foobar", "asdfasdf:foobar"},
-		{"library/asdfasdf:foobar", "library/asdfasdf:foobar"},
-		{"library/asdfasdf:latest", "asdfasdf"},
-		{"library/asdfasdf:latest", "asdfasdf:latest"},
-		{"library/asdfasdf:latest", "library/asdfasdf"},
-		{"library/asdfasdf:latest", "library/asdfasdf:latest"},
+		{"library/asdfasdf", "asdfasdf:foobar"},
+		{"library/asdfasdf", "library/asdfasdf:foobar"},
+		{"library/asdfasdf", "asdfasdf"},
+		{"library/asdfasdf", "asdfasdf:latest"},
+		{"library/asdfasdf", "library/asdfasdf"},
+		{"library/asdfasdf", "library/asdfasdf:latest"},
 	} {
 		out, err := s.CmdWithError("pull", e.Alias)
 		c.Assert(err, checker.NotNil, check.Commentf("expected non-zero exit status when pulling non-existing image: %s", out))
-		c.Assert(out, checker.Contains, fmt.Sprintf("Error: image %s not found", e.Image), check.Commentf("expected image not found error messages"))
+		c.Assert(out, checker.Contains, fmt.Sprintf("Error: image %s not found", e.Repo), check.Commentf("expected image not found error messages"))
 	}
 }
 
@@ -184,10 +181,6 @@ func imageID(c *check.C, imageRef string) string {
 	return inspectImage(c, imageRef).ID
 }
 
-func imageParent(c *check.C, imageRef string) string {
-	return inspectImage(c, imageRef).Parent
-}
-
 // TestPullMigration verifies that pulling an image based on layers
 // that already exists locally will reuse those existing layers.
 func (s *DockerRegistrySuite) TestPullMigration(c *check.C) {
@@ -203,9 +196,6 @@ func (s *DockerRegistrySuite) TestPullMigration(c *check.C) {
 		c.Fatal(err)
 	}
 
-	baseIDBeforePush := imageID(c, baseImage)
-	baseParentBeforePush := imageParent(c, baseImage)
-
 	derivedImage := repoName + ":derived"
 	_, err = buildImage(derivedImage, fmt.Sprintf(`
 	    FROM %s
@@ -215,8 +205,6 @@ func (s *DockerRegistrySuite) TestPullMigration(c *check.C) {
 		c.Fatal(err)
 	}
 
-	derivedIDBeforePush := imageID(c, derivedImage)
-
 	dockerCmd(c, "push", derivedImage)
 
 	// Remove derived image from the local store
@@ -225,53 +213,28 @@ func (s *DockerRegistrySuite) TestPullMigration(c *check.C) {
 	// Repull
 	dockerCmd(c, "pull", derivedImage)
 
-	// Check that the parent of this pulled image is the original base
-	// image
 	derivedIDAfterPull1 := imageID(c, derivedImage)
-	derivedParentAfterPull1 := imageParent(c, derivedImage)
 
-	if derivedIDAfterPull1 == derivedIDBeforePush {
-		c.Fatal("image's ID should have changed on after deleting and pulling")
-	}
-
-	if derivedParentAfterPull1 != baseIDBeforePush {
-		c.Fatalf("pulled image's parent ID (%s) does not match base image's ID (%s)", derivedParentAfterPull1, baseIDBeforePush)
-	}
-
-	// Confirm that repushing and repulling does not change the computed ID
+	// Confirm that repushing and repulling does not change the ID
 	dockerCmd(c, "push", derivedImage)
 	dockerCmd(c, "rmi", derivedImage)
 	dockerCmd(c, "pull", derivedImage)
 
 	derivedIDAfterPull2 := imageID(c, derivedImage)
-	derivedParentAfterPull2 := imageParent(c, derivedImage)
 
 	if derivedIDAfterPull2 != derivedIDAfterPull1 {
 		c.Fatal("image's ID unexpectedly changed after a repush/repull")
 	}
 
-	if derivedParentAfterPull2 != baseIDBeforePush {
-		c.Fatalf("pulled image's parent ID (%s) does not match base image's ID (%s)", derivedParentAfterPull2, baseIDBeforePush)
-	}
-
-	// Remove everything, repull, and make sure everything uses computed IDs
+	// Remove everything, repull, and make sure everything uses the same
+	// IDs
 	dockerCmd(c, "rmi", baseImage, derivedImage)
 	dockerCmd(c, "pull", derivedImage)
 
 	derivedIDAfterPull3 := imageID(c, derivedImage)
-	derivedParentAfterPull3 := imageParent(c, derivedImage)
-	derivedGrandparentAfterPull3 := imageParent(c, derivedParentAfterPull3)
 
 	if derivedIDAfterPull3 != derivedIDAfterPull1 {
 		c.Fatal("image's ID unexpectedly changed after a second repull")
-	}
-
-	if derivedParentAfterPull3 == baseIDBeforePush {
-		c.Fatalf("pulled image's parent ID (%s) should not match base image's original ID (%s)", derivedParentAfterPull3, derivedIDBeforePush)
-	}
-
-	if derivedGrandparentAfterPull3 == baseParentBeforePush {
-		c.Fatal("base image's parent ID should have been rewritten on pull")
 	}
 }
 
@@ -295,9 +258,6 @@ func (s *DockerRegistrySuite) TestPullMigrationRun(c *check.C) {
 		c.Fatal(err)
 	}
 
-	baseIDBeforePush := imageID(c, baseImage)
-	derivedIDBeforePush := imageID(c, derivedImage)
-
 	dockerCmd(c, "push", derivedImage)
 
 	// Remove derived image from the local store
@@ -306,17 +266,7 @@ func (s *DockerRegistrySuite) TestPullMigrationRun(c *check.C) {
 	// Repull
 	dockerCmd(c, "pull", derivedImage)
 
-	// Check that this pulled image is based on the original base image
 	derivedIDAfterPull1 := imageID(c, derivedImage)
-	derivedParentAfterPull1 := imageParent(c, imageParent(c, derivedImage))
-
-	if derivedIDAfterPull1 == derivedIDBeforePush {
-		c.Fatal("image's ID should have changed on after deleting and pulling")
-	}
-
-	if derivedParentAfterPull1 != baseIDBeforePush {
-		c.Fatalf("pulled image's parent ID (%s) does not match base image's ID (%s)", derivedParentAfterPull1, baseIDBeforePush)
-	}
 
 	// Make sure the image runs correctly
 	out, _ := dockerCmd(c, "run", "--rm", derivedImage)
@@ -330,87 +280,14 @@ func (s *DockerRegistrySuite) TestPullMigrationRun(c *check.C) {
 	dockerCmd(c, "pull", derivedImage)
 
 	derivedIDAfterPull2 := imageID(c, derivedImage)
-	derivedParentAfterPull2 := imageParent(c, imageParent(c, derivedImage))
 
 	if derivedIDAfterPull2 != derivedIDAfterPull1 {
 		c.Fatal("image's ID unexpectedly changed after a repush/repull")
-	}
-
-	if derivedParentAfterPull2 != baseIDBeforePush {
-		c.Fatalf("pulled image's parent ID (%s) does not match base image's ID (%s)", derivedParentAfterPull2, baseIDBeforePush)
 	}
 
 	// Make sure the image still runs
 	out, _ = dockerCmd(c, "run", "--rm", derivedImage)
 	if strings.TrimSpace(out) != derivedImage {
 		c.Fatalf("expected %s; got %s", derivedImage, out)
-	}
-}
-
-// TestPullConflict provides coverage of the situation where a computed
-// strongID conflicts with some unverifiable data in the graph.
-func (s *DockerRegistrySuite) TestPullConflict(c *check.C) {
-	repoName := privateRegistryURL + "/dockercli/conflict"
-
-	_, err := buildImage(repoName, `
-	    FROM scratch
-	    ENV IMAGE conflict
-	    CMD echo conflict
-	`, true)
-	if err != nil {
-		c.Fatal(err)
-	}
-
-	dockerCmd(c, "push", repoName)
-
-	// Pull to make it content-addressable
-	dockerCmd(c, "rmi", repoName)
-	dockerCmd(c, "pull", repoName)
-
-	IDBeforeLoad := imageID(c, repoName)
-
-	// Load/save to turn this into an unverified image with the same ID
-	tmpDir, err := ioutil.TempDir("", "conflict-save-output")
-	if err != nil {
-		c.Errorf("failed to create temporary directory: %s", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	tarFile := filepath.Join(tmpDir, "repo.tar")
-
-	dockerCmd(c, "save", "-o", tarFile, repoName)
-	dockerCmd(c, "rmi", repoName)
-	dockerCmd(c, "load", "-i", tarFile)
-
-	// Check that the the ID is the same after save/load.
-	IDAfterLoad := imageID(c, repoName)
-
-	if IDAfterLoad != IDBeforeLoad {
-		c.Fatal("image's ID should be the same after save/load")
-	}
-
-	// Repull
-	dockerCmd(c, "pull", repoName)
-
-	// Check that the ID is now different because of the conflict.
-	IDAfterPull1 := imageID(c, repoName)
-
-	// Expect the new ID to be SHA256(oldID)
-	expectedIDDigest, err := digest.FromBytes([]byte(IDBeforeLoad))
-	if err != nil {
-		c.Fatalf("digest error: %v", err)
-	}
-	expectedID := expectedIDDigest.Hex()
-	if IDAfterPull1 != expectedID {
-		c.Fatalf("image's ID should have changed on pull to %s (got %s)", expectedID, IDAfterPull1)
-	}
-
-	// A second pull should use the new ID again.
-	dockerCmd(c, "pull", repoName)
-
-	IDAfterPull2 := imageID(c, repoName)
-
-	if IDAfterPull2 != IDAfterPull1 {
-		c.Fatal("image's ID unexpectedly changed after a repull")
 	}
 }

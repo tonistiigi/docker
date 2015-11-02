@@ -6,11 +6,11 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/graph/tags"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/runconfig"
+	tagpkg "github.com/docker/docker/tag"
 	"github.com/docker/docker/volume"
 	"github.com/opencontainers/runc/libcontainer/label"
 )
@@ -38,13 +38,13 @@ func (daemon *Daemon) ContainerCreate(params *ContainerCreateConfig) (types.Cont
 
 	container, err := daemon.create(params)
 	if err != nil {
-		if daemon.Graph().IsNotExist(err, params.Config.Image) {
+		if _, err := daemon.GetImageID(params.Config.Image); err != nil {
 			if strings.Contains(params.Config.Image, "@") {
 				return types.ContainerCreateResponse{"", warnings}, derr.ErrorCodeNoSuchImageHash.WithArgs(params.Config.Image)
 			}
 			img, tag := parsers.ParseRepositoryTag(params.Config.Image)
 			if tag == "" {
-				tag = tags.DefaultTag
+				tag = tagpkg.DefaultTag
 			}
 			return types.ContainerCreateResponse{"", warnings}, derr.ErrorCodeNoSuchImageTag.WithArgs(img, tag)
 		}
@@ -59,16 +59,13 @@ func (daemon *Daemon) create(params *ContainerCreateConfig) (retC *Container, re
 	var (
 		container *Container
 		img       *image.Image
-		imgID     string
+		imgID     image.ID
 		err       error
 	)
 
 	if params.Config.Image != "" {
-		img, err = daemon.repositories.LookupImage(params.Config.Image)
+		img, err = daemon.GetImage(params.Config.Image)
 		if err != nil {
-			return nil, err
-		}
-		if err = daemon.graph.CheckDepth(img); err != nil {
 			return nil, err
 		}
 		imgID = img.ID
@@ -99,9 +96,6 @@ func (daemon *Daemon) create(params *ContainerCreateConfig) (retC *Container, re
 	}()
 
 	if err := daemon.Register(container); err != nil {
-		return nil, err
-	}
-	if err := daemon.createRootfs(container); err != nil {
 		return nil, err
 	}
 	if err := daemon.setHostConfig(container, params.HostConfig); err != nil {

@@ -9,7 +9,6 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/graph"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/graphdb"
 	"github.com/docker/docker/pkg/nat"
@@ -66,7 +65,7 @@ type listContext struct {
 	// names is a list of container names to filter with
 	names map[string][]string
 	// images is a list of images to filter with
-	images map[string]bool
+	images map[image.ID]bool
 	// filters is a collection of arguments to filter with, specified by the user
 	filters filters.Args
 	// exitAllowed is a list of exit codes allowed to filter with
@@ -156,25 +155,24 @@ func (daemon *Daemon) foldFilter(config *ContainersConfig) (*listContext, error)
 		}
 	}
 
-	imagesFilter := map[string]bool{}
+	imagesFilter := map[image.ID]bool{}
 	var ancestorFilter bool
 	if ancestors, ok := psFilters["ancestor"]; ok {
 		ancestorFilter = true
-		byParents := daemon.Graph().ByParent()
 		// The idea is to walk the graph down the most "efficient" way.
 		for _, ancestor := range ancestors {
 			// First, get the imageId of the ancestor filter (yay)
-			image, err := daemon.repositories.LookupImage(ancestor)
+			id, err := daemon.GetImageID(ancestor)
 			if err != nil {
 				logrus.Warnf("Error while looking up for image %v", ancestor)
 				continue
 			}
-			if imagesFilter[ancestor] {
+			if imagesFilter[id] {
 				// Already seen this ancestor, skip it
 				continue
 			}
 			// Then walk down the graph and put the imageIds in imagesFilter
-			populateImageFilterByParents(imagesFilter, image.ID, byParents)
+			populateImageFilterByParents(imagesFilter, id, daemon.imageStore.Children)
 		}
 	}
 
@@ -286,41 +284,28 @@ func includeContainerInList(container *Container, ctx *listContext) iterationAct
 	return includeContainer
 }
 
-func getImage(s *graph.TagStore, img, imgID string) (string, error) {
-	// both Image and ImageID is actually ids, nothing to guess
-	if strings.HasPrefix(imgID, img) {
-		return img, nil
-	}
-	id, err := s.GetID(img)
-	if err != nil {
-		if err == graph.ErrNameIsNotExist {
-			return imgID, nil
-		}
-		return "", err
-	}
-	if id != imgID {
-		return imgID, nil
-	}
-	return img, nil
-}
-
 // transformContainer generates the container type expected by the docker ps command.
 func (daemon *Daemon) transformContainer(container *Container, ctx *listContext) (*types.Container, error) {
 	newC := &types.Container{
 		ID:      container.ID,
 		Names:   ctx.names[container.ID],
-		ImageID: container.ImageID,
+		ImageID: string(container.ImageID), // todo: check type
 	}
 	if newC.Names == nil {
 		// Dead containers will often have no name, so make sure the response isn't  null
 		newC.Names = []string{}
 	}
 
-	showImg, err := getImage(daemon.repositories, container.Config.Image, container.ImageID)
+	img, err := daemon.GetImage(container.Config.Image) // FIXME changed in master
 	if err != nil {
-		return nil, err
+		// If the image can no longer be found by its original reference,
+		// it makes sense to show the ID instead of a stale reference.
+		newC.Image = string(container.ImageID) // FIXME
+	} else if container.ImageID == img.ID {
+		newC.Image = container.Config.Image
+	} else {
+		newC.Image = string(container.ImageID) // FIXME
 	}
-	newC.Image = showImg
 
 	if len(container.Args) > 0 {
 		args := []string{}
@@ -409,12 +394,10 @@ func (daemon *Daemon) Volumes(filter string) ([]*types.Volume, error) {
 	return volumesOut, nil
 }
 
-func populateImageFilterByParents(ancestorMap map[string]bool, imageID string, byParents map[string][]*image.Image) {
+func populateImageFilterByParents(ancestorMap map[image.ID]bool, imageID image.ID, getChildren func(image.ID) []image.ID) {
 	if !ancestorMap[imageID] {
-		if images, ok := byParents[imageID]; ok {
-			for _, image := range images {
-				populateImageFilterByParents(ancestorMap, image.ID, byParents)
-			}
+		for _, id := range getChildren(imageID) {
+			populateImageFilterByParents(ancestorMap, id, getChildren)
 		}
 		ancestorMap[imageID] = true
 	}

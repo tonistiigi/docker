@@ -3760,3 +3760,15 @@ func (s *DockerSuite) TestRunWrongCpusetMemsFlagValue(c *check.C) {
 	expected := "Error response from daemon: Invalid value 1-42-- for cpuset mems.\n"
 	c.Assert(out, check.Equals, expected, check.Commentf("Expected output to contain %q, got %q", expected, out))
 }
+
+// TestRunInvalidReference invokes docker run with a bad reference.
+func (s *DockerSuite) TestRunInvalidReference(c *check.C) {
+	out, exit, _ := dockerCmdWithError("run", "busybox@foo")
+	if exit == 0 {
+		c.Fatalf("expected non-zero exist code; received %d", exit)
+	}
+
+	if !strings.Contains(out, "invalid reference format") {
+		c.Fatalf(`Expected "invalid reference format" in output; got: %s`, out)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	Cli "github.com/docker/docker/cli"
 	"github.com/docker/docker/opts"
@@ -38,7 +39,11 @@ func (cli *DockerCli) CmdCommit(args ...string) error {
 
 	//Check if the given image name can be resolved
 	if repository != "" {
-		if err := registry.ValidateRepositoryName(repository); err != nil {
+		ref, err := reference.ParseNamed(repository)
+		if err != nil {
+			return err
+		}
+		if err := registry.ValidateRepositoryName(ref); err != nil {
 			return err
 		}
 	}

@@ -1,7 +1,15 @@
 package daemon
 
 import (
+	"encoding/json"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/docker/distribution/reference"
+	"github.com/docker/docker/autogen/dockerversion"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/runconfig"
 )
 
@@ -18,7 +26,8 @@ type ContainerCommitConfig struct {
 
 // Commit creates a new filesystem image from the current state of a container.
 // The image can optionally be tagged into a repository.
-func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (*image.Image, error) {
+func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (string, error) { // FIXME: change type to image.ID
+
 	if c.Pause && !container.isPaused() {
 		container.pause()
 		defer container.unpause()
@@ -26,7 +35,7 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (*i
 
 	rwTar, err := container.exportContainerRw()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer func() {
 		if rwTar != nil {
@@ -34,18 +43,92 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (*i
 		}
 	}()
 
-	// Create a new image from the container's base layers + a new layer from container changes
-	img, err := daemon.graph.Create(rwTar, container.ID, container.ImageID, c.Comment, c.Author, container.Config, c.Config)
-	if err != nil {
-		return nil, err
+	var history []image.History
+	var diffIDs []layer.DiffID
+	var layerID layer.ID
+
+	if container.ImageID != "" {
+		img, err := daemon.imageStore.Get(container.ImageID)
+		if err != nil {
+			return "", err
+		}
+		layerID = img.GetTopLayerID()
+		diffIDs = img.RootFS.DiffIDs
+		history = img.History
 	}
 
-	// Register the image if needed
-	if c.Repo != "" {
-		if err := daemon.repositories.Tag(c.Repo, c.Tag, img.ID, true); err != nil {
-			return img, err
+	l, err := daemon.layerStore.Register(rwTar, layerID)
+	if err != nil {
+		return "", err
+	}
+	defer daemon.layerStore.Release(l)
+
+	if diffID := l.DiffID(); layer.DigestSHA256EmptyTar != diffID {
+		diffIDs = append(diffIDs, diffID)
+	}
+
+	h := image.History{}
+	h.Author = c.Author
+	h.Created = time.Now().UTC()
+	h.CreatedBy = strings.Join(container.Config.Cmd.Slice(), " ")
+	h.Comment = c.Comment
+	h.Size, err = l.DiffSize()
+	if err != nil {
+		return "", err
+	}
+
+	history = append(history, h)
+
+	config, err := json.Marshal(&image.Image{
+		V1Image: image.V1Image{
+			DockerVersion:   dockerversion.VERSION,
+			Config:          c.Config,
+			Architecture:    runtime.GOARCH,
+			OS:              runtime.GOOS,
+			Container:       container.ID,
+			ContainerConfig: *container.Config,
+			Author:          c.Author,
+			Created:         h.Created,
+		},
+		RootFS: &image.RootFS{
+			Type:    "layers",
+			DiffIDs: diffIDs,
+		},
+		History: history,
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	id, err := daemon.imageStore.Create(config)
+	if err != nil {
+		return "", err
+	}
+
+	if container.ImageID != "" {
+		if err := daemon.imageStore.SetParent(id, container.ImageID); err != nil {
+			return "", err
 		}
 	}
+
+	if c.Repo != "" {
+		newTag, err := reference.WithName(c.Repo) // todo: should move this to API layer
+		if err != nil {
+			return "", err
+		}
+		if c.Tag != "" {
+			if newTag, err = reference.WithTag(newTag, c.Tag); err != nil {
+				return "", err
+			}
+		}
+		if err := daemon.TagImage(newTag, id.String(), true); err != nil {
+			return "", err
+		}
+	}
+
 	container.logEvent("commit")
-	return img, nil
+
+	return id.String(), nil
+
 }
