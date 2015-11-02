@@ -36,7 +36,7 @@ clone git github.com/hashicorp/consul v0.5.2
 clone git github.com/boltdb/bolt v1.0
 
 # get graph and distribution packages
-clone git github.com/docker/distribution ef17db8d73304f4dd3d2b943376025315c4a5df7
+clone git github.com/docker/distribution c6c9194e9c6097f84b0ff468a741086ff7704aa3
 clone git github.com/vbatts/tar-split v0.9.10
 
 clone git github.com/docker/notary ac05822d7d71ef077df3fc24f506672282a1feea
