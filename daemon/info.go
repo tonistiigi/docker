@@ -59,7 +59,7 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
 	v := &types.Info{
 		ID:                 daemon.ID,
 		Containers:         len(daemon.List()),
-		Images:             len(daemon.Graph().Map()),
+		Images:             len(daemon.imageStore.Map()),
 		Driver:             daemon.GraphDriver().String(),
 		DriverStatus:       daemon.GraphDriver().Status(),
 		IPv4Forwarding:     !sysInfo.IPv4ForwardingDisabled,

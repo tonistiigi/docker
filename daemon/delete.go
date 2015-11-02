@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"fmt"
 	"os"
 	"path"
 
@@ -119,13 +118,8 @@ func (daemon *Daemon) rm(container *Container, forceRemove bool) (err error) {
 		logrus.Debugf("Unable to remove container from link graph: %s", err)
 	}
 
-	if err = daemon.driver.Remove(container.ID); err != nil {
+	if _, err := daemon.layerStore.DeleteMount(container.ID); err != nil {
 		return derr.ErrorCodeRmDriverFS.WithArgs(daemon.driver, container.ID, err)
-	}
-
-	initID := fmt.Sprintf("%s-init", container.ID)
-	if err := daemon.driver.Remove(initID); err != nil {
-		return derr.ErrorCodeRmInit.WithArgs(daemon.driver, initID, err)
 	}
 
 	if err = os.RemoveAll(container.root); err != nil {
