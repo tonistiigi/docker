@@ -6277,3 +6277,35 @@ func (s *DockerSuite) TestBuildMultipleTags(c *check.C) {
 	c.Assert(err, check.IsNil)
 	c.Assert(id1, check.Equals, id2)
 }
+
+// #17290
+func (s *DockerSuite) TestBuildCacheBrokenSymlink(c *check.C) {
+	testRequires(c, DaemonIsLinux)
+	name := "testbuildbrokensymlink"
+	ctx, err := fakeContext(`
+	FROM busybox
+	COPY . ./`,
+		map[string]string{
+			"foo": "bar",
+		})
+	c.Assert(err, check.IsNil)
+	defer ctx.Close()
+
+	err = os.Symlink(filepath.Join(ctx.Dir, "nosuchfile"), filepath.Join(ctx.Dir, "asymlink"))
+	c.Assert(err, check.IsNil)
+
+	// warm up cache
+	_, err = buildImageFromContext(name, ctx, true)
+	c.Assert(err, check.IsNil)
+
+	// add new file to context, should invalidate cache
+	err = ioutil.WriteFile(filepath.Join(ctx.Dir, "newfile"), []byte("foo"), 0644)
+	c.Assert(err, check.IsNil)
+
+	_, out, err := buildImageFromContextWithOut(name, ctx, true)
+	c.Assert(err, check.IsNil)
+
+	if strings.Contains(out, "Using cache") {
+		c.Fatalf("Cache was not invalidated. Output: %v", out)
+	}
+}

@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,7 +9,6 @@ import (
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/ioutils"
-	"github.com/docker/docker/pkg/symlink"
 	"github.com/docker/docker/pkg/tarsum"
 )
 
@@ -110,12 +108,8 @@ func MakeTarSumContext(tarStream io.Reader) (ModifiableContext, error) {
 
 func (c *tarSumContext) normalize(path string) (cleanpath, fullpath string, err error) {
 	cleanpath = filepath.Clean(string(os.PathSeparator) + path)[1:]
-	fullpath, err = symlink.FollowSymlinkInScope(filepath.Join(c.root, path), c.root)
-	if err != nil {
-		return "", "", fmt.Errorf("Forbidden path outside the build context: %s (%s)", path, fullpath)
-	}
-	_, err = os.Stat(fullpath)
-	if err != nil {
+	fullpath = filepath.Join(c.root, cleanpath)
+	if _, err = os.Lstat(fullpath); err != nil {
 		return "", "", convertPathError(err, path)
 	}
 	return
