@@ -153,7 +153,7 @@ func (d Docker) Copy(c *daemon.Container, destPath string, src builder.FileInfo,
 		destExists = false
 	}
 
-	if src.IsDir() {
+	if src.IsDir() || (src.Mode()&os.ModeSymlink) > 0 {
 		// copy as directory
 		if err := d.Archiver.CopyWithTar(srcPath, destPath); err != nil {
 			return err
