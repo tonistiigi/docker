@@ -10,7 +10,7 @@ import (
 	"github.com/docker/docker/layer"
 )
 
-func TestBlobStorageService(t *testing.T) {
+func TestBlobSumService(t *testing.T) {
 	tmpDir, err := ioutil.TempDir("", "blobsum-storage-service-test")
 	if err != nil {
 		t.Fatalf("could not create temp dir: %v", err)
@@ -18,7 +18,7 @@ func TestBlobStorageService(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	metadataStore := NewFSMetadataStore(tmpDir)
-	storageService := NewBlobSumStorageService(metadataStore)
+	blobSumService := NewBlobSumService(metadataStore)
 
 	testVectors := []struct {
 		diffID   layer.DiffID
@@ -53,7 +53,7 @@ func TestBlobStorageService(t *testing.T) {
 	// Set some associations
 	for _, vec := range testVectors {
 		for _, blobsum := range vec.blobsums {
-			err := storageService.Add(vec.diffID, blobsum)
+			err := blobSumService.Add(vec.diffID, blobsum)
 			if err != nil {
 				t.Fatalf("error calling Set: %v", err)
 			}
@@ -62,7 +62,7 @@ func TestBlobStorageService(t *testing.T) {
 
 	// Check the correct values are read back
 	for _, vec := range testVectors {
-		blobsums, err := storageService.Get(vec.diffID)
+		blobsums, err := blobSumService.GetBlobSums(vec.diffID)
 		if err != nil {
 			t.Fatalf("error calling Get: %v", err)
 		}
@@ -75,9 +75,28 @@ func TestBlobStorageService(t *testing.T) {
 		}
 	}
 
-	// Test Get on a nonexistent entry
-	_, err = storageService.Get(layer.DiffID("sha256:82379823067823853223359023576437723560923756b03560378f4497753917"))
+	// Test GetBlobSums on a nonexistent entry
+	_, err = blobSumService.GetBlobSums(layer.DiffID("sha256:82379823067823853223359023576437723560923756b03560378f4497753917"))
 	if err == nil {
 		t.Fatal("expected error looking up nonexistent entry")
+	}
+
+	// Test GetDiffID on a nonexistent entry
+	_, err = blobSumService.GetDiffID(digest.Digest("sha256:82379823067823853223359023576437723560923756b03560378f4497753917"))
+	if err == nil {
+		t.Fatal("expected error looking up nonexistent entry")
+	}
+
+	// Overwrite one of the entries and read it back
+	err = blobSumService.Add(testVectors[1].diffID, testVectors[0].blobsums[0])
+	if err != nil {
+		t.Fatalf("error calling Add: %v", err)
+	}
+	diffID, err := blobSumService.GetDiffID(testVectors[0].blobsums[0])
+	if err != nil {
+		t.Fatalf("error calling GetDiffID: %v", err)
+	}
+	if diffID != testVectors[1].diffID {
+		t.Fatal("GetDiffID returned incorrect diffID")
 	}
 }

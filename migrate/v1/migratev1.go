@@ -309,11 +309,7 @@ func migrateImage(id, root string, ls layer.Store, is image.Store, ms metadata.S
 		return err
 	}
 
-	h, err := imagev1.HistoryFromConfig(imageJSON)
-	if err != nil {
-		return err
-	}
-	h.Size, err = layer.DiffSize()
+	h, err := imagev1.HistoryFromConfig(imageJSON, false)
 	if err != nil {
 		return err
 	}
@@ -338,12 +334,8 @@ func migrateImage(id, root string, ls layer.Store, is image.Store, ms metadata.S
 	if err == nil { // best effort
 		dgst, err := digest.ParseDigest(string(checksum))
 		if err == nil {
-			blobStore := metadata.NewBlobSumStorageService(ms)
-			blobStore.Add(layer.DiffID(), dgst)
-			blobLookup := metadata.NewBlobSumLookupService(ms)
-			for _, bs := range getBlobsumChains(blobStore, layer) {
-				blobLookup.Set(bs, layer.ID())
-			}
+			blobSumService := metadata.NewBlobSumService(ms)
+			blobSumService.Add(layer.DiffID(), dgst)
 		}
 	}
 	_, err = ls.Release(layer)
@@ -353,23 +345,6 @@ func migrateImage(id, root string, ls layer.Store, is image.Store, ms metadata.S
 
 	mappings[id] = strongID
 	return
-}
-
-func getBlobsumChains(store *metadata.BlobSumStorageService, l layer.Layer) [][]digest.Digest {
-	blobs, err := store.Get(l.DiffID())
-	if err != nil {
-		return nil
-	}
-	if l.Parent() != nil {
-		var chains [][]digest.Digest
-		for _, cb := range blobs {
-			for _, pb := range getBlobsumChains(store, l.Parent()) {
-				chains = append(chains, append(append([]digest.Digest(nil), pb...), cb))
-			}
-		}
-		return chains
-	}
-	return append([][]digest.Digest(nil), blobs)
 }
 
 func rawJSON(value interface{}) *json.RawMessage {

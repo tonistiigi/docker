@@ -21,19 +21,20 @@ var validHex = regexp.MustCompile(`^([a-f0-9]{64})$`)
 var noFallbackMinVersion = version.Version("1.8.3")
 
 // HistoryFromConfig creates a History struct from v1 configuration JSON
-func HistoryFromConfig(imageJSON []byte) (image.History, error) {
+func HistoryFromConfig(imageJSON []byte, emptyLayer bool) (image.History, error) {
 	h := image.History{}
 	var v1Image image.V1Image
 	if err := json.Unmarshal(imageJSON, &v1Image); err != nil {
 		return h, err
 	}
 
-	h.Author = v1Image.Author
-	h.Created = v1Image.Created
-	h.CreatedBy = strings.Join(v1Image.ContainerConfig.Cmd.Slice(), " ")
-	h.Comment = v1Image.Comment
-
-	return h, nil
+	return image.History{
+		Author:     v1Image.Author,
+		Created:    v1Image.Created,
+		CreatedBy:  strings.Join(v1Image.ContainerConfig.Cmd.Slice(), " "),
+		Comment:    v1Image.Comment,
+		EmptyLayer: emptyLayer,
+	}, nil
 }
 
 // CreateID creates an ID from v1 image, layerID and parent ID.
@@ -67,7 +68,6 @@ func CreateID(v1Image image.V1Image, layerID layer.ID, parent digest.Digest) (di
 
 // ConfigFromV1Config creates an image config from the legacy V1 config format.
 func ConfigFromV1Config(imageJSON []byte, l layer.Layer, history []image.History) ([]byte, error) {
-
 	var dver struct {
 		DockerVersion string `json:"docker_version"`
 	}
@@ -105,7 +105,7 @@ func ConfigFromV1Config(imageJSON []byte, l layer.Layer, history []image.History
 }
 
 // V1ConfigFromConfig creates an legacy V1 image config from an Image struct
-func V1ConfigFromConfig(img *image.Image, v1ID, parentV1ID string) ([]byte, error) {
+func V1ConfigFromConfig(img *image.Image, v1ID, parentV1ID string, throwaway bool) ([]byte, error) {
 	// Top-level v1compatibility string should be a modified version of the
 	// image config.
 	var configAsMap map[string]*json.RawMessage
@@ -119,6 +119,9 @@ func V1ConfigFromConfig(img *image.Image, v1ID, parentV1ID string) ([]byte, erro
 	configAsMap["id"] = rawJSON(v1ID)
 	if parentV1ID != "" {
 		configAsMap["parent"] = rawJSON(parentV1ID)
+	}
+	if throwaway {
+		configAsMap["throwaway"] = rawJSON(true)
 	}
 
 	return json.Marshal(configAsMap)

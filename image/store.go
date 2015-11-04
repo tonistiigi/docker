@@ -2,6 +2,7 @@ package image
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -104,6 +105,23 @@ func (is *store) Create(config []byte) (ID, error) {
 	err := json.Unmarshal(config, &img)
 	if err != nil {
 		return "", err
+	}
+
+	// Must reject any config that references diffIDs from the history
+	// which aren't among the rootfs layers.
+	rootFSLayers := make(map[layer.DiffID]struct{})
+	for _, diffID := range img.RootFS.DiffIDs {
+		rootFSLayers[diffID] = struct{}{}
+	}
+
+	layerCounter := 0
+	for _, h := range img.History {
+		if !h.EmptyLayer {
+			layerCounter++
+		}
+	}
+	if layerCounter > len(img.RootFS.DiffIDs) {
+		return "", errors.New("too many non-empty layers in History section")
 	}
 
 	dgst, err := is.fs.Set(config)

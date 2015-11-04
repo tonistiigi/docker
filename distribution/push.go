@@ -70,14 +70,13 @@ func NewPusher(ref reference.Named, endpoint registry.APIEndpoint, repoInfo *reg
 	switch endpoint.Version {
 	case registry.APIVersion2:
 		return &v2Pusher{
-			blobSumLookupService:  metadata.NewBlobSumLookupService(imagePushConfig.MetadataStore),
-			blobSumStorageService: metadata.NewBlobSumStorageService(imagePushConfig.MetadataStore),
-			ref:          ref,
-			endpoint:     endpoint,
-			repoInfo:     repoInfo,
-			config:       imagePushConfig,
-			sf:           sf,
-			layersPushed: make(map[digest.Digest]bool),
+			blobSumService: metadata.NewBlobSumService(imagePushConfig.MetadataStore),
+			ref:            ref,
+			endpoint:       endpoint,
+			repoInfo:       repoInfo,
+			config:         imagePushConfig,
+			sf:             sf,
+			layersPushed:   make(map[digest.Digest]bool),
 		}, nil
 	case registry.APIVersion1:
 		return &v1Pusher{

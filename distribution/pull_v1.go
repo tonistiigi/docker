@@ -308,15 +308,9 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 		}
 
 		// Create a new-style config from the legacy configs
-		h, err := v1.HistoryFromConfig(imgJSON)
+		h, err := v1.HistoryFromConfig(imgJSON, false)
 		if err != nil {
 			return layersDownloaded, err
-		}
-		if layerID, err := p.v1IDService.Get(v1LayerID, p.repoInfo.Index.Name); err == nil {
-			if l, err := p.config.LayerStore.Get(layerID); err == nil {
-				h.Size, _ = l.DiffSize()
-				p.config.LayerStore.Release(l)
-			}
 		}
 		newHistory = append(newHistory, h)
 	}

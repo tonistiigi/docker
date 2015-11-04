@@ -63,18 +63,17 @@ func (daemon *Daemon) Commit(container *Container, c *ContainerCommitConfig) (st
 	}
 	defer daemon.layerStore.Release(l)
 
-	if diffID := l.DiffID(); layer.DigestSHA256EmptyTar != diffID {
-		diffIDs = append(diffIDs, diffID)
+	h := image.History{
+		Author:     c.Author,
+		Created:    time.Now().UTC(),
+		CreatedBy:  strings.Join(container.Config.Cmd.Slice(), " "),
+		Comment:    c.Comment,
+		EmptyLayer: true,
 	}
 
-	h := image.History{}
-	h.Author = c.Author
-	h.Created = time.Now().UTC()
-	h.CreatedBy = strings.Join(container.Config.Cmd.Slice(), " ")
-	h.Comment = c.Comment
-	h.Size, err = l.DiffSize()
-	if err != nil {
-		return "", err
+	if diffID := l.DiffID(); layer.DigestSHA256EmptyTar != diffID {
+		h.EmptyLayer = false
+		diffIDs = append(diffIDs, diffID)
 	}
 
 	history = append(history, h)

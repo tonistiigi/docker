@@ -62,12 +62,11 @@ func NewPuller(endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo,
 	switch endpoint.Version {
 	case registry.APIVersion2:
 		return &v2Puller{
-			blobSumLookupService:  metadata.NewBlobSumLookupService(imagePullConfig.MetadataStore),
-			blobSumStorageService: metadata.NewBlobSumStorageService(imagePullConfig.MetadataStore),
-			endpoint:              endpoint,
-			config:                imagePullConfig,
-			sf:                    sf,
-			repoInfo:              repoInfo,
+			blobSumService: metadata.NewBlobSumService(imagePullConfig.MetadataStore),
+			endpoint:       endpoint,
+			config:         imagePullConfig,
+			sf:             sf,
+			repoInfo:       repoInfo,
 		}, nil
 	case registry.APIVersion1:
 		return &v1Puller{

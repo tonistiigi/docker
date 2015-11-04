@@ -1177,40 +1177,64 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 
 	history := []*types.ImageHistory{}
 
-	histImg := img
-	id := img.ID
+	layerCounter := 0
+	var diffIDs []layer.DiffID
 
-	for i := len(img.History) - 1; i >= 0; i-- {
-		var tags []string
-		if id != "" {
-			for _, r := range daemon.tagStore.References(id) {
-				if _, ok := r.(reference.NamedTagged); ok {
-					tags = append(tags, r.String())
-				}
+	for i := 0; i != len(img.History); i++ {
+		var layerSize int64
+
+		if !img.History[i].EmptyLayer {
+			if len(img.RootFS.DiffIDs) <= layerCounter {
+				return nil, errors.New("too many non-empty layers in History section")
 			}
+
+			diffIDs = append(diffIDs, img.RootFS.DiffIDs[layerCounter])
+			layerID := layer.CreateID(diffIDs)
+
+			l, err := daemon.layerStore.Get(layerID)
+			if err != nil {
+				return nil, err
+			}
+			layerSize, err = l.DiffSize()
+			daemon.layerStore.Release(l)
+			if err != nil {
+				return nil, err
+			}
+
+			layerCounter++
 		}
 
-		idstr := id.String()
-		if idstr == "" {
-			idstr = "<missing>"
-		}
-
-		history = append(history, &types.ImageHistory{
-			ID:        idstr,
+		history = append([]*types.ImageHistory{&types.ImageHistory{
+			ID:        "<missing>",
 			Created:   img.History[i].Created.Unix(),
 			CreatedBy: img.History[i].CreatedBy,
 			Comment:   img.History[i].Comment,
-			Size:      img.History[i].Size,
-			Tags:      tags,
-		})
-		if histImg != nil {
-			id = histImg.Parent
-			if id != "" {
-				histImg, err = daemon.GetImage(id.String())
-				if err != nil {
-					histImg = nil
-				}
+			Size:      layerSize,
+		}}, history...)
+	}
+
+	// Fill in image IDs and tags
+	histImg := img
+	id := img.ID
+	for i := 0; i != len(history); i++ {
+		history[i].ID = id.String()
+
+		var tags []string
+		for _, r := range daemon.tagStore.References(id) {
+			if _, ok := r.(reference.NamedTagged); ok {
+				tags = append(tags, r.String())
 			}
+		}
+
+		history[i].Tags = tags
+
+		id = histImg.Parent
+		if id == "" {
+			break
+		}
+		histImg, err = daemon.GetImage(id.String())
+		if err != nil {
+			break
 		}
 	}
 

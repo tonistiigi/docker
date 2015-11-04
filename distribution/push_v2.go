@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution"
@@ -26,14 +27,13 @@ import (
 )
 
 type v2Pusher struct {
-	blobSumLookupService  *metadata.BlobSumLookupService
-	blobSumStorageService *metadata.BlobSumStorageService
-	ref                   reference.Named
-	endpoint              registry.APIEndpoint
-	repoInfo              *registry.RepositoryInfo
-	config                *ImagePushConfig
-	sf                    *streamformatter.StreamFormatter
-	repo                  distribution.Repository
+	blobSumService *metadata.BlobSumService
+	ref            reference.Named
+	endpoint       registry.APIEndpoint
+	repoInfo       *registry.RepositoryInfo
+	config         *ImagePushConfig
+	sf             *streamformatter.StreamFormatter
+	repo           distribution.Repository
 
 	// layersPushed is the set of layers known to exist on the remote side.
 	// This avoids redundant queries when pushing multiple tags that
@@ -94,7 +94,6 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 
 	out := p.config.OutStream
 
-	var fsLayers []schema1.FSLayer
 	var l layer.Layer
 
 	topLayerID := img.GetTopLayerID()
@@ -108,61 +107,31 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 		defer p.config.LayerStore.Release(l)
 	}
 
-	// Blobsums of layers involved in this push operation (including those
-	// which already exist on the registery), ordered from bottom-most to
-	// top-most.
-	var layerBlobsums []digest.Digest
-	// Layer objects, ordered the same way.
-	var layers []layer.Layer
+	fsLayers := make(map[layer.DiffID]schema1.FSLayer)
 
-	for l != nil {
-		logrus.Debugf("Pushing layer: %s", l.DiffID())
-
-		// Do we have any blobsums associated with this layer's DiffID?
-		var exists bool
-		var dgst digest.Digest
-		possibleBlobsums, err := p.blobSumStorageService.Get(l.DiffID())
-		if err == nil {
-			dgst, exists, err = p.blobSumAlreadyExists(possibleBlobsums)
-			if err != nil {
-				out.Write(p.sf.FormatProgress(stringid.TruncateID(string(l.DiffID())), "Image push failed", nil))
-				return err
-			}
-			if exists {
-				out.Write(p.sf.FormatProgress(stringid.TruncateID(string(l.DiffID())), "Layer already exists", nil))
-			}
-		}
-
-		// if digest was empty or not saved, or if blob does not exist on the remote repository,
-		// then push the blob.
-		if !exists {
-			pushDigest, err := p.pushV2Layer(p.repo.Blobs(context.Background()), l)
+	// Push empty layer if necessary
+	for _, h := range img.History {
+		if h.EmptyLayer {
+			dgst, err := p.pushLayerIfNecessary(out, layer.EmptyLayer)
 			if err != nil {
 				return err
 			}
-			// Cache mapping from this layer's DiffID to the blobsum
-			if err := p.blobSumStorageService.Add(l.DiffID(), pushDigest); err != nil {
-				return err
-			}
-
-			dgst = pushDigest
+			p.layersPushed[dgst] = true
+			fsLayers[layer.EmptyLayer.DiffID()] = schema1.FSLayer{BlobSum: dgst}
+			break
 		}
-
-		layers = append([]layer.Layer{l}, layers...)
-		layerBlobsums = append([]digest.Digest{dgst}, layerBlobsums...)
-
-		fsLayers = append(fsLayers, schema1.FSLayer{BlobSum: dgst})
-
-		p.layersPushed[dgst] = true
-
-		l = l.Parent()
 	}
 
-	// Cache mapping from each layer's set of blobsums to that layer's ID
-	for i, l := range layers {
-		if err := p.blobSumLookupService.Set(layerBlobsums[:i+1], l.ID()); err != nil {
+	for l != nil {
+		dgst, err := p.pushLayerIfNecessary(out, l)
+		if err != nil {
 			return err
 		}
+
+		p.layersPushed[dgst] = true
+		fsLayers[l.DiffID()] = schema1.FSLayer{BlobSum: dgst}
+
+		l = l.Parent()
 	}
 
 	var tag string
@@ -199,6 +168,37 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 	return manSvc.Put(signed)
 }
 
+func (p *v2Pusher) pushLayerIfNecessary(out io.Writer, l layer.Layer) (digest.Digest, error) {
+	logrus.Debugf("Pushing layer: %s", l.DiffID())
+
+	// Do we have any blobsums associated with this layer's DiffID?
+	possibleBlobsums, err := p.blobSumService.GetBlobSums(l.DiffID())
+	if err == nil {
+		dgst, exists, err := p.blobSumAlreadyExists(possibleBlobsums)
+		if err != nil {
+			out.Write(p.sf.FormatProgress(stringid.TruncateID(string(l.DiffID())), "Image push failed", nil))
+			return "", err
+		}
+		if exists {
+			out.Write(p.sf.FormatProgress(stringid.TruncateID(string(l.DiffID())), "Layer already exists", nil))
+			return dgst, nil
+		}
+	}
+
+	// if digest was empty or not saved, or if blob does not exist on the remote repository,
+	// then push the blob.
+	pushDigest, err := p.pushV2Layer(p.repo.Blobs(context.Background()), l)
+	if err != nil {
+		return "", err
+	}
+	// Cache mapping from this layer's DiffID to the blobsum
+	if err := p.blobSumService.Add(l.DiffID(), pushDigest); err != nil {
+		return "", err
+	}
+
+	return pushDigest, nil
+}
+
 // blobSumAlreadyExists checks if the registry already know about any of the
 // blobsums passed in the "blobsums" slice. If it finds one that the registry
 // knows about, it returns the known digest and "true".
@@ -226,55 +226,109 @@ func (p *v2Pusher) blobSumAlreadyExists(blobsums []digest.Digest) (digest.Digest
 // FSLayer digests.
 // FIXME: This should be moved to the distribution repo, since it will also
 // be useful for converting new manifests to the old format.
-func CreateV2Manifest(name, tag string, img *image.Image, fsLayers []schema1.FSLayer) (*schema1.Manifest, error) {
-	if len(fsLayers) == 0 {
-		return nil, errors.New("empty fsLayers list when trying to create V2 manifest")
+func CreateV2Manifest(name, tag string, img *image.Image, fsLayers map[layer.DiffID]schema1.FSLayer) (*schema1.Manifest, error) {
+	if len(img.History) == 0 {
+		return nil, errors.New("empty history when trying to create V2 manifest")
 	}
 
 	// Generate IDs for each layer
-	v1IDsLen := len(fsLayers)
-	if v1IDsLen < 2 {
-		v1IDsLen = 2
+	// For non-top-level layers, create fake V1Compatibility strings that
+	// fit the format and don't collide with anything else, but don't
+	// result in runnable images on their own.
+	type v1Compatibility struct {
+		ID              string    `json:"id"`
+		Parent          string    `json:"parent,omitempty"`
+		Comment         string    `json:"comment,omitempty"`
+		Created         time.Time `json:"created"`
+		ContainerConfig struct {
+			Cmd []string
+		} `json:"container_config,omitempty"`
+		ThrowAway bool `json:"throwaway,omitempty"`
 	}
-	v1IDs := make([]string, v1IDsLen)
+
+	fsLayerList := make([]schema1.FSLayer, len(img.History))
+	history := make([]schema1.History, len(img.History))
+
 	parent := ""
-	for i := len(fsLayers) - 1; i > 0; i-- {
-		dgst, err := digest.FromBytes([]byte(fsLayers[i].BlobSum.Hex() + " " + parent))
+	layerCounter := 0
+	for i, h := range img.History {
+		if i == len(img.History)-1 {
+			break
+		}
+
+		var diffID layer.DiffID
+		if h.EmptyLayer {
+			diffID = layer.EmptyLayer.DiffID()
+		} else {
+			if len(img.RootFS.DiffIDs) <= layerCounter {
+				return nil, errors.New("too many non-empty layers in History section")
+			}
+			diffID = img.RootFS.DiffIDs[layerCounter]
+			layerCounter++
+		}
+
+		fsLayer, present := fsLayers[diffID]
+		if !present {
+			return nil, fmt.Errorf("missing layer in CreateV2Manifest: %s", diffID.String())
+		}
+		dgst, err := digest.FromBytes([]byte(fsLayer.BlobSum.Hex() + " " + parent))
 		if err != nil {
 			return nil, err
 		}
-		parent = dgst.Hex()
-		v1IDs[i] = parent
+		v1ID := dgst.Hex()
+
+		v1Compatibility := v1Compatibility{
+			ID:      v1ID,
+			Parent:  parent,
+			Comment: h.Comment,
+			Created: h.Created,
+		}
+		v1Compatibility.ContainerConfig.Cmd = []string{img.History[i].CreatedBy}
+		if h.EmptyLayer {
+			v1Compatibility.ThrowAway = true
+		}
+		jsonBytes, err := json.Marshal(&v1Compatibility)
+		if err != nil {
+			return nil, err
+		}
+
+		reversedIndex := len(img.History) - i - 1
+		history[reversedIndex].V1Compatibility = string(jsonBytes)
+		fsLayerList[reversedIndex] = fsLayer
+
+		parent = v1ID
 	}
 
-	dgst, err := digest.FromBytes([]byte(fsLayers[0].BlobSum.Hex() + " " + parent + " " + string(img.RawJSON())))
+	latestHistory := img.History[len(img.History)-1]
+
+	var diffID layer.DiffID
+	if latestHistory.EmptyLayer {
+		diffID = layer.EmptyLayer.DiffID()
+	} else {
+		if len(img.RootFS.DiffIDs) <= layerCounter {
+			return nil, errors.New("too many non-empty layers in History section")
+		}
+		diffID = img.RootFS.DiffIDs[layerCounter]
+	}
+	fsLayer, present := fsLayers[diffID]
+	if !present {
+		return nil, fmt.Errorf("missing layer in CreateV2Manifest: %s", diffID.String())
+	}
+
+	dgst, err := digest.FromBytes([]byte(fsLayer.BlobSum.Hex() + " " + parent + " " + string(img.RawJSON())))
 	if err != nil {
 		return nil, err
 	}
-	v1IDs[0] = dgst.Hex()
-
-	history := make([]schema1.History, len(fsLayers))
+	fsLayerList[0] = fsLayer
 
 	// Top-level v1compatibility string should be a modified version of the
 	// image config.
-	transformedConfig, err := v1.V1ConfigFromConfig(img, v1IDs[0], v1IDs[1])
+	transformedConfig, err := v1.V1ConfigFromConfig(img, dgst.Hex(), parent, latestHistory.EmptyLayer)
 	if err != nil {
 		return nil, err
 	}
 
 	history[0].V1Compatibility = string(transformedConfig)
-
-	// For the rest of the history, create fake V1Compatibility strings
-	// that fit the format and don't collide with anything else, but don't
-	// result in runnable images on their own.
-	for i := 1; i < len(fsLayers); i++ {
-		// FIXME: are there other fields that are mandatory to the pull code?
-		if i != len(fsLayers)-1 {
-			history[i].V1Compatibility = fmt.Sprintf(`{"id":"%s","parent":"%s"}`, v1IDs[i], v1IDs[i+1])
-		} else {
-			history[i].V1Compatibility = fmt.Sprintf(`{"id":"%s"}`, v1IDs[i])
-		}
-	}
 
 	return &schema1.Manifest{
 		Versioned: manifest.Versioned{
@@ -283,7 +337,7 @@ func CreateV2Manifest(name, tag string, img *image.Image, fsLayers []schema1.FSL
 		Name:         name,
 		Tag:          tag,
 		Architecture: img.Architecture,
-		FSLayers:     fsLayers,
+		FSLayers:     fsLayerList,
 		History:      history,
 	}, nil
 }

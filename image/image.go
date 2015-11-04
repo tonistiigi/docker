@@ -75,6 +75,24 @@ func (img *Image) GetTopLayerID() layer.ID {
 	return layer.CreateID(img.RootFS.DiffIDs)
 }
 
+// MarshalJSON serializes the image to JSON. It sorts the top-level keys so
+// that JSON that's been manipulated by a push/pull cycle with a legacy
+// registry won't end up with a different key order.
+func (img *Image) MarshalJSON() ([]byte, error) {
+	type MarshalImage Image
+
+	pass1, err := json.Marshal(MarshalImage(*img))
+	if err != nil {
+		return nil, err
+	}
+
+	var c map[string]*json.RawMessage
+	if err := json.Unmarshal(pass1, &c); err != nil {
+		return nil, err
+	}
+	return json.Marshal(c)
+}
+
 // History stores build commands that were used to create an image
 type History struct {
 	// Created timestamp for build point
@@ -85,8 +103,10 @@ type History struct {
 	CreatedBy string `json:"created_by,omitempty"`
 	// Comment is custom mesage set by the user when creating the image.
 	Comment string `json:"comment,omitempty"`
-	// Size in bytes how much data was added with the layer.
-	Size int64 `json:"size,omitempty"`
+	// EmptyLayer is set to true if this history item did not generate a
+	// layer. Otherwise, the history item is associated with the next
+	// layer in the RootFS section.
+	EmptyLayer bool `json:"empty_layer,omitempty"`
 }
 
 // Exporter provides interface for exporting and importing images
@@ -97,7 +117,6 @@ type Exporter interface {
 }
 
 // NewFromJSON creates an Image configuration from json.
-// This shouldn't be used directly - it's for unit tests.
 func NewFromJSON(src []byte) (*Image, error) {
 	ret := &Image{}
 

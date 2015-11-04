@@ -102,7 +102,7 @@ func newV1TopImage(imageID image.ID, img *image.Image, l layer.Layer, parent *v1
 		parentV1ID = parent.V1ID()
 	}
 
-	config, err := v1.V1ConfigFromConfig(img, v1ID, parentV1ID)
+	config, err := v1.V1ConfigFromConfig(img, v1ID, parentV1ID, false)
 	if err != nil {
 		return nil, err
 	}
