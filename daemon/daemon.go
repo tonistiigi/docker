@@ -972,7 +972,7 @@ func (daemon *Daemon) Mount(container *Container) error {
 		}
 		layerID = img.GetTopLayerID()
 	}
-	rwlayer, err := daemon.layerStore.Mount(container.ID, layerID, "", daemon.setupInitLayer)
+	rwlayer, err := daemon.layerStore.Mount(container.ID, layerID, container.getMountLabel(), daemon.setupInitLayer)
 	if err != nil {
 		return err
 	}
@@ -981,23 +981,19 @@ func (daemon *Daemon) Mount(container *Container) error {
 		return err
 	}
 	logrus.Debugf("container mounted via layerStore: %v", dir)
-	// dir, err := daemon.driver.Get(container.ID, container.getMountLabel())
-	// if err != nil {
-	// 	return fmt.Errorf("Error getting container %s from driver %s: %s", container.ID, daemon.driver, err)
-	// }
-	//
-	// if container.basefs != dir {
-	// 	// The mount path reported by the graph driver should always be trusted on Windows, since the
-	// 	// volume path for a given mounted layer may change over time.  This should only be an error
-	// 	// on non-Windows operating systems.
-	// 	if container.basefs != "" && runtime.GOOS != "windows" {
-	// 		daemon.driver.Put(container.ID)
-	// 		return fmt.Errorf("Error: driver %s is returning inconsistent paths for container %s ('%s' then '%s')",
-	// 			daemon.driver, container.ID, container.basefs, dir)
-	// 	}
-	// }
-	container.basefs = dir      // FIXME: store rwlayer so we can access tarstream
-	container.rwlayer = rwlayer // FIXME: double mount/unmount
+
+	if container.basefs != dir {
+		// The mount path reported by the graph driver should always be trusted on Windows, since the
+		// volume path for a given mounted layer may change over time.  This should only be an error
+		// on non-Windows operating systems.
+		if container.basefs != "" && runtime.GOOS != "windows" {
+			daemon.layerStore.Unmount(container.ID)
+			return fmt.Errorf("Error: driver %s is returning inconsistent paths for container %s ('%s' then '%s')",
+				daemon.driver, container.ID, container.basefs, dir)
+		}
+	}
+	container.basefs = dir // TODO: combine these fields
+	container.rwlayer = rwlayer
 	return nil
 }
 
