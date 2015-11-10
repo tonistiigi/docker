@@ -20,9 +20,20 @@ import (
 	"github.com/docker/docker/tag"
 )
 
-type migratoryLayerStore interface {
+type graphIDRegisterer interface {
 	RegisterByGraphID(string, layer.ChainID, string) (layer.Layer, error)
+	Release(layer.Layer) ([]layer.Metadata, error)
+}
+
+type graphIDMounter interface {
 	MountByGraphID(string, string, layer.ChainID) (layer.RWLayer, error)
+	Unmount(string) error
+}
+
+type imageCreateGetter interface {
+	Create(config []byte) (image.ID, error)
+	Get(id image.ID) (*image.Image, error)
+	SetParent(id image.ID, parent image.ID) error
 }
 
 const (
@@ -44,11 +55,15 @@ var (
 func Migrate(root, driverName string, ls layer.Store, is image.Store, ts tag.Store, ms metadata.Store) error {
 	mappings := make(map[string]image.ID)
 
-	if err := migrateImages(root, ls, is, ms, mappings); err != nil {
+	if registerer, ok := ls.(graphIDRegisterer); !ok {
+		return errUnsupported
+	} else if err := migrateImages(root, registerer, is, ms, mappings); err != nil {
 		return err
 	}
 
-	if err := migrateContainers(root, ls, is, mappings); err != nil {
+	if mounter, ok := ls.(graphIDMounter); !ok {
+		return errUnsupported
+	} else if err := migrateContainers(root, mounter, is, mappings); err != nil {
 		return err
 	}
 
@@ -59,11 +74,7 @@ func Migrate(root, driverName string, ls layer.Store, is image.Store, ts tag.Sto
 	return nil
 }
 
-func migrateImages(root string, ls layer.Store, is image.Store, ms metadata.Store, mappings map[string]image.ID) error {
-	if _, ok := ls.(migratoryLayerStore); !ok {
-		return errUnsupported
-	}
-
+func migrateImages(root string, ls graphIDRegisterer, is imageCreateGetter, ms metadata.Store, mappings map[string]image.ID) error {
 	graphDir := filepath.Join(root, graphDirName)
 	if _, err := os.Lstat(graphDir); err != nil {
 		if os.IsNotExist(err) {
@@ -117,7 +128,7 @@ func migrateImages(root string, ls layer.Store, is image.Store, ms metadata.Stor
 	return nil
 }
 
-func migrateContainers(root string, ls layer.Store, is image.Store, imageMappings map[string]image.ID) error {
+func migrateContainers(root string, ls graphIDMounter, is imageCreateGetter, imageMappings map[string]image.ID) error {
 	containersDir := path.Join(root, containersDirName)
 	dir, err := ioutil.ReadDir(containersDir)
 	if err != nil {
@@ -150,7 +161,6 @@ func migrateContainers(root string, ls layer.Store, is image.Store, imageMapping
 		if err := json.Unmarshal([]byte(*imageStrJSON), &image); err != nil {
 			return err
 		}
-
 		imageID, ok := imageMappings[image]
 		if !ok {
 			return fmt.Errorf("image not migrated %v", imageID)
@@ -167,17 +177,12 @@ func migrateContainers(root string, ls layer.Store, is image.Store, imageMapping
 			return err
 		}
 
-		migratoryLayerStore, exists := ls.(migratoryLayerStore)
-		if !exists {
-			return errors.New("migration not supported")
-		}
-
 		img, err := is.Get(imageID)
 		if err != nil {
 			return err
 		}
 
-		_, err = migratoryLayerStore.MountByGraphID(id, id, img.GetTopLayerID())
+		_, err = ls.MountByGraphID(id, id, img.GetTopLayerID())
 		if err != nil {
 			return err
 		}
@@ -191,7 +196,11 @@ func migrateContainers(root string, ls layer.Store, is image.Store, imageMapping
 	return nil
 }
 
-func migrateTags(root, driverName string, ts tag.Store, mappings map[string]image.ID) error {
+type tagAdder interface {
+	Add(ref reference.Named, id image.ID, force bool) error
+}
+
+func migrateTags(root, driverName string, ts tagAdder, mappings map[string]image.ID) error {
 	migrationFile := filepath.Join(root, migrationTagsFileName)
 	if _, err := os.Lstat(migrationFile); !os.IsNotExist(err) {
 		return err
@@ -249,7 +258,7 @@ func migrateTags(root, driverName string, ts tag.Store, mappings map[string]imag
 	return nil
 }
 
-func migrateImage(id, root string, ls layer.Store, is image.Store, ms metadata.Store, mappings map[string]image.ID) (err error) {
+func migrateImage(id, root string, ls graphIDRegisterer, is imageCreateGetter, ms metadata.Store, mappings map[string]image.ID) (err error) {
 	defer func() {
 		if err != nil {
 			logrus.Errorf("migration failed for %v, err: %v", id, err)
@@ -284,11 +293,6 @@ func migrateImage(id, root string, ls layer.Store, is image.Store, ms metadata.S
 		}
 	}
 
-	migratoryLayerStore, exists := ls.(migratoryLayerStore)
-	if !exists {
-		return errUnsupported
-	}
-
 	var layerDigests []layer.DiffID
 	var history []image.History
 
@@ -304,7 +308,7 @@ func migrateImage(id, root string, ls layer.Store, is image.Store, ms metadata.S
 
 	parentLayer := layer.CreateChainID(layerDigests)
 
-	layer, err := migratoryLayerStore.RegisterByGraphID(id, parentLayer, filepath.Join(filepath.Join(root, graphDirName, id, tarDataFileName)))
+	layer, err := ls.RegisterByGraphID(id, parentLayer, filepath.Join(filepath.Join(root, graphDirName, id, tarDataFileName)))
 	if err != nil {
 		return err
 	}
