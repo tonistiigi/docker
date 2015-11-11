@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/image/v1"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/archive"
+	"github.com/docker/docker/registry"
 	"github.com/docker/docker/tag"
 )
 
@@ -71,10 +72,10 @@ func (l *tarexporter) parseNames(names []string) (map[image.ID]*imageDescriptor,
 
 	for _, name := range names {
 		ref, err := reference.ParseNamed(name)
-		// FIXME: normalize
 		if err != nil {
 			return nil, err
 		}
+		ref = registry.NormalizeLocalReference(ref)
 		if ref.Name() == string(digest.Canonical) {
 			imgID, err := l.is.Search(name)
 			if err != nil {
