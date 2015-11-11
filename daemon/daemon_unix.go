@@ -14,12 +14,14 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon/graphdriver"
 	derr "github.com/docker/docker/errors"
+	"github.com/docker/docker/image"
 	pblkiodev "github.com/docker/docker/pkg/blkiodev"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/parsers/kernel"
 	"github.com/docker/docker/pkg/sysinfo"
 	"github.com/docker/docker/runconfig"
+	"github.com/docker/docker/tag"
 	"github.com/docker/docker/volume"
 	"github.com/docker/libnetwork"
 	nwconfig "github.com/docker/libnetwork/config"
@@ -645,4 +647,9 @@ func getDefaultRouteMtu() (int, error) {
 		}
 	}
 	return 0, errNoDefaultRoute
+}
+
+func restoreCustomImage(driver graphdriver.Driver, is image.Store, ts tag.Store) error {
+	// Unix has no custom images to register
+	return nil
 }

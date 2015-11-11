@@ -782,12 +782,9 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 		return nil, fmt.Errorf("Couldn't create Tag store repositories: %s", err)
 	}
 
-	// FIXME: Windows
-	// if restorer, ok := d.driver.(graphdriver.ImageRestorer); ok {
-	// 	if _, err := restorer.RestoreCustomImages(repositories, g); err != nil {
-	// 		return nil, fmt.Errorf("Couldn't restore custom images: %s", err)
-	// 	}
-	// }
+	if err := restoreCustomImage(d.driver, d.imageStore, tagStore); err != nil {
+		return nil, fmt.Errorf("Couldn't restore custom images: %s", err)
+	}
 
 	if err := v1.Migrate(config.Root, d.driver.String(), d.layerStore, d.imageStore, tagStore, distributionMetadataStore); err != nil {
 		return nil, err
