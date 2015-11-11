@@ -15,12 +15,14 @@ import (
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/dockerversion"
 	derr "github.com/docker/docker/errors"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/parsers/kernel"
 	"github.com/docker/docker/pkg/sysinfo"
 	"github.com/docker/docker/runconfig"
+	"github.com/docker/docker/tag"
 	"github.com/docker/docker/utils"
 	"github.com/docker/docker/volume"
 	"github.com/docker/libnetwork"
@@ -651,4 +653,9 @@ func getDefaultRouteMtu() (int, error) {
 		}
 	}
 	return 0, errNoDefaultRoute
+}
+
+func restoreCustomImage(driver graphdriver.Driver, is image.Store, ts tag.Store) error {
+	// Unix has no custom images to register
+	return nil
 }
