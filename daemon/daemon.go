@@ -732,10 +732,10 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 	}
 
 	imageRoot := filepath.Join(config.Root, "image", d.driver.String())
-	if err := os.MkdirAll(filepath.Join(imageRoot, "layerdb"), 0600); err != nil {
+	fms, err := layer.NewFSMetadataStore(filepath.Join(imageRoot, "layerdb"))
+	if err != nil {
 		return nil, err
 	}
-	fms := layer.NewFileMetadataStore(filepath.Join(imageRoot, "layerdb"))
 
 	d.layerStore, err = layer.NewStore(fms, d.driver)
 	if err != nil {
