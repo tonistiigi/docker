@@ -38,7 +38,13 @@ func (ml *mountedLayer) Path() (string, error) {
 }
 
 func (ml *mountedLayer) Parent() Layer {
-	return ml.parent
+	if ml.parent != nil {
+		return ml.parent
+	}
+
+	// Return a nil interface instead of an interface wrapping a nil
+	// pointer.
+	return nil
 }
 
 func (ml *mountedLayer) Size() (int64, error) {
