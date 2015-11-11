@@ -63,7 +63,11 @@ func newTestStore(t *testing.T) (Store, func()) {
 	}
 
 	graph, graphcleanup := newTestGraphDriver(t)
-	ls, err := NewStore(NewFileMetadataStore(td), graph)
+	fms, err := NewFSMetadataStore(td)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls, err := NewStore(fms, graph)
 	if err != nil {
 		t.Fatal(err)
 	}

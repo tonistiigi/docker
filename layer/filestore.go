@@ -37,10 +37,13 @@ type fileMetadataTransaction struct {
 // NewFileMetadataStore returns an instance of a metadata store
 // which is backed by files on disk using the provided root
 // as the root of metadata files.
-func NewFileMetadataStore(root string) MetadataStore {
+func NewFSMetadataStore(root string) (MetadataStore, error) {
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return nil, err
+	}
 	return &fileMetadataStore{
 		root: root,
-	}
+	}, nil
 }
 
 func (fms *fileMetadataStore) getLayerDirectory(layer ChainID) string {

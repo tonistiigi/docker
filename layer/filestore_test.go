@@ -28,9 +28,12 @@ func newFileMetadataStore(t *testing.T) (*fileMetadataStore, string, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fms := NewFileMetadataStore(td).(*fileMetadataStore)
+	fms, err := NewFSMetadataStore(td)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	return fms, td, func() {
+	return fms.(*fileMetadataStore), td, func() {
 		if err := os.RemoveAll(td); err != nil {
 			t.Logf("Failed to cleanup %q: %s", td, err)
 		}

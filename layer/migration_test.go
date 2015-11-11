@@ -85,7 +85,10 @@ func TestLayerMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fms := NewFileMetadataStore(filepath.Join(td, "layers"))
+	fms, err := NewFSMetadataStore(filepath.Join(td, "layers"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	ls, err := NewStore(fms, graph)
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +201,10 @@ func TestLayerMigrationNoTarsplit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fms := NewFileMetadataStore(filepath.Join(td, "layers"))
+	fms, err := NewFSMetadataStore(filepath.Join(td, "layers"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	ls, err := NewStore(fms, graph)
 	if err != nil {
 		t.Fatal(err)
