@@ -7,6 +7,7 @@ import (
 
 	"github.com/docker/docker/daemon/execdriver"
 	derr "github.com/docker/docker/errors"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/volume"
 	"github.com/docker/libnetwork"
 )
@@ -98,22 +99,25 @@ func (daemon *Daemon) populateCommand(c *Container, env []string) error {
 	processConfig.Env = env
 
 	var layerPaths []string
-	img, err := daemon.graph.Get(c.ImageID)
+	img, err := daemon.imageStore.Get(c.ImageID)
 	if err != nil {
 		return derr.ErrorCodeGetGraph.WithArgs(c.ImageID, err)
 	}
-	for i := img; i != nil && err == nil; i, err = daemon.graph.GetParent(i) {
-		lp, err := daemon.driver.Get(i.ID, "")
-		if err != nil {
-			return derr.ErrorCodeGetLayer.WithArgs(daemon.driver.String(), i.ID, err)
-		}
-		layerPaths = append(layerPaths, lp)
-		err = daemon.driver.Put(i.ID)
-		if err != nil {
-			return derr.ErrorCodePutLayer.WithArgs(daemon.driver.String(), i.ID, err)
+
+	if img.RootFS != nil && img.RootFS.Type == "layers" {
+		layerPaths = make([]string, len(img.RootFS.DiffIDs))
+		for i := 1; i <= len(img.RootFS.DiffIDs); i++ {
+			layerID := layer.CreateChainID(img.RootFS.DiffIDs[0:i])
+			path, err := layer.GetLayerPath(daemon.layerStore, layerID)
+			if err != nil {
+				return derr.ErrorCodeGetLayer.WithArgs(err)
+			}
+			// Reverse order, expecting parent most first
+			layerPaths[len(img.RootFS.DiffIDs)-i] = path
 		}
 	}
-	m, err := daemon.driver.GetMetadata(c.ID)
+
+	m, err := layer.RWLayerMetadata(daemon.layerStore, c.ID)
 	if err != nil {
 		return derr.ErrorCodeGetLayerMetadata.WithArgs(err)
 	}
