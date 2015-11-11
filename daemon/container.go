@@ -115,13 +115,6 @@ func (container *Container) toDisk() error {
 		return err
 	}
 
-	// todo: where was this handled before
-	dir := filepath.Dir(pth)
-
-	if err := os.MkdirAll(dir, 0600); err != nil {
-		return err
-	}
-
 	jsonSource, err := os.Create(pth)
 	if err != nil {
 		return err
@@ -191,11 +184,6 @@ func (container *Container) readHostConfig() error {
 func (container *Container) writeHostConfig() error {
 	pth, err := container.hostConfigPath()
 	if err != nil {
-		return err
-	}
-
-	dir := filepath.Dir(pth)
-	if err := os.MkdirAll(dir, 0600); err != nil {
 		return err
 	}
 

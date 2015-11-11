@@ -5,6 +5,7 @@ import (
 	"github.com/docker/docker/api/types"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/docker/volume"
@@ -84,6 +85,14 @@ func (daemon *Daemon) create(params *ContainerCreateConfig) (retC *Container, re
 	if err := daemon.Register(container); err != nil {
 		return nil, err
 	}
+	rootUID, rootGID, err := idtools.GetRootUIDGID(daemon.uidMaps, daemon.gidMaps)
+	if err != nil {
+		return nil, err
+	}
+	if err := idtools.MkdirAs(container.root, 0700, rootUID, rootGID); err != nil {
+		return nil, err
+	}
+
 	if err := daemon.setHostConfig(container, params.HostConfig); err != nil {
 		return nil, err
 	}
