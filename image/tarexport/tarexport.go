@@ -1,8 +1,6 @@
 package tarexport
 
 import (
-	"errors"
-
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/tag"
@@ -29,13 +27,10 @@ type tarexporter struct {
 }
 
 // NewTarExporter returns new ImageExporter for tar packages
-func NewTarExporter(is image.Store, ls layer.Store, ts tag.Store) (image.Exporter, error) {
-	if is == nil || ls == nil || ts == nil {
-		return nil, errors.New("Invalid tarexporter configuration")
-	}
+func NewTarExporter(is image.Store, ls layer.Store, ts tag.Store) image.Exporter {
 	return &tarexporter{
 		is: is,
 		ls: ls,
 		ts: ts,
-	}, nil
+	}
 }
