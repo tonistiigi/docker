@@ -147,7 +147,6 @@ type Daemon struct {
 	gidMaps                   []idtools.IDMap
 	layerStore                layer.Store
 	imageStore                image.Store
-	imageExporter             image.Exporter
 }
 
 // Get looks for a container using the provided information, which could be
@@ -792,11 +791,6 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 		return nil, err
 	}
 
-	d.imageExporter, err = tarexport.NewTarExporter(d.imageStore, d.layerStore, tagStore)
-	if err != nil {
-		return nil, err
-	}
-
 	// Discovery is only enabled when the daemon is launched with an address to advertise.  When
 	// initialized, the daemon is registered and we can store the discovery backend as its read-only
 	// DiscoveryWatcher version.
@@ -1079,7 +1073,8 @@ func (daemon *Daemon) PullImage(ref reference.Named, metaHeaders map[string][]st
 // the same tag are exported. names is the set of tags to export, and
 // outStream is the writer which the images are written to.
 func (daemon *Daemon) ExportImage(names []string, outStream io.Writer) error {
-	return daemon.imageExporter.Save(names, outStream)
+	imageExporter := tarexport.NewTarExporter(daemon.imageStore, daemon.layerStore, daemon.tagStore)
+	return imageExporter.Save(names, outStream)
 }
 
 // PushImage initiates a push operation on the repository named localName.
@@ -1166,7 +1161,8 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 // complement of ImageExport.  The input stream is an uncompressed tar
 // ball containing images and metadata.
 func (daemon *Daemon) LoadImage(inTar io.ReadCloser, outStream io.Writer) error {
-	return daemon.imageExporter.Load(inTar, outStream)
+	imageExporter := tarexport.NewTarExporter(daemon.imageStore, daemon.layerStore, daemon.tagStore)
+	return imageExporter.Load(inTar, outStream)
 }
 
 // ImageHistory returns a slice of ImageHistory structures for the specified image
