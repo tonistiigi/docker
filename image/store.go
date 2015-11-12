@@ -200,16 +200,15 @@ func (is *store) Delete(id ID) ([]layer.Metadata, error) {
 	is.Lock()
 	defer is.Unlock()
 
-	if parent, err := is.GetParent(id); err == nil && is.images[parent] != nil {
-		delete(is.images[parent].children, id)
-	}
-
 	imageMeta := is.images[id]
 	if imageMeta == nil {
 		return nil, fmt.Errorf("unrecognized image ID %s", id.String())
 	}
 	for id := range imageMeta.children {
 		is.fs.DeleteMetadata(id, "parent")
+	}
+	if parent, err := is.GetParent(id); err == nil && is.images[parent] != nil {
+		delete(is.images[parent].children, id)
 	}
 
 	delete(is.images, id)
