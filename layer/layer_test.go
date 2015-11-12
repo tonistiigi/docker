@@ -659,18 +659,6 @@ func TestRegisterExistingLayer(t *testing.T) {
 	}
 
 	assertReferences(t, layer2a, layer2b)
-
-	tar2, err := tarFromFiles(layerFiles...)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	layer2c, err := ls.Register(bytes.NewReader(tar2), layer1.ChainID())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	assertReferences(t, layer2a, layer2b, layer2c)
 }
 
 func graphDiffSize(ls Store, l Layer) (int64, error) {
