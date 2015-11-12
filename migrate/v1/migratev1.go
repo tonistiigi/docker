@@ -95,7 +95,6 @@ func migrateImages(root string, ls graphIDRegistrar, is image.Store, ms metadata
 	if err != nil {
 		return err
 	}
-	// var ids = []string{}
 	for _, v := range dir {
 		v1ID := v.Name()
 		if err := imagev1.ValidateID(v1ID); err != nil {
@@ -103,10 +102,9 @@ func migrateImages(root string, ls graphIDRegistrar, is image.Store, ms metadata
 		}
 		if _, exists := mappings[v1ID]; exists {
 			continue
-		} else {
-			if err := migrateImage(v1ID, root, ls, is, ms, mappings); err != nil {
-				continue
-			}
+		}
+		if err := migrateImage(v1ID, root, ls, is, ms, mappings); err != nil {
+			continue
 		}
 	}
 
@@ -128,7 +126,6 @@ func migrateContainers(root string, ls graphIDMounter, is image.Store, imageMapp
 	if err != nil {
 		return err
 	}
-	// var ids = []string{}
 	for _, v := range dir {
 		id := v.Name()
 
