@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -206,11 +207,16 @@ func (s *DockerSuite) TestSaveRepoWithMultipleImages(c *check.C) {
 	// create the archive
 	out, _, err := runCommandPipelineWithOutput(
 		exec.Command(dockerBinary, "save", repoName, "busybox:latest"),
-		exec.Command("tar", "t"),
-		exec.Command("grep", "-E", "[a-z0-9]{64}\\.json"),
-		exec.Command("cut", "-d", ".", "-f1"))
+		exec.Command("tar", "t"))
 	c.Assert(err, checker.IsNil, check.Commentf("failed to save multiple images: %s, %v", out, err))
-	actual := strings.Split(strings.TrimSpace(out), "\n")
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	var actual []string
+	for _, l := range lines {
+		if regexp.MustCompile("^[a-f0-9]{64}\\.json$").Match([]byte(l)) {
+			actual = append(actual, strings.TrimSuffix(l, ".json"))
+		}
+	}
 
 	// make the list of expected layers
 	out, _ = dockerCmd(c, "inspect", "-f", "{{.Id}}", "busybox:latest")
@@ -223,7 +229,7 @@ func (s *DockerSuite) TestSaveRepoWithMultipleImages(c *check.C) {
 
 	sort.Strings(actual)
 	sort.Strings(expected)
-	c.Assert(actual, checker.DeepEquals, expected, check.Commentf("archive does not contains the right layers: got %v, expected %v", actual, expected))
+	c.Assert(actual, checker.DeepEquals, expected, check.Commentf("archive does not contains the right layers: got %v, expected %v, output: %q", actual, expected, out))
 }
 
 // Issue #6722 #5892 ensure directories are included in changes
