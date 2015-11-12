@@ -391,8 +391,7 @@ func (daemon *Daemon) getSize(container *Container) (int64, int64) {
 	}
 	defer daemon.Unmount(container)
 
-	initID := fmt.Sprintf("%s-init", container.ID)
-	sizeRw, err = daemon.driver.DiffSize(container.ID, initID)
+	sizeRw, err = container.rwlayer.Size()
 	if err != nil {
 		logrus.Errorf("Driver %s couldn't return diff size of container %s: %s", daemon.driver, container.ID, err)
 		// FIXME: GetSize should return an error. Not changing it now in case
