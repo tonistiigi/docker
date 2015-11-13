@@ -81,18 +81,25 @@ func (ls *layerStore) MountByGraphID(name string, graphID string, parent ChainID
 
 func (ls *layerStore) migrateLayer(tx MetadataTransaction, tarDataFile string, layer *roLayer) error {
 	var ar io.Reader
+	var tdf *os.File
+	var err error
 	if tarDataFile != "" {
+		tdf, err = os.Open(tarDataFile)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return err
+			}
+			tdf = nil
+		}
+		defer tdf.Close()
+	}
+	if tdf != nil {
 		tsw, err := tx.TarSplitWriter()
 		if err != nil {
 			return err
 		}
 
 		defer tsw.Close()
-		tdf, err := os.Open(tarDataFile)
-		if err != nil {
-			return err
-		}
-		defer tdf.Close()
 
 		uncompressed, err := gzip.NewReader(tdf)
 		if err != nil {
@@ -103,7 +110,7 @@ func (ls *layerStore) migrateLayer(tx MetadataTransaction, tarDataFile string, l
 		tr := io.TeeReader(uncompressed, tsw)
 		trc := ioutils.NewReadCloserWrapper(tr, uncompressed.Close)
 
-		ar, err = ls.assembleTar(layer.cacheID, trc)
+		ar, err = ls.assembleTar(layer.cacheID, trc, &layer.size)
 		if err != nil {
 			return err
 		}
@@ -124,21 +131,21 @@ func (ls *layerStore) migrateLayer(tx MetadataTransaction, tarDataFile string, l
 			return err
 		}
 		metaPacker := storage.NewJSONPacker(tsw)
+		packerCounter := &packSizeCounter{metaPacker, &layer.size}
 		defer tsw.Close()
 
-		ar, err = asm.NewInputTarStream(archiver, metaPacker, nil)
+		ar, err = asm.NewInputTarStream(archiver, packerCounter, nil)
 		if err != nil {
 			return err
 		}
 	}
 
 	digester := digest.Canonical.New()
-	n, err := io.Copy(digester.Hash(), ar)
+	_, err = io.Copy(digester.Hash(), ar)
 	if err != nil {
 		return err
 	}
 
-	layer.size = n
 	layer.diffID = DiffID(digester.Digest())
 
 	return nil
@@ -215,4 +222,30 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ChainID, tarDataF
 	ls.layerMap[layer.chainID] = layer
 
 	return layer.getReference(), nil
+}
+
+type unpackSizeCounter struct {
+	unpacker storage.Unpacker
+	size     *int64
+}
+
+func (u *unpackSizeCounter) Next() (*storage.Entry, error) {
+	e, err := u.unpacker.Next()
+	if err == nil && u.size != nil {
+		*u.size += e.Size
+	}
+	return e, err
+}
+
+type packSizeCounter struct {
+	packer storage.Packer
+	size   *int64
+}
+
+func (p *packSizeCounter) AddEntry(e storage.Entry) (int, error) {
+	n, err := p.packer.AddEntry(e)
+	if err == nil && p.size != nil {
+		*p.size += e.Size
+	}
+	return n, err
 }
