@@ -19,7 +19,6 @@ import (
 	"github.com/docker/docker/daemon/links"
 	"github.com/docker/docker/daemon/network"
 	derr "github.com/docker/docker/errors"
-	"github.com/docker/docker/pkg/directory"
 	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/mount"
@@ -399,9 +398,12 @@ func (daemon *Daemon) getSize(container *Container) (int64, int64) {
 		sizeRw = -1
 	}
 
-	if _, err = os.Stat(container.basefs); err == nil {
-		if sizeRootfs, err = directory.Size(container.basefs); err != nil {
+	if parent := container.rwlayer.Parent(); parent != nil {
+		sizeRootfs, err = parent.Size()
+		if err != nil {
 			sizeRootfs = -1
+		} else if sizeRw != -1 {
+			sizeRootfs += sizeRw
 		}
 	}
 	return sizeRw, sizeRootfs
