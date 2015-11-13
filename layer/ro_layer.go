@@ -20,7 +20,7 @@ func (rl *roLayer) TarStream() (io.Reader, error) {
 		return nil, err
 	}
 
-	return rl.layerStore.assembleTar(rl.cacheID, r)
+	return rl.layerStore.assembleTar(rl.cacheID, r, nil)
 }
 
 func (rl *roLayer) ChainID() ChainID {

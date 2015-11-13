@@ -701,7 +701,7 @@ func TestLayerSize(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if expected := 2048; int(layer1Size) != expected {
+	if expected := len(content1); int(layer1Size) != expected {
 		t.Fatalf("Unexpected size %d, expected %d", layer1Size, expected)
 	}
 
@@ -719,7 +719,7 @@ func TestLayerSize(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if expected := 4096; int(layer2Size) != expected {
+	if expected := len(content1) + len(content2); int(layer2Size) != expected {
 		t.Fatalf("Unexpected size %d, expected %d", layer2Size, expected)
 	}
 }

@@ -178,37 +178,20 @@ func (ls *layerStore) applyTar(tx MetadataTransaction, ts io.Reader, parent stri
 		return err
 	}
 
-	rc := &readCounter{
-		r: rdr,
-	}
-
-	applySize, err := ls.driver.ApplyDiff(layer.cacheID, parent, archive.Reader(rc))
+	applySize, err := ls.driver.ApplyDiff(layer.cacheID, parent, archive.Reader(rdr))
 	if err != nil {
 		return err
 	}
 
 	// Discard trailing data but ensure metadata is picked up to reconstruct stream
-	if _, err := io.Copy(ioutil.Discard, rc); err != nil {
-		return err
-	}
+	io.Copy(ioutil.Discard, rdr) // ignore error as reader may be closed
 
-	layer.size = rc.count
+	layer.size = applySize
 	layer.diffID = DiffID(digester.Digest())
 
 	logrus.Debugf("Applied tar %s to %s, size: %d", layer.diffID, layer.cacheID, applySize)
 
 	return nil
-}
-
-type readCounter struct {
-	r     io.Reader
-	count int64
-}
-
-func (rc *readCounter) Read(p []byte) (n int, err error) {
-	n, err = rc.r.Read(p)
-	rc.count += int64(n)
-	return
 }
 
 func (ls *layerStore) Register(ts io.Reader, parent ChainID) (Layer, error) {
@@ -604,7 +587,7 @@ func (ls *layerStore) Changes(name string) ([]archive.Change, error) {
 	return ls.driver.Changes(m.mountID, pid)
 }
 
-func (ls *layerStore) assembleTar(graphID string, metadata io.ReadCloser) (io.Reader, error) {
+func (ls *layerStore) assembleTar(graphID string, metadata io.ReadCloser, size *int64) (io.Reader, error) {
 	// get our relative path to the container
 	fsPath, err := ls.driver.Get(graphID, "")
 	if err != nil {
@@ -621,9 +604,10 @@ func (ls *layerStore) assembleTar(graphID string, metadata io.ReadCloser) (io.Re
 		defer metadata.Close()
 
 		metaUnpacker := storage.NewJSONUnpacker(metadata)
+		upackerCounter := &unpackSizeCounter{metaUnpacker, size}
 		fileGetter := storage.NewPathFileGetter(fsPath)
 		logrus.Debugf("Assembling tar data for %s from %s", graphID, fsPath)
-		ots := asm.NewOutputTarStream(fileGetter, metaUnpacker)
+		ots := asm.NewOutputTarStream(fileGetter, upackerCounter)
 		defer ots.Close()
 		if _, err := io.Copy(pW, ots); err != nil {
 			pW.CloseWithError(err)
