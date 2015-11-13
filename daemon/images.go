@@ -155,6 +155,7 @@ func newImage(image *image.Image, size int64) *types.Image {
 	newImage.ID = image.ID().String()
 	newImage.Created = image.Created.Unix()
 	newImage.Size = size
+	newImage.VirtualSize = size
 	if image.Config != nil {
 		newImage.Labels = image.Config.Labels
 	}

@@ -1148,7 +1148,7 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 		Architecture:    img.Architecture,
 		Os:              img.OS,
 		Size:            size,
-		//VirtualSize:   s.graph.GetParentsSize(image) + image.Size, // FIXME: document removal
+		VirtualSize:     size, // TODO: field unused, deprecate
 	}
 
 	imageInspect.GraphDriver.Name = daemon.driver.String()
