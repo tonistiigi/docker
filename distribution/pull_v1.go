@@ -240,11 +240,11 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 
 	var (
 		referencedLayers []layer.Layer
-		parentID         layer.ChainID
-		newHistory       []image.History
-		img              *image.V1Image
-		imgJSON          []byte
-		imgSize          int64
+		// parentID         layer.ChainID
+		newHistory []image.History
+		img        *image.V1Image
+		imgJSON    []byte
+		imgSize    int64
 	)
 
 	defer func() {
@@ -254,6 +254,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 	}()
 
 	layersDownloaded = false
+	rootFS := image.NewRootFS()
 
 	// Iterate over layers from top-most to bottom-most, checking if any
 	// already exist on disk.
@@ -262,6 +263,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 		v1LayerID := history[i]
 		// Do we have a mapping for this particular v1 ID on this
 		// registry?
+		// todo: can we at least validate the chain?
 		if layerID, err := p.v1IDService.Get(v1LayerID, p.repoInfo.Index.Name); err == nil {
 			// Does the layer actually exist
 			if l, err := p.config.LayerStore.Get(layerID); err == nil {
@@ -269,8 +271,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 					logrus.Debugf("Layer already exists: %s", history[j])
 					out.Write(p.sf.FormatProgress(stringid.TruncateID(history[j]), "Already exists", nil))
 				}
-				referencedLayers = append(referencedLayers, l)
-				parentID = layerID
+				rootFS.DiffIDs = append(rootFS.DiffIDs, l.DiffID())
 				break
 			}
 		}
@@ -293,18 +294,16 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 		}
 
 		if i < needsDownload {
-			l, err := p.downloadLayer(out, v1LayerID, endpoint, parentID, imgSize, &layersDownloaded)
+			l, err := p.downloadLayer(out, v1LayerID, endpoint, rootFS.ChainID(), imgSize, &layersDownloaded)
 
 			// Note: This needs to be done even in the error case to avoid
 			// stale references to the layer.
 			if l != nil {
-				referencedLayers = append(referencedLayers, l)
+				rootFS.DiffIDs = append(rootFS.DiffIDs, l.DiffID())
 			}
 			if err != nil {
 				return layersDownloaded, err
 			}
-
-			parentID = l.ChainID()
 		}
 
 		// Create a new-style config from the legacy configs
@@ -315,7 +314,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 		newHistory = append(newHistory, h)
 	}
 
-	config, err := v1.MakeConfigFromV1Config(imgJSON, referencedLayers[len(referencedLayers)-1], newHistory)
+	config, err := v1.MakeConfigFromV1Config(imgJSON, rootFS, newHistory)
 	if err != nil {
 		return layersDownloaded, err
 	}

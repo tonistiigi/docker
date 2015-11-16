@@ -1,6 +1,10 @@
 package layer
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/docker/distribution/digest"
+)
 
 // GetLayerPath returns the path to a layer
 func GetLayerPath(s Store, layer ChainID) (string, error) {
@@ -44,4 +48,44 @@ func RWLayerMetadata(s Store, name string) (map[string]string, error) {
 	}
 
 	return ls.driver.GetMetadata(ml.mountID)
+}
+
+func (ls *layerStore) RegisterDiffID(graphID string, size int64) (Layer, error) {
+	// Create new roLayer
+	layer := &roLayer{
+		cacheID:        graphID,
+		diffID:         DiffID(digest.NewDigestFromHex("sha256:", graphID)),
+		referenceCount: 1,
+		layerStore:     ls,
+		references:     map[Layer]struct{}{},
+		size:           size,
+	}
+
+	tx, err := ls.store.StartTransaction()
+	if err != nil {
+		return nil, err
+	}
+
+	layer.chainID = createChainIDFromParent("", layer.diffID)
+
+	if err = storeLayer(tx, layer); err != nil {
+		return nil, err
+	}
+
+	ls.layerL.Lock()
+	defer ls.layerL.Unlock()
+
+	if existingLayer := ls.getAndRetainLayer(layer.chainID); existingLayer != nil {
+		// Set error for cleanup, but do not return
+		err = errors.New("layer already exists")
+		return existingLayer.getReference(), nil
+	}
+
+	if err = tx.Commit(layer.chainID); err != nil {
+		return nil, err
+	}
+
+	ls.layerMap[layer.chainID] = layer
+
+	return layer.getReference(), nil
 }

@@ -93,7 +93,7 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 			}
 		}
 
-		layerID := img.GetTopLayerID()
+		layerID := img.RootFS.ChainID()
 		var size int64
 		if layerID != "" {
 			l, err := daemon.layerStore.Get(layerID)

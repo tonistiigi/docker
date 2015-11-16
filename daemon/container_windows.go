@@ -104,7 +104,7 @@ func (daemon *Daemon) populateCommand(c *Container, env []string) error {
 		return derr.ErrorCodeGetGraph.WithArgs(c.ImageID, err)
 	}
 
-	if img.RootFS != nil && img.RootFS.Type == "layers" {
+	if img.RootFS != nil && img.RootFS.Type == "layers+base" {
 		layerPaths = make([]string, len(img.RootFS.DiffIDs))
 		for i := 1; i <= len(img.RootFS.DiffIDs); i++ {
 			layerID := layer.CreateChainID(img.RootFS.DiffIDs[0:i])

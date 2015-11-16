@@ -96,7 +96,7 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 
 	var l layer.Layer
 
-	topLayerID := img.GetTopLayerID()
+	topLayerID := img.RootFS.ChainID()
 	if topLayerID == "" {
 		l = layer.EmptyLayer
 	} else {

@@ -67,7 +67,7 @@ func CreateID(v1Image image.V1Image, layerID layer.ChainID, parent digest.Digest
 }
 
 // MakeConfigFromV1Config creates an image config from the legacy V1 config format.
-func MakeConfigFromV1Config(imageJSON []byte, l layer.Layer, history []image.History) ([]byte, error) {
+func MakeConfigFromV1Config(imageJSON []byte, rootfs *image.RootFS, history []image.History) ([]byte, error) {
 	var dver struct {
 		DockerVersion string `json:"docker_version"`
 	}
@@ -102,8 +102,8 @@ func MakeConfigFromV1Config(imageJSON []byte, l layer.Layer, history []image.His
 	delete(c, "layer_id")
 	delete(c, "throwaway")
 
-	layerDigests := addLayerDiffIDs(l)
-	c["rootfs"] = rawJSON(&image.RootFS{Type: "layers", DiffIDs: layerDigests})
+	// layerDigests := addLayerDiffIDs(l)
+	c["rootfs"] = rawJSON(rootfs)
 	c["history"] = rawJSON(history)
 
 	return json.Marshal(c)
@@ -150,10 +150,10 @@ func ValidateID(id string) error {
 
 // addLayerDiffIDs creates a slice containing all layer diff IDs for the given
 // layer, ordered from base to top-most.
-func addLayerDiffIDs(l layer.Layer) []layer.DiffID {
-	parent := l.Parent()
-	if parent == nil {
-		return []layer.DiffID{l.DiffID()}
-	}
-	return append(addLayerDiffIDs(parent), l.DiffID())
-}
+// func addLayerDiffIDs(l layer.Layer) []layer.DiffID {
+// 	parent := l.Parent()
+// 	if parent == nil {
+// 		return []layer.DiffID{l.DiffID()}
+// 	}
+// 	return append(addLayerDiffIDs(parent), l.DiffID())
+// }

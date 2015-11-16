@@ -111,14 +111,13 @@ func (p *v2Puller) pullV2Repository(ref reference.Named) (err error) {
 
 // downloadInfo is used to pass information from download to extractor
 type downloadInfo struct {
-	tmpFile       *os.File
-	digest        digest.Digest
-	layerBlobSums []digest.Digest
-	layer         distribution.ReadSeekCloser
-	size          int64
-	err           chan error
-	poolKey       string
-	broadcaster   *broadcaster.Buffered
+	tmpFile     *os.File
+	digest      digest.Digest
+	layer       distribution.ReadSeekCloser
+	size        int64
+	err         chan error
+	poolKey     string
+	broadcaster *broadcaster.Buffered
 }
 
 type errVerification struct{}
@@ -212,6 +211,12 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		return false, err
 	}
 
+	rootFS := image.NewRootFS()
+
+	if err := detectBaseLayer(p.config.ImageStore, verifiedManifest, rootFS); err != nil {
+		return false, err
+	}
+
 	// remove duplicate layers and check parent chain validity
 	err = fixManifestLayers(verifiedManifest)
 	if err != nil {
@@ -234,16 +239,8 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		}
 	}()
 
-	var (
-		// Slice of BlobSums, ordered from bottom-most to top-most
-		nonEmptyBlobSums []digest.Digest
-		// Current top layer during the pull process
-		topLayer layer.Layer
-		// Used to accumulate diffIDs to compute a layer ID
-		diffIDs []layer.DiffID
-		// Image history converted to the new format
-		history []image.History
-	)
+	// Image history converted to the new format
+	var history []image.History
 
 	poolKey := "v2layer:"
 	notFoundLocally := false
@@ -271,22 +268,21 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 			continue
 		}
 
-		nonEmptyBlobSums = append(nonEmptyBlobSums, blobSum)
-
 		// Do we have a layer on disk corresponding to the set of
 		// blobsums up to this point?
 		if !notFoundLocally {
 			notFoundLocally = true
 			diffID, err := p.blobSumService.GetDiffID(blobSum)
 			if err == nil {
-				diffIDs = append(diffIDs, diffID)
-				if l, err := p.config.LayerStore.Get(layer.CreateChainID(diffIDs)); err == nil {
+				rootFS.DiffIDs = append(rootFS.DiffIDs, diffID)
+				if l, err := p.config.LayerStore.Get(rootFS.ChainID()); err == nil {
 					notFoundLocally = false
 					logrus.Debugf("Layer already exists: %s", blobSum.String())
 					out.Write(p.sf.FormatProgress(stringid.TruncateID(blobSum.String()), "Already exists", nil))
 					defer layer.ReleaseAndLog(p.config.LayerStore, l)
-					topLayer = l
 					continue
+				} else {
+					rootFS.DiffIDs = rootFS.DiffIDs[:len(rootFS.DiffIDs)-1]
 				}
 			}
 		}
@@ -299,10 +295,9 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		}
 
 		d := &downloadInfo{
-			poolKey:       poolKey,
-			digest:        blobSum,
-			layerBlobSums: nonEmptyBlobSums,
-			tmpFile:       tmpFile,
+			poolKey: poolKey,
+			digest:  blobSum,
+			tmpFile: tmpFile,
 			// TODO: seems like this chan buffer solved hanging problem in go1.5,
 			// this can indicate some deeper problem that somehow we never take
 			// error from channel in loop below
@@ -334,22 +329,18 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 				return false, err
 			}
 
-			diffIDs = nil
-			for _, blobSum := range d.layerBlobSums {
-				diffID, err := p.blobSumService.GetDiffID(blobSum)
-				if err != nil {
-					return false, err
-				}
-				diffIDs = append(diffIDs, diffID)
+			diffID, err := p.blobSumService.GetDiffID(d.digest)
+			if err != nil {
+				return false, err
 			}
+			rootFS.DiffIDs = append(rootFS.DiffIDs, diffID)
 
-			l, err := p.config.LayerStore.Get(layer.CreateChainID(diffIDs))
+			l, err := p.config.LayerStore.Get(rootFS.ChainID())
 			if err != nil {
 				return false, err
 			}
 
 			defer layer.ReleaseAndLog(p.config.LayerStore, l)
-			topLayer = l
 
 			continue
 		}
@@ -370,15 +361,12 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 			return false, fmt.Errorf("could not get decompression stream: %v", err)
 		}
 
-		var parentID layer.ChainID
-		if topLayer != nil {
-			parentID = topLayer.ChainID()
-		}
-		l, err := p.config.LayerStore.Register(inflatedLayerData, parentID)
+		l, err := p.config.LayerStore.Register(inflatedLayerData, rootFS.ChainID())
 		if err != nil {
 			return false, fmt.Errorf("failed to register layer: %v", err)
 		}
 		logrus.Debugf("layer %s registered successfully", l.DiffID())
+		rootFS.DiffIDs = append(rootFS.DiffIDs, l.DiffID())
 
 		// Cache mapping from this layer's DiffID to the blobsum
 		if err := p.blobSumService.Add(l.DiffID(), d.digest); err != nil {
@@ -386,17 +374,13 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		}
 
 		defer layer.ReleaseAndLog(p.config.LayerStore, l)
-		topLayer = l
 
 		d.broadcaster.Write(p.sf.FormatProgress(stringid.TruncateID(d.digest.String()), "Pull complete", nil))
 		d.broadcaster.Close()
 		tagUpdated = true
 	}
 
-	if topLayer == nil {
-		topLayer = layer.EmptyLayer
-	}
-	config, err := v1.MakeConfigFromV1Config([]byte(verifiedManifest.History[0].V1Compatibility), topLayer, history)
+	config, err := v1.MakeConfigFromV1Config([]byte(verifiedManifest.History[0].V1Compatibility), rootFS, history)
 	if err != nil {
 		return false, err
 	}

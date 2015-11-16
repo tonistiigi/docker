@@ -2,14 +2,17 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/dockerversion"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/tag"
 	// register the windows graph driver
 	"github.com/docker/docker/daemon/graphdriver/windows"
@@ -178,7 +181,7 @@ func (daemon *Daemon) conditionalUnmountOnCleanup(container *Container) {
 	}
 }
 
-func restoreCustomImage(driver graphdriver.Driver, is image.Store, ts tag.Store) error {
+func restoreCustomImage(driver graphdriver.Driver, is image.Store, ls layer.Store, ts tag.Store) error {
 	if wd, ok := driver.(*windows.Driver); ok {
 		imageInfos, err := wd.GetCustomImageInfos()
 		if err != nil {
@@ -187,8 +190,22 @@ func restoreCustomImage(driver graphdriver.Driver, is image.Store, ts tag.Store)
 
 		// Convert imageData to valid image configuration
 		for i := range imageInfos {
-			name := imageInfos[i].Name
-			path := imageInfos[i].Path
+			name := strings.ToLower(imageInfos[i].Name)
+
+			type registrar interface {
+				RegisterDiffID(graphID string, size int64) (layer.Layer, error)
+			}
+			if r, ok := ls.(registrar); !ok {
+				return errors.New("Layerstore doesn't support RegisterDiffID")
+			} else {
+				if _, err := r.RegisterDiffID(imageInfos[i].ID, imageInfos[i].Size); err != nil {
+					return err
+				}
+				// layer is intentionally not released
+			}
+
+			rootFS := image.NewRootFS()
+			rootFS.BaseLayer = imageInfos[i].ID
 
 			// Create history for base layer
 			config, err := json.Marshal(&image.Image{
@@ -198,17 +215,8 @@ func restoreCustomImage(driver graphdriver.Driver, is image.Store, ts tag.Store)
 					OS:            runtime.GOOS,
 					Created:       imageInfos[i].CreatedTime,
 				},
-				RootFS: &image.RootFS{
-					// TODO: Create custom type which keeps reference to windows base layer
-					Type: "layers",
-				},
-				History: []image.History{
-					{
-						Created:    imageInfos[i].CreatedTime,
-						Comment:    fmt.Sprintf("Base image %s at %s", name, path),
-						EmptyLayer: true,
-					},
-				},
+				RootFS:  rootFS,
+				History: []image.History{},
 			})
 
 			named, err := reference.ParseNamed(name)

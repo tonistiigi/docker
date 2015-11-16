@@ -47,21 +47,7 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer) error {
 		return err
 	}
 
-	var layers []layer.DiffID
 	for _, m := range manifest {
-		for _, layerFile := range m.Layers {
-			layerPath, err := safePath(tmpDir, layerFile)
-			if err != nil {
-				return err
-			}
-			newLayer, err := l.loadLayer(layerPath, layers)
-			if err != nil {
-				return err
-			}
-			layers = append(layers, newLayer.DiffID())
-			defer layer.ReleaseAndLog(l.ls, newLayer)
-		}
-
 		configPath, err := safePath(tmpDir, m.Config)
 		if err != nil {
 			return err
@@ -70,6 +56,34 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer) error {
 		if err != nil {
 			return err
 		}
+		img, err := image.NewFromJSON(config)
+		if err != nil {
+			return err
+		}
+		var rootFS image.RootFS
+		rootFS = *img.RootFS
+		rootFS.DiffIDs = nil
+
+		if expected, actual := len(m.Layers), len(img.RootFS.DiffIDs); expected != actual {
+			return fmt.Errorf("invalid manifest, layers length mismatch: expected %q, got %q", expected, actual)
+		}
+
+		for i, diffID := range img.RootFS.DiffIDs {
+			layerPath, err := safePath(tmpDir, m.Layers[i])
+			if err != nil {
+				return err
+			}
+			newLayer, err := l.loadLayer(layerPath, rootFS)
+			if err != nil {
+				return err
+			}
+			defer layer.ReleaseAndLog(l.ls, newLayer)
+			if expected, actual := diffID, newLayer.DiffID(); expected != actual {
+				return fmt.Errorf("invalid diffID for layer %d: expected %q, got %q", i, expected, actual)
+			}
+			rootFS.DiffIDs = append(rootFS.DiffIDs, diffID)
+		}
+
 		imgID, err := l.is.Create(config)
 		if err != nil {
 			return err
@@ -92,7 +106,7 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer) error {
 	return nil
 }
 
-func (l *tarexporter) loadLayer(filename string, parentDiffs []layer.DiffID) (layer.Layer, error) {
+func (l *tarexporter) loadLayer(filename string, rootFS image.RootFS) (layer.Layer, error) {
 	rawTar, err := os.Open(filename)
 	if err != nil {
 		logrus.Debugf("Error reading embedded tar: %v", err)
@@ -106,9 +120,7 @@ func (l *tarexporter) loadLayer(filename string, parentDiffs []layer.DiffID) (la
 	defer rawTar.Close()
 	defer inflatedLayerData.Close()
 
-	parentLayerID := layer.CreateChainID(parentDiffs)
-
-	return l.ls.Register(inflatedLayerData, parentLayerID)
+	return l.ls.Register(inflatedLayerData, rootFS.ChainID())
 }
 
 func (l *tarexporter) setLoadedTag(ref reference.NamedTagged, imgID image.ID, outStream io.Writer) error {
@@ -213,7 +225,7 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 	}
 
 	// todo: try to connect with migrate code
-	var layerDigests []layer.DiffID
+	rootFS := image.NewRootFS()
 	var history []image.History
 
 	if parentID != "" {
@@ -222,7 +234,7 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 			return err
 		}
 
-		layerDigests = parentImg.RootFS.DiffIDs
+		rootFS = parentImg.RootFS
 		history = parentImg.History
 	}
 
@@ -230,10 +242,11 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 	if err != nil {
 		return err
 	}
-	newLayer, err := l.loadLayer(layerPath, layerDigests)
+	newLayer, err := l.loadLayer(layerPath, *rootFS)
 	if err != nil {
 		return err
 	}
+	rootFS.DiffIDs = append(rootFS.DiffIDs, newLayer.DiffID())
 
 	h, err := v1.HistoryFromConfig(imageJSON, false)
 	if err != nil {
@@ -241,7 +254,7 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 	}
 	history = append(history, h)
 
-	config, err := v1.MakeConfigFromV1Config(imageJSON, newLayer, history)
+	config, err := v1.MakeConfigFromV1Config(imageJSON, rootFS, history)
 	if err != nil {
 		return err
 	}

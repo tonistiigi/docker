@@ -64,20 +64,18 @@ func (daemon *Daemon) Commit(name string, c *ContainerCommitConfig) (string, err
 	}()
 
 	var history []image.History
-	var diffIDs []layer.DiffID
-	var layerID layer.ChainID
+	rootFS := image.NewRootFS()
 
 	if container.ImageID != "" {
 		img, err := daemon.imageStore.Get(container.ImageID)
 		if err != nil {
 			return "", err
 		}
-		layerID = img.GetTopLayerID()
-		diffIDs = img.RootFS.DiffIDs
 		history = img.History
+		rootFS = img.RootFS
 	}
 
-	l, err := daemon.layerStore.Register(rwTar, layerID)
+	l, err := daemon.layerStore.Register(rwTar, rootFS.ChainID())
 	if err != nil {
 		return "", err
 	}
@@ -93,7 +91,7 @@ func (daemon *Daemon) Commit(name string, c *ContainerCommitConfig) (string, err
 
 	if diffID := l.DiffID(); layer.DigestSHA256EmptyTar != diffID {
 		h.EmptyLayer = false
-		diffIDs = append(diffIDs, diffID)
+		rootFS.DiffIDs = append(rootFS.DiffIDs, diffID)
 	}
 
 	history = append(history, h)
@@ -109,10 +107,7 @@ func (daemon *Daemon) Commit(name string, c *ContainerCommitConfig) (string, err
 			Author:          c.Author,
 			Created:         h.Created,
 		},
-		RootFS: &image.RootFS{
-			Type:    "layers",
-			DiffIDs: diffIDs,
-		},
+		RootFS:  rootFS,
 		History: history,
 	})
 

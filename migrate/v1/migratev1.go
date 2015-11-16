@@ -174,7 +174,7 @@ func migrateContainers(root string, ls graphIDMounter, is image.Store, imageMapp
 			return err
 		}
 
-		_, err = ls.MountByGraphID(id, id, img.GetTopLayerID())
+		_, err = ls.MountByGraphID(id, id, img.RootFS.ChainID())
 		if err != nil {
 			return err
 		}
@@ -290,7 +290,7 @@ func migrateImage(id, root string, ls graphIDRegistrar, is image.Store, ms metad
 		}
 	}
 
-	var layerDigests []layer.DiffID
+	rootFS := image.NewRootFS()
 	var history []image.History
 
 	if parentID != "" {
@@ -299,13 +299,11 @@ func migrateImage(id, root string, ls graphIDRegistrar, is image.Store, ms metad
 			return err
 		}
 
-		layerDigests = parentImg.RootFS.DiffIDs
+		rootFS = parentImg.RootFS
 		history = parentImg.History
 	}
 
-	parentLayer := layer.CreateChainID(layerDigests)
-
-	layer, err := ls.RegisterByGraphID(id, parentLayer, filepath.Join(filepath.Join(root, graphDirName, id, tarDataFileName)))
+	layer, err := ls.RegisterByGraphID(id, rootFS.ChainID(), filepath.Join(filepath.Join(root, graphDirName, id, tarDataFileName)))
 	if err != nil {
 		return err
 	}
@@ -316,7 +314,9 @@ func migrateImage(id, root string, ls graphIDRegistrar, is image.Store, ms metad
 	}
 	history = append(history, h)
 
-	config, err := imagev1.MakeConfigFromV1Config(imageJSON, layer, history)
+	rootFS.DiffIDs = append(rootFS.DiffIDs, layer.DiffID())
+
+	config, err := imagev1.MakeConfigFromV1Config(imageJSON, rootFS, history)
 	if err != nil {
 		return err
 	}

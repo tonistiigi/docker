@@ -154,7 +154,7 @@ func (daemon *Daemon) getInspectData(container *Container, size bool) (*types.Co
 	if err != nil {
 		return nil, err
 	}
-	l, err := daemon.layerStore.Get(image.GetTopLayerID())
+	l, err := daemon.layerStore.Get(image.RootFS.ChainID())
 	if err != nil {
 		return nil, err
 	}

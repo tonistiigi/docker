@@ -63,7 +63,7 @@ func (daemon *Daemon) ImportImage(src string, newRef reference.Named, msg string
 	if len(msg) == 0 {
 		msg = "Imported from " + src
 	}
-
+	// TODO: support windows baselayer?
 	l, err := daemon.layerStore.Register(archive, "")
 	if err != nil {
 		return err

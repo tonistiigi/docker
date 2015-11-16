@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/daemon/graphdriver"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/layer"
 	pblkiodev "github.com/docker/docker/pkg/blkiodev"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/parsers"
@@ -649,7 +650,7 @@ func getDefaultRouteMtu() (int, error) {
 	return 0, errNoDefaultRoute
 }
 
-func restoreCustomImage(driver graphdriver.Driver, is image.Store, ts tag.Store) error {
+func restoreCustomImage(driver graphdriver.Driver, is image.Store, ls layer.Store, ts tag.Store) error {
 	// Unix has no custom images to register
 	return nil
 }
