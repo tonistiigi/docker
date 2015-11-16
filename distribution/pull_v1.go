@@ -239,19 +239,12 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 	// FIXME: Launch the getRemoteImage() in goroutines
 
 	var (
-		referencedLayers []layer.Layer
 		// parentID         layer.ChainID
 		newHistory []image.History
 		img        *image.V1Image
 		imgJSON    []byte
 		imgSize    int64
 	)
-
-	defer func() {
-		for _, l := range referencedLayers {
-			layer.ReleaseAndLog(p.config.LayerStore, l)
-		}
-	}()
 
 	layersDownloaded = false
 	rootFS := image.NewRootFS()
@@ -272,6 +265,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 					out.Write(p.sf.FormatProgress(stringid.TruncateID(history[j]), "Already exists", nil))
 				}
 				rootFS.DiffIDs = append(rootFS.DiffIDs, l.DiffID())
+				defer layer.ReleaseAndLog(p.config.LayerStore, l)
 				break
 			}
 		}
@@ -300,6 +294,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 			// stale references to the layer.
 			if l != nil {
 				rootFS.DiffIDs = append(rootFS.DiffIDs, l.DiffID())
+				defer layer.ReleaseAndLog(p.config.LayerStore, l)
 			}
 			if err != nil {
 				return layersDownloaded, err

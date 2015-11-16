@@ -22,6 +22,7 @@ func detectBaseLayer(is image.Store, m *schema1.Manifest, rootFS *image.RootFS) 
 	for _, img := range is.Map() {
 		if img.RootFS.BaseLayer == v1img.Parent {
 			rootFS.BaseLayer = v1img.Parent
+			return nil
 		}
 	}
 	return fmt.Errorf("Invalid base layer %q", v1img.Parent)
