@@ -2,6 +2,7 @@ package layer
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/docker/distribution/digest"
 )
@@ -54,7 +55,7 @@ func (ls *layerStore) RegisterDiffID(graphID string, size int64) (Layer, error) 
 	// Create new roLayer
 	layer := &roLayer{
 		cacheID:        graphID,
-		diffID:         DiffID(digest.NewDigestFromHex("sha256:", graphID)),
+		diffID:         DiffID(digest.NewDigestFromHex("sha256", graphID)),
 		referenceCount: 1,
 		layerStore:     ls,
 		references:     map[Layer]struct{}{},
@@ -68,6 +69,9 @@ func (ls *layerStore) RegisterDiffID(graphID string, size int64) (Layer, error) 
 
 	layer.chainID = createChainIDFromParent("", layer.diffID)
 
+	if !ls.driver.Exists(layer.cacheID) {
+		return nil, fmt.Errorf("layer %q is unknown to driver.")
+	}
 	if err = storeLayer(tx, layer); err != nil {
 		return nil, err
 	}

@@ -68,8 +68,8 @@ func (is *store) restore() error {
 			return nil
 		}
 		var l layer.Layer
-		if len(img.RootFS.DiffIDs) > 0 {
-			l, err = is.ls.Get(layer.CreateChainID(img.RootFS.DiffIDs))
+		if chainID := img.RootFS.ChainID(); chainID != "" {
+			l, err = is.ls.Get(chainID)
 			if err != nil {
 				return err
 			}
@@ -140,7 +140,7 @@ func (is *store) Create(config []byte) (ID, error) {
 		return imageID, nil
 	}
 
-	layerID := layer.CreateChainID(img.RootFS.DiffIDs)
+	layerID := img.RootFS.ChainID()
 
 	var l layer.Layer
 	if layerID != "" {

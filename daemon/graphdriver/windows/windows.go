@@ -419,6 +419,9 @@ func (d *Driver) GetCustomImageInfos() ([]CustomImageInfo, error) {
 		h := sha512.Sum384([]byte(folderName))
 		id := fmt.Sprintf("%x", h[:32])
 
+		if err := d.Create(id, ""); err != nil {
+			return nil, err
+		}
 		// Create the alternate ID file.
 		if err := d.setID(id, folderName); err != nil {
 			return nil, err

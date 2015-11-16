@@ -488,7 +488,7 @@ func (ls *layerStore) Mount(name string, parent ChainID, mountLabel string, init
 	m = &mountedLayer{
 		name:       name,
 		parent:     p,
-		mountID:    stringid.GenerateRandomID(),
+		mountID:    name, //stringid.GenerateRandomID(), // FIXME: make this windows-only at least
 		layerStore: ls,
 	}
 

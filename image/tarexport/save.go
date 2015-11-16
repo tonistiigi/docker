@@ -216,7 +216,7 @@ func (s *saveSession) saveImage(id image.ID) error {
 		if i == len(diffIDs)-1 {
 			v1Img = img.V1Image
 		}
-		layerID := layer.CreateChainID(diffIDs[:i+1])
+		layerID := layer.CreateChainID(diffIDs[:i+1]) // FIXME: rootfs?
 		v1ID, err := v1.CreateID(v1Img, layerID, parent)
 		if err != nil {
 			return err

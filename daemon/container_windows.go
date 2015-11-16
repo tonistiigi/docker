@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"log"
 	"strings"
 
 	"github.com/docker/docker/daemon/execdriver"
@@ -105,23 +106,29 @@ func (daemon *Daemon) populateCommand(c *Container, env []string) error {
 	}
 
 	if img.RootFS != nil && img.RootFS.Type == "layers+base" {
-		layerPaths = make([]string, len(img.RootFS.DiffIDs))
-		for i := 1; i <= len(img.RootFS.DiffIDs); i++ {
-			layerID := layer.CreateChainID(img.RootFS.DiffIDs[0:i])
-			path, err := layer.GetLayerPath(daemon.layerStore, layerID)
+		log.Println("rootfs", img.RootFS)
+		max := len(img.RootFS.DiffIDs)
+		for i := 0; i <= max; i++ {
+			img.RootFS.DiffIDs = img.RootFS.DiffIDs[:i]
+			path, err := layer.GetLayerPath(daemon.layerStore, img.RootFS.ChainID())
 			if err != nil {
 				return derr.ErrorCodeGetLayer.WithArgs(err)
 			}
+			log.Println("appending", path)
 			// Reverse order, expecting parent most first
-			layerPaths[len(img.RootFS.DiffIDs)-i] = path
+			layerPaths = append([]string{path}, layerPaths...)
 		}
 	}
+
+	log.Println("layerpaths", layerPaths)
 
 	m, err := layer.RWLayerMetadata(daemon.layerStore, c.ID)
 	if err != nil {
 		return derr.ErrorCodeGetLayerMetadata.WithArgs(err)
 	}
 	layerFolder := m["dir"]
+
+	log.Println("layerFolder", layerFolder)
 
 	c.command = &execdriver.Command{
 		CommonCommand: execdriver.CommonCommand{

@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"runtime"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution"
@@ -367,6 +368,8 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 		}
 		logrus.Debugf("layer %s registered successfully", l.DiffID())
 		rootFS.DiffIDs = append(rootFS.DiffIDs, l.DiffID())
+		// rootFS.append(l.DiffID())
+
 
 		// Cache mapping from this layer's DiffID to the blobsum
 		if err := p.blobSumService.Add(l.DiffID(), d.digest); err != nil {
@@ -479,7 +482,8 @@ func fixManifestLayers(m *schema1.Manifest) error {
 		}
 	}
 
-	if imgs[len(imgs)-1].Parent != "" {
+	if imgs[len(imgs)-1].Parent != "" && runtime.GOOS != "windows" {
+		// Windows base layer can point to a base layer parent that is not in manifest.
 		return errors.New("Invalid parent ID in the base layer of the image.")
 	}
 

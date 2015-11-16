@@ -1177,7 +1177,7 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 	history := []*types.ImageHistory{}
 
 	layerCounter := 0
-	var diffIDs []layer.DiffID
+	var diffIDs []layer.DiffID // FIXME:rootfs
 
 	for i := 0; i != len(img.History); i++ {
 		var layerSize int64
