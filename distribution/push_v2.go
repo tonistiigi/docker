@@ -96,7 +96,7 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 
 	var l layer.Layer
 
-	topLayerID := img.GetTopLayerID()
+	topLayerID := img.RootFS.ChainID()
 	if topLayerID == "" {
 		l = layer.EmptyLayer
 	} else {
@@ -122,7 +122,7 @@ func (p *v2Pusher) pushV2Tag(association tag.Association) error {
 		}
 	}
 
-	for l != nil {
+	for i := 0; i < len(img.RootFS.DiffIDs); i++ {
 		dgst, err := p.pushLayerIfNecessary(out, l)
 		if err != nil {
 			return err
@@ -330,6 +330,11 @@ func CreateV2Manifest(name, tag string, img *image.Image, fsLayers map[layer.Dif
 
 	history[0].V1Compatibility = string(transformedConfig)
 
+	// windows-only baselayer setup
+	if err := setupBaseLayer(history, *img.RootFS); err != nil {
+		return nil, err
+	}
+
 	return &schema1.Manifest{
 		Versioned: manifest.Versioned{
 			SchemaVersion: 1,
@@ -369,7 +374,7 @@ func (p *v2Pusher) pushV2Layer(bs distribution.BlobService, l layer.Layer) (dige
 	defer layerUpload.Close()
 
 	// don't care if this fails; best effort
-	size, _ := l.Size()
+	size, _ := l.DiffSize()
 
 	reader := progressreader.New(progressreader.Config{
 		In:        ioutil.NopCloser(arch), // we'll take care of close here.

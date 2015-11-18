@@ -210,7 +210,7 @@ func (p *v1Pusher) imageListForTag(imgID image.ID, dependenciesSeen map[layer.Ch
 		return nil, err
 	}
 
-	topLayerID := img.GetTopLayerID()
+	topLayerID := img.RootFS.ChainID()
 
 	var l layer.Layer
 	if topLayerID == "" {

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/docker/distribution/digest"
-	"github.com/docker/docker/layer"
 	"github.com/docker/docker/runconfig"
 )
 
@@ -61,14 +60,6 @@ type Image struct {
 	computedID ID
 }
 
-// RootFS describes images root filesystem
-// This is currently a placeholder that only supports layers. In the future
-// this can be made into a interface that supports different implementaions.
-type RootFS struct {
-	Type    string         `json:"type"`
-	DiffIDs []layer.DiffID `json:"diff_ids,omitempty"`
-}
-
 // RawJSON returns the immutable JSON associated with the image.
 func (img *Image) RawJSON() []byte {
 	return img.rawJSON
@@ -77,11 +68,6 @@ func (img *Image) RawJSON() []byte {
 // ID returns the image's content-addressable ID.
 func (img *Image) ID() ID {
 	return img.computedID
-}
-
-// GetTopLayerID returns the top layer ID for this image.
-func (img *Image) GetTopLayerID() layer.ChainID {
-	return layer.CreateChainID(img.RootFS.DiffIDs)
 }
 
 // MarshalJSON serializes the image to JSON. It sorts the top-level keys so

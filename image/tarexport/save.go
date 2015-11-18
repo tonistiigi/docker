@@ -204,20 +204,20 @@ func (s *saveSession) saveImage(id image.ID) error {
 		return err
 	}
 
-	diffIDs := img.RootFS.DiffIDs
-	if len(diffIDs) == 0 {
+	if len(img.RootFS.DiffIDs) == 0 {
 		return fmt.Errorf("empty export - not implemented")
 	}
 
 	var parent digest.Digest
 	var layers []string
-	for i := range diffIDs {
+	for i := range img.RootFS.DiffIDs {
 		v1Img := image.V1Image{}
-		if i == len(diffIDs)-1 {
+		if i == len(img.RootFS.DiffIDs)-1 {
 			v1Img = img.V1Image
 		}
-		layerID := layer.CreateChainID(diffIDs[:i+1])
-		v1ID, err := v1.CreateID(v1Img, layerID, parent)
+		rootFS := *img.RootFS
+		rootFS.DiffIDs = rootFS.DiffIDs[:i+1]
+		v1ID, err := v1.CreateID(v1Img, rootFS.ChainID(), parent)
 		if err != nil {
 			return err
 		}
@@ -227,7 +227,7 @@ func (s *saveSession) saveImage(id image.ID) error {
 			v1Img.Parent = parent.Hex()
 		}
 
-		if err := s.saveLayer(layerID, v1Img, img.Created); err != nil {
+		if err := s.saveLayer(rootFS.ChainID(), v1Img, img.Created); err != nil {
 			return err
 		}
 		layers = append(layers, v1Img.ID)

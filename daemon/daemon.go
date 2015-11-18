@@ -782,7 +782,7 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 		return nil, fmt.Errorf("Couldn't create Tag store repositories: %s", err)
 	}
 
-	if err := restoreCustomImage(d.driver, d.imageStore, tagStore); err != nil {
+	if err := restoreCustomImage(d.driver, d.imageStore, d.layerStore, tagStore); err != nil {
 		return nil, fmt.Errorf("Couldn't restore custom images: %s", err)
 	}
 
@@ -964,7 +964,7 @@ func (daemon *Daemon) Mount(container *Container) error {
 		if err != nil {
 			return err
 		}
-		layerID = img.GetTopLayerID()
+		layerID = img.RootFS.ChainID()
 	}
 	rwlayer, err := daemon.layerStore.Mount(container.ID, layerID, container.getMountLabel(), daemon.setupInitLayer)
 	if err != nil {
@@ -1118,7 +1118,7 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 
 	var size int64
 	var layerMetadata map[string]string
-	layerID := img.GetTopLayerID()
+	layerID := img.RootFS.ChainID()
 	if layerID != "" {
 		l, err := daemon.layerStore.Get(layerID)
 		if err != nil {
@@ -1177,7 +1177,8 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 	history := []*types.ImageHistory{}
 
 	layerCounter := 0
-	var diffIDs []layer.DiffID
+	rootFS := *img.RootFS
+	rootFS.DiffIDs = nil
 
 	for i := 0; i != len(img.History); i++ {
 		var layerSize int64
@@ -1187,10 +1188,8 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 				return nil, errors.New("too many non-empty layers in History section")
 			}
 
-			diffIDs = append(diffIDs, img.RootFS.DiffIDs[layerCounter])
-			layerID := layer.CreateChainID(diffIDs)
-
-			l, err := daemon.layerStore.Get(layerID)
+			rootFS.Append(img.RootFS.DiffIDs[layerCounter])
+			l, err := daemon.layerStore.Get(rootFS.ChainID())
 			if err != nil {
 				return nil, err
 			}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"runtime"
 	"sync"
 
 	"github.com/Sirupsen/logrus"
@@ -485,10 +486,16 @@ func (ls *layerStore) Mount(name string, parent ChainID, mountLabel string, init
 		}()
 	}
 
+	mountID := name
+	if runtime.GOOS != "windows" {
+		// windows has issues if container ID doesn't match mount ID
+		mountID = stringid.GenerateRandomID()
+	}
+
 	m = &mountedLayer{
 		name:       name,
 		parent:     p,
-		mountID:    stringid.GenerateRandomID(),
+		mountID:    mountID,
 		layerStore: ls,
 	}
 
@@ -588,8 +595,17 @@ func (ls *layerStore) Changes(name string) ([]archive.Change, error) {
 }
 
 func (ls *layerStore) assembleTar(graphID string, metadata io.ReadCloser, size *int64) (io.Reader, error) {
+	type diffPathDriver interface {
+		DiffPath(string) (string, func() error, error)
+	}
+
+	diffDriver, ok := ls.driver.(diffPathDriver)
+	if !ok {
+		diffDriver = &naiveDiffPathDriver{ls.driver}
+	}
+
 	// get our relative path to the container
-	fsPath, err := ls.driver.Get(graphID, "")
+	fsPath, releasePath, err := diffDriver.DiffPath(graphID)
 	if err != nil {
 		metadata.Close()
 		return nil, err
@@ -600,7 +616,7 @@ func (ls *layerStore) assembleTar(graphID string, metadata io.ReadCloser, size *
 	// tar archive, but can not close the metadata reader early (when this
 	// function returns)...
 	go func() {
-		defer ls.driver.Put(graphID)
+		defer releasePath()
 		defer metadata.Close()
 
 		metaUnpacker := storage.NewJSONUnpacker(metadata)
@@ -616,4 +632,18 @@ func (ls *layerStore) assembleTar(graphID string, metadata io.ReadCloser, size *
 		pW.Close()
 	}()
 	return pR, nil
+}
+
+type naiveDiffPathDriver struct {
+	graphdriver.Driver
+}
+
+func (n *naiveDiffPathDriver) DiffPath(id string) (string, func() error, error) {
+	p, err := n.Driver.Get(id, "")
+	if err != nil {
+		return "", nil, err
+	}
+	return p, func() error {
+		return n.Driver.Put(id)
+	}, nil
 }

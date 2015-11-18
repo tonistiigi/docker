@@ -104,16 +104,16 @@ func (daemon *Daemon) populateCommand(c *Container, env []string) error {
 		return derr.ErrorCodeGetGraph.WithArgs(c.ImageID, err)
 	}
 
-	if img.RootFS != nil && img.RootFS.Type == "layers" {
-		layerPaths = make([]string, len(img.RootFS.DiffIDs))
-		for i := 1; i <= len(img.RootFS.DiffIDs); i++ {
-			layerID := layer.CreateChainID(img.RootFS.DiffIDs[0:i])
-			path, err := layer.GetLayerPath(daemon.layerStore, layerID)
+	if img.RootFS != nil && img.RootFS.Type == "layers+base" {
+		max := len(img.RootFS.DiffIDs)
+		for i := 0; i <= max; i++ {
+			img.RootFS.DiffIDs = img.RootFS.DiffIDs[:i]
+			path, err := layer.GetLayerPath(daemon.layerStore, img.RootFS.ChainID())
 			if err != nil {
 				return derr.ErrorCodeGetLayer.WithArgs(err)
 			}
 			// Reverse order, expecting parent most first
-			layerPaths[len(img.RootFS.DiffIDs)-i] = path
+			layerPaths = append([]string{path}, layerPaths...)
 		}
 	}
 

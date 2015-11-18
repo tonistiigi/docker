@@ -265,7 +265,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 		if layerID, err := p.v1IDService.Get(v1LayerID, p.repoInfo.Index.Name); err == nil {
 			// Does the layer actually exist
 			if l, err := p.config.LayerStore.Get(layerID); err == nil {
-				for j := i; i >= 0; i-- {
+				for j := i; j >= 0; j-- {
 					logrus.Debugf("Layer already exists: %s", history[j])
 					out.Write(p.sf.FormatProgress(stringid.TruncateID(history[j]), "Already exists", nil))
 				}
@@ -315,7 +315,14 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 		newHistory = append(newHistory, h)
 	}
 
-	config, err := v1.MakeConfigFromV1Config(imgJSON, referencedLayers[len(referencedLayers)-1], newHistory)
+	rootFS := image.NewRootFS()
+	l := referencedLayers[len(referencedLayers)-1]
+	for l != nil {
+		rootFS.DiffIDs = append([]layer.DiffID{l.DiffID()}, rootFS.DiffIDs...)
+		l = l.Parent()
+	}
+
+	config, err := v1.MakeConfigFromV1Config(imgJSON, rootFS, newHistory)
 	if err != nil {
 		return layersDownloaded, err
 	}
