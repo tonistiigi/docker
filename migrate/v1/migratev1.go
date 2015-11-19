@@ -221,17 +221,20 @@ func migrateTags(root, driverName string, ts tagAdder, mappings map[string]image
 			if strongID, exists := mappings[id]; exists {
 				ref, err := reference.WithName(name)
 				if err != nil {
-					return err
+					logrus.Errorf("migrate tags: invalid name %q, %q", name, err)
+					continue
 				}
 				if dgst, err := digest.ParseDigest(tag); err == nil {
 					ref, err = reference.WithDigest(ref, dgst)
 					if err != nil {
-						return err
+						logrus.Errorf("migrate tags: invalid digest %q, %q", dgst, err)
+						continue
 					}
 				} else {
 					ref, err = reference.WithTag(ref, tag)
 					if err != nil {
-						return err
+						logrus.Errorf("migrate tags: invalid tag %q, %q", tag, err)
+						continue
 					}
 				}
 				if err := ts.Add(ref, strongID, false); err != nil {
