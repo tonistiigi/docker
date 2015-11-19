@@ -184,6 +184,8 @@ func migrateContainers(root string, ls graphIDMounter, is image.Store, imageMapp
 			return err
 		}
 
+		logrus.Infof("migrated container %s to point to %s", id, imageID)
+
 	}
 	return nil
 }
@@ -240,6 +242,7 @@ func migrateTags(root, driverName string, ts tagAdder, mappings map[string]image
 				if err := ts.Add(ref, strongID, false); err != nil {
 					logrus.Errorf("can't migrate tag %q for %q, err: %q", ref.String(), strongID, err)
 				}
+				logrus.Infof("migrated tag %s:%s to point to %s", name, tag, strongID)
 			}
 		}
 	}
@@ -310,6 +313,7 @@ func migrateImage(id, root string, ls graphIDRegistrar, is image.Store, ms metad
 	if err != nil {
 		return err
 	}
+	logrus.Infof("migrated layer %s to %s", id, layer.DiffID())
 
 	h, err := imagev1.HistoryFromConfig(imageJSON, false)
 	if err != nil {
@@ -327,6 +331,7 @@ func migrateImage(id, root string, ls graphIDRegistrar, is image.Store, ms metad
 	if err != nil {
 		return err
 	}
+	logrus.Infof("migrated image %s to %s", id, strongID)
 
 	if parentID != "" {
 		if err := is.SetParent(strongID, parentID); err != nil {
