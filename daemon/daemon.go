@@ -1121,7 +1121,10 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 			return nil, err
 		}
 		defer layer.ReleaseAndLog(daemon.layerStore, l)
-		size, _ = l.Size()
+		size, err = l.Size()
+		if err != nil {
+			return nil, err
+		}
 
 		layerMetadata, err = l.Metadata()
 		if err != nil {
