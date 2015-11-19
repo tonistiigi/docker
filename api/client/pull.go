@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/docker/docker/registry"
 	tagpkg "github.com/docker/docker/tag"
 )
+
+var errTagCantBeUsed = errors.New("tag can't be used with --all-tags/-a")
 
 // CmdPull pulls an image or a repository from the registry.
 //
@@ -31,20 +34,24 @@ func (cli *DockerCli) CmdPull(args ...string) error {
 	var tag string
 	switch x := distributionRef.(type) {
 	case reference.Digested:
+		if *allTags {
+			return errTagCantBeUsed
+		}
 		tag = x.Digest().String()
 	case reference.Tagged:
-		tag = x.Tag()
-	}
-
-	if tag == "" && !*allTags {
-		tag = tagpkg.DefaultTag
-		distributionRef, err = reference.WithTag(distributionRef, tag)
-		if err != nil {
-			return err
+		if *allTags {
+			return errTagCantBeUsed
 		}
-		fmt.Fprintf(cli.out, "Using default tag: %s\n", tag)
-	} else if tag != "" && *allTags {
-		return fmt.Errorf("tag can't be used with --all-tags/-a")
+		tag = x.Tag()
+	default:
+		if !*allTags {
+			tag = tagpkg.DefaultTag
+			distributionRef, err = reference.WithTag(distributionRef, tag)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cli.out, "Using default tag: %s\n", tag)
+		}
 	}
 
 	ref := registry.ParseReference(tag)
