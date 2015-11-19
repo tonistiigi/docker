@@ -102,10 +102,10 @@ func (daemon *Daemon) Images(filterArgs, filter string, all bool) ([]*types.Imag
 			}
 
 			size, err = l.Size()
+			layer.ReleaseAndLog(daemon.layerStore, l)
 			if err != nil {
 				return nil, err
 			}
-			layer.ReleaseAndLog(daemon.layerStore, l)
 		}
 
 		newImage := newImage(img, size)
