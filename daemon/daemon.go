@@ -1234,7 +1234,10 @@ func (daemon *Daemon) ImageHistory(name string) ([]*types.ImageHistory, error) {
 func (daemon *Daemon) GetImageID(refOrID string) (image.ID, error) {
 	// Treat as an ID
 	if id, err := digest.ParseDigest(refOrID); err == nil {
-		return image.ID(id), nil
+		// return if it was a full ID
+		if len(refOrID) == 7+64 {
+			return image.ID(id), nil
+		}
 	}
 
 	// Treat it as a possible tag or digest reference
