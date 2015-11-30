@@ -358,6 +358,9 @@ func (a *Driver) Diff(id, parent string) (archive.Archive, error) {
 		GIDMaps:         a.gidMaps,
 	})
 }
+func (a *Driver) DiffPath(id string) (string, func() error, error) {
+	return path.Join(a.rootPath(), "diff", id), func() error { return nil }, nil
+}
 
 func (a *Driver) applyDiff(id string, diff archive.Reader) error {
 	dir := path.Join(a.rootPath(), "diff", id)

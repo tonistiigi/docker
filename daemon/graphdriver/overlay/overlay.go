@@ -320,6 +320,10 @@ func (d *Driver) dir(id string) string {
 	return path.Join(d.home, id)
 }
 
+func (d *Driver) DiffPath(id string) (string, func() error, error) {
+	return path.Join(d.dir(id), "upper"), func() error { return nil }, nil
+}
+
 // Remove cleans the directories that are created for this id.
 func (d *Driver) Remove(id string) error {
 	return os.RemoveAll(d.dir(id))
