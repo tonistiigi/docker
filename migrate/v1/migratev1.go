@@ -6,6 +6,10 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
+	"sync"
+	"time"
 
 	"encoding/json"
 
@@ -20,7 +24,7 @@ import (
 )
 
 type graphIDRegistrar interface {
-	RegisterByGraphID(string, layer.ChainID, string) (layer.Layer, error)
+	RegisterByGraphID(string, layer.ChainID, layer.DiffID, string, int64) (layer.Layer, error)
 	Release(layer.Layer) ([]layer.Metadata, error)
 }
 
@@ -29,11 +33,18 @@ type graphIDMounter interface {
 	Unmount(string) error
 }
 
+type checksumCalculator interface {
+	ChecksumForGraphID(id, parent, oldTarDataPath, newTarDataPath string) (diffID layer.DiffID, size int64, err error)
+}
+
 const (
 	graphDirName                 = "graph"
 	tarDataFileName              = "tar-data.json.gz"
 	migrationFileName            = ".migration-v1-images.json"
 	migrationTagsFileName        = ".migration-v1-tags"
+	migrationDiffIDFileName      = ".migration-diffid"
+	migrationSizeFileName        = ".migration-size"
+	migrationTarDataFileName     = ".migration-tardata"
 	containersDirName            = "containers"
 	configFileNameLegacy         = "config.json"
 	configFileName               = "config.v2.json"
@@ -47,11 +58,28 @@ var (
 // Migrate takes an old graph directory and transforms the metadata into the
 // new format.
 func Migrate(root, driverName string, ls layer.Store, is image.Store, ts tag.Store, ms metadata.Store) error {
-	mappings := make(map[string]image.ID)
+	graphDir := filepath.Join(root, graphDirName)
+	if _, err := os.Lstat(graphDir); os.IsNotExist(err) {
+		return nil
+	}
+
+	mappings, err := restoreMappings(root)
+	if err != nil {
+		return err
+	}
+
+	if cc, ok := ls.(checksumCalculator); ok {
+		CalculateLayerChecksums(root, cc, mappings)
+	}
 
 	if registrar, ok := ls.(graphIDRegistrar); !ok {
 		return errUnsupported
 	} else if err := migrateImages(root, registrar, is, ms, mappings); err != nil {
+		return err
+	}
+
+	err = saveMappings(root, mappings)
+	if err != nil {
 		return err
 	}
 
@@ -68,27 +96,112 @@ func Migrate(root, driverName string, ls layer.Store, is image.Store, ts tag.Sto
 	return nil
 }
 
-func migrateImages(root string, ls graphIDRegistrar, is image.Store, ms metadata.Store, mappings map[string]image.ID) error {
+// CalculateLayerChecksums walks an old graph directory and calculates checksums
+// for each layer. These checksums are later used for migration.
+func CalculateLayerChecksums(root string, ls checksumCalculator, mappings map[string]image.ID) {
 	graphDir := filepath.Join(root, graphDirName)
-	if _, err := os.Lstat(graphDir); err != nil {
-		if os.IsNotExist(err) {
-			return nil
+	workQueue := make(chan string, runtime.NumCPU()*3)
+
+	wg := sync.WaitGroup{}
+
+	for i := 0; i < runtime.NumCPU()*3; i++ {
+		wg.Add(1)
+		go func() {
+			for id := range workQueue {
+				start := time.Now()
+				if err := calculateLayerChecksum(graphDir, id, ls); err != nil {
+					logrus.Errorf("could not calculate checksum for %q, %q", id, err)
+				}
+				elapsed := time.Since(start)
+				logrus.Debugf("layer %s took %.2f seconds", id, elapsed.Seconds())
+			}
+			wg.Done()
+		}()
+	}
+
+	dir, err := ioutil.ReadDir(graphDir)
+	if err != nil {
+		logrus.Errorf("could not read directory %q", graphDir)
+		return
+	}
+	for _, v := range dir {
+		v1ID := v.Name()
+		if err := imagev1.ValidateID(v1ID); err != nil {
+			continue
 		}
+		if _, ok := mappings[v1ID]; ok { // support old migrations without helper files
+			continue
+		}
+		workQueue <- v1ID
+	}
+	close(workQueue)
+	wg.Wait()
+}
+
+func calculateLayerChecksum(graphDir, id string, ls checksumCalculator) error {
+	diffIDFile := filepath.Join(graphDir, id, migrationDiffIDFileName)
+	if _, err := os.Lstat(diffIDFile); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
 		return err
 	}
+
+	parent, err := getParent(filepath.Join(graphDir, id))
+	if err != nil {
+		return err
+	}
+
+	diffID, size, err := ls.ChecksumForGraphID(id, parent, filepath.Join(graphDir, id, tarDataFileName), filepath.Join(graphDir, id, migrationTarDataFileName))
+	if err != nil {
+		return err
+	}
+
+	if err := ioutil.WriteFile(filepath.Join(graphDir, id, migrationSizeFileName), []byte(fmt.Sprintf("%d", size)), 0600); err != nil {
+		return err
+	}
+
+	if err := ioutil.WriteFile(filepath.Join(graphDir, id, migrationDiffIDFileName), []byte(diffID), 0600); err != nil {
+		return err
+	}
+
+	logrus.Infof("calculated checksum for layer %s: %s", id, diffID)
+	return nil
+}
+
+func restoreMappings(root string) (map[string]image.ID, error) {
+	mappings := make(map[string]image.ID)
 
 	mfile := filepath.Join(root, migrationFileName)
 	f, err := os.Open(mfile)
 	if err != nil && !os.IsNotExist(err) {
-		return err
+		return nil, err
 	} else if err == nil {
 		err := json.NewDecoder(f).Decode(&mappings)
 		if err != nil {
 			f.Close()
-			return err
+			return nil, err
 		}
 		f.Close()
 	}
+
+	return mappings, nil
+}
+
+func saveMappings(root string, mappings map[string]image.ID) error {
+	mfile := filepath.Join(root, migrationFileName)
+	f, err := os.OpenFile(mfile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := json.NewEncoder(f).Encode(mappings); err != nil {
+		return err
+	}
+	return nil
+}
+
+func migrateImages(root string, ls graphIDRegistrar, is image.Store, ms metadata.Store, mappings map[string]image.ID) error {
+	graphDir := filepath.Join(root, graphDirName)
 
 	dir, err := ioutil.ReadDir(graphDir)
 	if err != nil {
@@ -105,15 +218,6 @@ func migrateImages(root string, ls graphIDRegistrar, is image.Store, ms metadata
 		if err := migrateImage(v1ID, root, ls, is, ms, mappings); err != nil {
 			continue
 		}
-	}
-
-	f, err = os.OpenFile(mfile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if err := json.NewEncoder(f).Encode(mappings); err != nil {
-		return err
 	}
 
 	return nil
@@ -259,6 +363,30 @@ func migrateTags(root, driverName string, ts tagAdder, mappings map[string]image
 	return nil
 }
 
+func getParent(confDir string) (string, error) {
+	jsonFile := filepath.Join(confDir, "json")
+	imageJSON, err := ioutil.ReadFile(jsonFile)
+	if err != nil {
+		return "", err
+	}
+	var parent struct {
+		Parent   string
+		ParentID digest.Digest `json:"parent_id"`
+	}
+	if err := json.Unmarshal(imageJSON, &parent); err != nil {
+		return "", err
+	}
+	if parent.Parent == "" && parent.ParentID != "" { // v1.9
+		parent.Parent = parent.ParentID.Hex()
+	}
+	// compatibilityID for parent
+	parentCompatibilityID, err := ioutil.ReadFile(filepath.Join(confDir, "parent"))
+	if err == nil && len(parentCompatibilityID) > 0 {
+		parent.Parent = string(parentCompatibilityID)
+	}
+	return parent.Parent, nil
+}
+
 func migrateImage(id, root string, ls graphIDRegistrar, is image.Store, ms metadata.Store, mappings map[string]image.ID) (err error) {
 	defer func() {
 		if err != nil {
@@ -266,36 +394,20 @@ func migrateImage(id, root string, ls graphIDRegistrar, is image.Store, ms metad
 		}
 	}()
 
-	jsonFile := filepath.Join(root, graphDirName, id, "json")
-	imageJSON, err := ioutil.ReadFile(jsonFile)
+	parent, err := getParent(filepath.Join(root, graphDirName, id))
 	if err != nil {
 		return err
 	}
-	var parent struct {
-		Parent   string
-		ParentID digest.Digest `json:"parent_id"`
-	}
-	if err := json.Unmarshal(imageJSON, &parent); err != nil {
-		return err
-	}
-	if parent.Parent == "" && parent.ParentID != "" { // v1.9
-		parent.Parent = parent.ParentID.Hex()
-	}
-	// compatibilityID for parent
-	parentCompatibilityID, err := ioutil.ReadFile(filepath.Join(root, graphDirName, id, "parent"))
-	if err == nil && len(parentCompatibilityID) > 0 {
-		parent.Parent = string(parentCompatibilityID)
-	}
 
 	var parentID image.ID
-	if parent.Parent != "" {
+	if parent != "" {
 		var exists bool
-		if parentID, exists = mappings[parent.Parent]; !exists {
-			if err := migrateImage(parent.Parent, root, ls, is, ms, mappings); err != nil {
+		if parentID, exists = mappings[parent]; !exists {
+			if err := migrateImage(parent, root, ls, is, ms, mappings); err != nil {
 				// todo: fail or allow broken chains?
 				return err
 			}
-			parentID = mappings[parent.Parent]
+			parentID = mappings[parent]
 		}
 	}
 
@@ -312,11 +424,31 @@ func migrateImage(id, root string, ls graphIDRegistrar, is image.Store, ms metad
 		history = parentImg.History
 	}
 
-	layer, err := ls.RegisterByGraphID(id, rootFS.ChainID(), filepath.Join(filepath.Join(root, graphDirName, id, tarDataFileName)))
+	diffID, err := ioutil.ReadFile(filepath.Join(root, graphDirName, id, migrationDiffIDFileName))
+	if err != nil {
+		return err
+	}
+
+	sizeStr, err := ioutil.ReadFile(filepath.Join(root, graphDirName, id, migrationSizeFileName))
+	if err != nil {
+		return err
+	}
+	size, err := strconv.ParseInt(string(sizeStr), 10, 64)
+	if err != nil {
+		return err
+	}
+
+	layer, err := ls.RegisterByGraphID(id, rootFS.ChainID(), layer.DiffID(diffID), filepath.Join(root, graphDirName, id, migrationTarDataFileName), size)
 	if err != nil {
 		return err
 	}
 	logrus.Infof("migrated layer %s to %s", id, layer.DiffID())
+
+	jsonFile := filepath.Join(root, graphDirName, id, "json")
+	imageJSON, err := ioutil.ReadFile(jsonFile)
+	if err != nil {
+		return err
+	}
 
 	h, err := imagev1.HistoryFromConfig(imageJSON, false)
 	if err != nil {

@@ -160,7 +160,7 @@ type MetadataTransaction interface {
 	SetParent(parent ChainID) error
 	SetDiffID(DiffID) error
 	SetCacheID(string) error
-	TarSplitWriter() (io.WriteCloser, error)
+	TarSplitWriter(bool) (io.WriteCloser, error)
 
 	Commit(ChainID) error
 	Cancel() error
