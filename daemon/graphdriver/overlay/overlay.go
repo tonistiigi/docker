@@ -4,6 +4,7 @@ package overlay
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -58,6 +59,20 @@ func (d *naiveDiffDriverWithApply) ApplyDiff(id, parent string, diff archive.Rea
 		return d.Driver.ApplyDiff(id, parent, diff)
 	}
 	return b, err
+}
+
+// DiffPath returns path to the directory that contains files for the layer
+// differences. Used for direct access for tar-split.
+func (d *naiveDiffDriverWithApply) DiffPath(id string) (string, func() error, error) {
+	type diffPathDriver interface {
+		DiffPath(string) (string, func() error, error)
+	}
+
+	dp, ok := d.applyDiff.(diffPathDriver)
+	if !ok {
+		return "", nil, errors.New("DiffPath() is not supported")
+	}
+	return dp.DiffPath(id)
 }
 
 // This backend uses the overlay union filesystem for containers
@@ -320,8 +335,10 @@ func (d *Driver) dir(id string) string {
 	return path.Join(d.home, id)
 }
 
+// DiffPath returns path to the directory that contains files for the layer
+// differences. Used for direct access for tar-split.
 func (d *Driver) DiffPath(id string) (string, func() error, error) {
-	return path.Join(d.dir(id), "upper"), func() error { return nil }, nil
+	return path.Join(d.dir(id), "root"), func() error { return nil }, nil
 }
 
 // Remove cleans the directories that are created for this id.

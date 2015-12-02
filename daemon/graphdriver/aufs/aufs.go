@@ -358,6 +358,9 @@ func (a *Driver) Diff(id, parent string) (archive.Archive, error) {
 		GIDMaps:         a.gidMaps,
 	})
 }
+
+// DiffPath returns path to the directory that contains files for the layer
+// differences. Used for direct access for tar-split.
 func (a *Driver) DiffPath(id string) (string, func() error, error) {
 	return path.Join(a.rootPath(), "diff", id), func() error { return nil }, nil
 }
