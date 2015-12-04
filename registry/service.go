@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/client/auth"
 	"github.com/docker/docker/cliconfig"
+	"github.com/docker/docker/reference"
 )
 
 // Service is a registry service. It tracks configuration data such as a list
