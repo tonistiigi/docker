@@ -9,12 +9,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	Cli "github.com/docker/docker/cli"
+	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 	"github.com/docker/docker/runconfig"
-	tagpkg "github.com/docker/docker/tag"
 )
 
 func (cli *DockerCli) pullImage(image string) error {
@@ -31,13 +30,13 @@ func (cli *DockerCli) pullImageCustomOut(image string, out io.Writer) error {
 
 	var tag string
 	switch x := ref.(type) {
-	case reference.Digested:
+	case reference.Canonical:
 		tag = x.Digest().String()
-	case reference.Tagged:
+	case reference.NamedTagged:
 		tag = x.Tag()
 	default:
 		// pull only the image tagged 'latest' if no tag was specified
-		tag = tagpkg.DefaultTag
+		tag = reference.DefaultTag
 	}
 
 	v.Set("fromImage", ref.Name())
@@ -111,13 +110,13 @@ func (cli *DockerCli) createContainer(config *runconfig.Config, hostConfig *runc
 		return nil, err
 	}
 
-	isDigested := false
+	isCanonical := false
 	switch ref.(type) {
-	case reference.Tagged:
-	case reference.Digested:
-		isDigested = true
+	case reference.NamedTagged:
+	case reference.Canonical:
+		isCanonical = true
 	default:
-		ref, err = reference.WithTag(ref, tagpkg.DefaultTag)
+		ref, err = reference.WithTag(ref, reference.DefaultTag)
 		if err != nil {
 			return nil, err
 		}
@@ -125,7 +124,7 @@ func (cli *DockerCli) createContainer(config *runconfig.Config, hostConfig *runc
 
 	var trustedRef reference.Canonical
 
-	if isTrusted() && !isDigested {
+	if isTrusted() && !isCanonical {
 		var err error
 		trustedRef, err = cli.trustedReference(ref.(reference.NamedTagged))
 		if err != nil {
@@ -144,7 +143,7 @@ func (cli *DockerCli) createContainer(config *runconfig.Config, hostConfig *runc
 		if err = cli.pullImageCustomOut(config.Image, cli.err); err != nil {
 			return nil, err
 		}
-		if trustedRef != nil && !isDigested {
+		if trustedRef != nil && !isCanonical {
 			if err := cli.tagTrusted(trustedRef, ref.(reference.NamedTagged)); err != nil {
 				return nil, err
 			}

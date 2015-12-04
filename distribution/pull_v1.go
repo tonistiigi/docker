@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/client/transport"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/image"
@@ -22,6 +21,7 @@ import (
 	"github.com/docker/docker/pkg/progressreader"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/stringid"
+	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 )
 
@@ -35,7 +35,7 @@ type v1Puller struct {
 }
 
 func (p *v1Puller) Pull(ref reference.Named) (fallback bool, err error) {
-	if _, isDigested := ref.(reference.Digested); isDigested {
+	if _, isCanonical := ref.(reference.Canonical); isCanonical {
 		// Allowing fallback, because HTTPS v1 is before HTTP v2
 		return true, registry.ErrNoSupport{errors.New("Cannot pull by digest with v1 registry")}
 	}
@@ -87,7 +87,7 @@ func (p *v1Puller) pullRepository(ref reference.Named) error {
 
 	logrus.Debugf("Retrieving the tag list")
 	var tagsList map[string]string
-	tagged, isTagged := ref.(reference.Tagged)
+	tagged, isTagged := ref.(reference.NamedTagged)
 	if !isTagged {
 		tagsList, err = p.session.GetRemoteTags(repoData.Endpoints, p.repoInfo.RemoteName)
 	} else {
@@ -332,7 +332,7 @@ func (p *v1Puller) pullImage(out io.Writer, v1ID, endpoint string, localNameRef 
 		return layersDownloaded, err
 	}
 
-	if err := p.config.TagStore.AddTag(localNameRef, imageID, true); err != nil {
+	if err := p.config.ReferenceStore.AddTag(localNameRef, imageID, true); err != nil {
 		return layersDownloaded, err
 	}
 

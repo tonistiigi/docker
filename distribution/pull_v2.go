@@ -13,7 +13,6 @@ import (
 	"github.com/docker/distribution"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/manifest/schema1"
-	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/image/v1"
@@ -23,6 +22,7 @@ import (
 	"github.com/docker/docker/pkg/progressreader"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/stringid"
+	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 	"golang.org/x/net/context"
 )
@@ -60,13 +60,13 @@ func (p *v2Puller) Pull(ref reference.Named) (fallback bool, err error) {
 func (p *v2Puller) pullV2Repository(ref reference.Named) (err error) {
 	var refs []reference.Named
 	taggedName := p.repoInfo.LocalName
-	if tagged, isTagged := ref.(reference.Tagged); isTagged {
+	if tagged, isTagged := ref.(reference.NamedTagged); isTagged {
 		taggedName, err = reference.WithTag(p.repoInfo.LocalName, tagged.Tag())
 		if err != nil {
 			return err
 		}
 		refs = []reference.Named{taggedName}
-	} else if digested, isDigested := ref.(reference.Digested); isDigested {
+	} else if digested, isCanonical := ref.(reference.Canonical); isCanonical {
 		taggedName, err = reference.WithDigest(p.repoInfo.LocalName, digested.Digest())
 		if err != nil {
 			return err
@@ -184,9 +184,9 @@ func (p *v2Puller) download(di *downloadInfo) {
 
 func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated bool, err error) {
 	tagOrDigest := ""
-	if tagged, isTagged := ref.(reference.Tagged); isTagged {
+	if tagged, isTagged := ref.(reference.NamedTagged); isTagged {
 		tagOrDigest = tagged.Tag()
-	} else if digested, isDigested := ref.(reference.Digested); isDigested {
+	} else if digested, isCanonical := ref.(reference.Canonical); isCanonical {
 		tagOrDigest = digested.Digest().String()
 	} else {
 		return false, fmt.Errorf("internal error: reference has neither a tag nor a digest: %s", ref.String())
@@ -399,7 +399,7 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 	// Check for new tag if no layers downloaded
 	var oldTagImageID image.ID
 	if !tagUpdated {
-		oldTagImageID, err = p.config.TagStore.Get(ref)
+		oldTagImageID, err = p.config.ReferenceStore.Get(ref)
 		if err != nil || oldTagImageID != imageID {
 			tagUpdated = true
 		}
@@ -407,10 +407,10 @@ func (p *v2Puller) pullV2Tag(out io.Writer, ref reference.Named) (tagUpdated boo
 
 	if tagUpdated {
 		if canonical, ok := ref.(reference.Canonical); ok {
-			if err = p.config.TagStore.AddDigest(canonical, imageID, true); err != nil {
+			if err = p.config.ReferenceStore.AddDigest(canonical, imageID, true); err != nil {
 				return false, err
 			}
-		} else if err = p.config.TagStore.AddTag(ref, imageID, true); err != nil {
+		} else if err = p.config.ReferenceStore.AddTag(ref, imageID, true); err != nil {
 			return false, err
 		}
 	}
@@ -426,7 +426,7 @@ func verifyManifest(signedManifest *schema1.SignedManifest, ref reference.Refere
 	// If pull by digest, then verify the manifest digest. NOTE: It is
 	// important to do this first, before any other content validation. If the
 	// digest cannot be verified, don't even bother with those other things.
-	if digested, isDigested := ref.(reference.Digested); isDigested {
+	if digested, isCanonical := ref.(reference.Canonical); isCanonical {
 		verifier, err := digest.NewDigestVerifier(digested.Digest())
 		if err != nil {
 			return nil, err

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/docker/distribution/reference"
 	Cli "github.com/docker/docker/cli"
 	flag "github.com/docker/docker/pkg/mflag"
+	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 )
 
@@ -28,9 +28,9 @@ func (cli *DockerCli) CmdPush(args ...string) error {
 
 	var tag string
 	switch x := ref.(type) {
-	case reference.Digested:
+	case reference.Canonical:
 		return errors.New("cannot push a digest reference")
-	case reference.Tagged:
+	case reference.NamedTagged:
 		tag = x.Tag()
 	}
 

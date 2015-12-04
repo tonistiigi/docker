@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/opts"
+	"github.com/docker/docker/reference"
 	"github.com/gorilla/mux"
 
 	"github.com/Sirupsen/logrus"

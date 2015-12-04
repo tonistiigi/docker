@@ -1,7 +1,7 @@
 package registry
 
 import (
-	"github.com/docker/distribution/reference"
+	"github.com/docker/docker/reference"
 )
 
 // SearchResult describes a search result returned from a registry
