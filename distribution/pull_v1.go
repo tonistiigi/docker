@@ -121,13 +121,6 @@ func (p *v1Puller) pullRepository(ctx context.Context, ref reference.Named) erro
 		}
 	}
 
-	// localNameRef := p.repoInfo.LocalName
-	// if isTagged {
-	// 	localNameRef, err = reference.WithTag(p.repoInfo, tagged.Tag())
-	// 	if err != nil {
-	// 		localNameRef = p.repoInfo.LocalName
-	// 	}
-	// }
 	writeStatus(ref.String(), p.config.ProgressOutput, layersDownloaded)
 	return nil
 }
