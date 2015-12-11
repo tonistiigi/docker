@@ -57,16 +57,14 @@ func TestTokenPassThru(t *testing.T) {
 	}
 	n, _ := reference.ParseNamed("testremotename")
 	repoInfo := &registry.RepositoryInfo{
+		Named: n,
 		Index: &registry.IndexInfo{
 			Name:     "testrepo",
 			Mirrors:  nil,
 			Secure:   false,
 			Official: false,
 		},
-		RemoteName:    n,
-		LocalName:     n,
-		CanonicalName: n,
-		Official:      false,
+		Official: false,
 	}
 	imagePullConfig := &ImagePullConfig{
 		MetaHeaders: http.Header{},
