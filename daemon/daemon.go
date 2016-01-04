@@ -47,6 +47,7 @@ import (
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/image/tarexport"
 	"github.com/docker/docker/layer"
+	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/migrate/v1"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/fileutils"
@@ -74,6 +75,7 @@ import (
 	lntypes "github.com/docker/libnetwork/types"
 	"github.com/docker/libtrust"
 	"github.com/opencontainers/runc/libcontainer"
+	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"golang.org/x/net/context"
 )
 
@@ -132,6 +134,7 @@ type Daemon struct {
 	imageStore                image.Store
 	nameIndex                 *registrar.Registrar
 	linkIndex                 *linkIndex
+	apiClient                 libcontainerd.Client
 }
 
 // GetContainer looks for a container using the provided information, which could be
@@ -818,6 +821,11 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 	}
 	go d.execCommandGC()
 
+	d.apiClient, err = libcontainerd.New(d, config.ContainerdAddr, true)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := d.restore(); err != nil {
 		return nil, err
 	}
@@ -931,22 +939,99 @@ func (daemon *Daemon) Unmount(container *container.Container) {
 }
 
 // Run uses the execution driver to run a given container
-func (daemon *Daemon) Run(c *container.Container, pipes *execdriver.Pipes, startCallback execdriver.DriverCallback) (execdriver.ExitStatus, error) {
-	hooks := execdriver.Hooks{
-		Start: startCallback,
+// func (daemon *Daemon) Run(c *container.Container, pipes *execdriver.Pipes, startCallback execdriver.DriverCallback) (execdriver.ExitStatus, error) {
+// 	hooks := execdriver.Hooks{
+// 		Start: startCallback,
+// 	}
+// 	hooks.PreStart = append(hooks.PreStart, func(processConfig *execdriver.ProcessConfig, pid int, chOOM <-chan struct{}) error {
+// 		return daemon.setNetworkNamespaceKey(c.ID, pid)
+// 	})
+// 	return daemon.execDriver.Run(c.Command, pipes, hooks)
+// }
+func (daemon *Daemon) Run(c *container.Container) error {
+	r := libcontainerd.CreateContainerRequest{
+		Streams: libcontainerd.Streams{
+			Terminal: c.Config.Tty,
+			Stdin:    c.Stdin(),
+			Stdout:   c.Stdout(),
+			Stderr:   c.Stderr(),
+		},
+		BundlePath: filepath.Join(daemon.root, "bundles", c.ID),
 	}
-	hooks.PreStart = append(hooks.PreStart, func(processConfig *execdriver.ProcessConfig, pid int, chOOM <-chan struct{}) error {
-		return daemon.setNetworkNamespaceKey(c.ID, pid)
-	})
-	return daemon.execDriver.Run(c.Command, pipes, hooks)
+
+	return daemon.apiClient.Create(c.ID, r)
+}
+
+func (daemon *Daemon) attachTty(c *container.Container, consolePath *string, stdin *io.WriteCloser, stdoutWriter io.Writer) (libcontainer.Console, error) {
+	console, err := libcontainer.NewConsole(os.Getuid(), os.Getgid())
+	if err != nil {
+		return nil, err
+	}
+	*consolePath = console.Path()
+	*stdin = console
+
+	go func() {
+		io.Copy(stdoutWriter, console)
+	}()
+	// c.Console = console
+	return console, nil
 }
 
 func (daemon *Daemon) kill(c *container.Container, sig int) error {
-	return daemon.execDriver.Kill(c.Command, sig)
+	// return daemon.execDriver.Kill(c.Command, sig)
+	return daemon.apiClient.Signal(c.ID, sig)
 }
-
 func (daemon *Daemon) stats(c *container.Container) (*execdriver.ResourceStats, error) {
-	return daemon.execDriver.Stats(c.ID)
+	stats, err := daemon.apiClient.Stats(c.ID)
+	if err != nil {
+		return nil, err
+	}
+	st := &execdriver.ResourceStats{
+		Stats: &libcontainer.Stats{
+			CgroupStats: &cgroups.Stats{
+				CpuStats: cgroups.CpuStats{
+					CpuUsage: cgroups.CpuUsage{
+						TotalUsage:        stats.CgroupStats.CpuStats.CpuUsage.TotalUsage,
+						PercpuUsage:       stats.CgroupStats.CpuStats.CpuUsage.PercpuUsage,
+						UsageInKernelmode: stats.CgroupStats.CpuStats.CpuUsage.UsageInKernelmode,
+						UsageInUsermode:   stats.CgroupStats.CpuStats.CpuUsage.UsageInUsermode,
+					},
+					ThrottlingData: cgroups.ThrottlingData{}, // FIXME: some data seems to be missing, maybe get stats directly from cgroups
+				},
+				BlkioStats: cgroups.BlkioStats{},
+				// HugetlbStats: map[string]&cgroups.HugetlbStats,
+			},
+		},
+		Read: time.Unix(int64(stats.Timestamp), 0),
+	}
+
+	if stats.CgroupStats.MemoryStats != nil {
+		st.CgroupStats.MemoryStats.Cache = stats.CgroupStats.MemoryStats.Cache
+		st.CgroupStats.MemoryStats.Stats = stats.CgroupStats.MemoryStats.Stats
+		if stats.CgroupStats.MemoryStats.Usage != nil {
+			st.CgroupStats.MemoryStats.Usage = cgroups.MemoryData{
+				Usage:    stats.CgroupStats.MemoryStats.Usage.Usage,
+				MaxUsage: stats.CgroupStats.MemoryStats.Usage.MaxUsage,
+				Failcnt:  stats.CgroupStats.MemoryStats.Usage.Failcnt,
+			}
+		}
+		if stats.CgroupStats.MemoryStats.SwapUsage != nil {
+			st.CgroupStats.MemoryStats.SwapUsage = cgroups.MemoryData{
+				Usage:    stats.CgroupStats.MemoryStats.SwapUsage.Usage,
+				MaxUsage: stats.CgroupStats.MemoryStats.SwapUsage.MaxUsage,
+				Failcnt:  stats.CgroupStats.MemoryStats.SwapUsage.Failcnt,
+			}
+		}
+		if stats.CgroupStats.MemoryStats.KernelUsage != nil {
+			st.CgroupStats.MemoryStats.KernelUsage = cgroups.MemoryData{
+				Usage:    stats.CgroupStats.MemoryStats.KernelUsage.Usage,
+				MaxUsage: stats.CgroupStats.MemoryStats.KernelUsage.MaxUsage,
+				Failcnt:  stats.CgroupStats.MemoryStats.KernelUsage.Failcnt,
+			}
+		}
+	}
+
+	return st, nil
 }
 
 func (daemon *Daemon) subscribeToContainerStats(c *container.Container) chan interface{} {

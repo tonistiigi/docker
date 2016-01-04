@@ -31,7 +31,8 @@ type supervisor interface {
 	// StartLogging starts the logging driver for the container
 	StartLogging(*Container) error
 	// Run starts a container
-	Run(c *Container, pipes *execdriver.Pipes, startCallback execdriver.DriverCallback) (execdriver.ExitStatus, error)
+	// Run(c *Container, pipes *execdriver.Pipes, startCallback execdriver.DriverCallback) (execdriver.ExitStatus, error)
+	Run(c *Container) error
 	// IsShuttingDown tells whether the supervisor is shutting down or not
 	IsShuttingDown() bool
 }
@@ -92,6 +93,48 @@ func (container *Container) StartMonitor(s supervisor, policy container.RestartP
 	return container.monitor.wait()
 }
 
+func (container *Container) Reset(lock bool) {
+	logrus.Debugf("resetting %d\n", container.ID)
+
+	if lock {
+		container.Lock()
+		defer container.Unlock()
+	}
+
+	if err := container.CloseStreams(); err != nil {
+		logrus.Errorf("%s: %s", container.ID, err)
+	}
+
+	// if container.Command != nil && container.Command.ProcessConfig.Terminal != nil {
+	// 	if err := container.Command.ProcessConfig.Terminal.Close(); err != nil {
+	// 		logrus.Errorf("%s: Error closing terminal: %s", container.ID, err)
+	// 	}
+	// }
+
+	// Re-create a brand new stdin pipe once the container exited
+	if container.Config.OpenStdin {
+		container.NewInputPipes()
+	}
+
+	if container.LogDriver != nil {
+		if container.LogCopier != nil {
+			exit := make(chan struct{})
+			go func() {
+				container.LogCopier.Wait()
+				close(exit)
+			}()
+			select {
+			case <-time.After(loggerCloseTimeout):
+				logrus.Warnf("Logger didn't exit in time: logs may be truncated")
+			case <-exit:
+			}
+		}
+		container.LogDriver.Close()
+		container.LogCopier = nil
+		container.LogDriver = nil
+	}
+}
+
 // wait starts the container and wait until
 // we either receive an error from the initial start of the container's
 // process or until the process is running in the container
@@ -138,6 +181,33 @@ func (m *containerMonitor) Close() error {
 	return nil
 }
 
+// Fixme: move to daemon? expose reset
+func (container *Container) Start(s supervisor) error {
+	if err := s.StartLogging(container); err != nil {
+		container.Reset(false)
+		return err
+	}
+
+	// container.LastStartTime = time.Now()
+
+	err := s.Run(container)
+	if err != nil {
+		container.Reset(false)
+		return err
+	}
+
+	if container.Config.Tty {
+		// The callback is called after the process start()
+		// so we are in the parent process. In TTY mode, stdin/out/err is the PtySlave
+		// which we close here. FIXME
+		// if c, ok := container.Stdout().(io.Closer); ok {
+		// 		c.Close()
+		// 	}
+	}
+
+	return nil
+}
+
 // Start starts the containers process and monitors it according to the restart policy
 func (m *containerMonitor) start() error {
 	var (
@@ -174,13 +244,11 @@ func (m *containerMonitor) start() error {
 			return err
 		}
 
-		pipes := execdriver.NewPipes(m.container.Stdin(), m.container.Stdout(), m.container.Stderr(), m.container.Config.OpenStdin)
-
 		m.logEvent("start")
 
 		m.lastStartTime = time.Now()
 
-		if exitStatus, err = m.supervisor.Run(m.container, pipes, m.callback); err != nil {
+		if true { //exitStatus, err = m.supervisor.Run(m.container, pipes, m.callback); err != nil {
 			// if we receive an internal error from the initial start of a container then lets
 			// return it instead of entering the restart loop
 			// set to 127 for container cmd not found/does not exist)

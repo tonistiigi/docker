@@ -131,7 +131,6 @@ func (daemon *Daemon) containerStart(container *container.Container) (err error)
 	if err := daemon.populateCommand(container, env); err != nil {
 		return err
 	}
-
 	if !container.HostConfig.IpcMode.IsContainer() && !container.HostConfig.IpcMode.IsHost() {
 		if err := daemon.setupIpcDirs(container); err != nil {
 			return err
@@ -146,15 +145,16 @@ func (daemon *Daemon) containerStart(container *container.Container) (err error)
 	mounts = append(mounts, container.TmpfsMounts()...)
 
 	container.Command.Mounts = mounts
-	if err := daemon.waitForStart(container); err != nil {
+
+	if err := daemon.writeBundle(initSpec(container, env), container); err != nil {
 		return err
 	}
+	if err := container.Start(daemon); err != nil {
+		return err
+	}
+
 	container.HasBeenStartedBefore = true
 	return nil
-}
-
-func (daemon *Daemon) waitForStart(container *container.Container) error {
-	return container.StartMonitor(daemon, container.HostConfig.RestartPolicy)
 }
 
 // Cleanup releases any network resources allocated to the container along with any rules
@@ -173,4 +173,5 @@ func (daemon *Daemon) Cleanup(container *container.Container) {
 	if err := container.UnmountVolumes(false, daemon.LogVolumeEvent); err != nil {
 		logrus.Warnf("%s cleanup: Failed to umount volumes: %v", container.ID, err)
 	}
+	daemon.destroyBundle(container.ID)
 }

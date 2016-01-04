@@ -6,12 +6,13 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	containerd "github.com/docker/containerd/api/grpc/types"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/docker/daemon/execdriver"
 	derr "github.com/docker/docker/errors"
+	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/pkg/pools"
-	"github.com/docker/docker/pkg/promise"
 	"github.com/docker/docker/pkg/term"
 	"github.com/docker/engine-api/types"
 	"github.com/docker/engine-api/types/strslice"
@@ -179,38 +180,35 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 		ec.NewNopInputPipe()
 	}
 
+	r := libcontainerd.AddProcessRequest{
+		Args: append([]string{ec.ProcessConfig.Entrypoint}, ec.ProcessConfig.Arguments...),
+		Cwd:  c.Config.WorkingDir,
+		Env:  c.CreateDaemonEnvironment(nil), // FIXME
+		User: &containerd.User{
+			Uid: 0,
+			Gid: 0, //FIXME
+		},
+		Streams: libcontainerd.Streams{
+			Terminal: ec.ProcessConfig.Tty,
+			Stdin:    ec.Stdin(),
+			Stdout:   ec.Stdout(),
+			Stderr:   ec.Stderr(),
+		},
+	}
+
+	if err := d.apiClient.AddProcess(c.ID, name, r); err != nil {
+		return err
+	}
+
+	ec.Close()
+
 	attachErr := container.AttachStreams(ec.StreamConfig, ec.OpenStdin, true, ec.ProcessConfig.Tty, cStdin, cStdout, cStderr, ec.DetachKeys)
 
-	execErr := make(chan error)
-
-	// Note, the ExecConfig data will be removed when the container
-	// itself is deleted.  This allows us to query it (for things like
-	// the exitStatus) even after the cmd is done running.
-
-	go func() {
-		execErr <- d.containerExec(c, ec)
-	}()
-
-	select {
-	case err := <-attachErr:
-		if err != nil {
-			return derr.ErrorCodeExecAttach.WithArgs(err)
-		}
-		return nil
-	case err := <-execErr:
-		if aErr := <-attachErr; aErr != nil && err == nil {
-			return derr.ErrorCodeExecAttach.WithArgs(aErr)
-		}
-		if err == nil {
-			return nil
-		}
-
-		// Maybe the container stopped while we were trying to exec
-		if !c.IsRunning() {
-			return derr.ErrorCodeExecContainerStopped
-		}
-		return derr.ErrorCodeExecCantRun.WithArgs(ec.ID, c.ID, err)
+	err = <-attachErr
+	if err != nil {
+		return derr.ErrorCodeExecAttach.WithArgs(err)
 	}
+	return nil
 }
 
 // Exec calls the underlying exec driver to run
@@ -265,50 +263,4 @@ func (d *Daemon) containerExecIds() map[string]struct{} {
 		}
 	}
 	return ids
-}
-
-func (d *Daemon) containerExec(container *container.Container, ec *exec.Config) error {
-	container.Lock()
-	defer container.Unlock()
-
-	callback := func(processConfig *execdriver.ProcessConfig, pid int, chOOM <-chan struct{}) error {
-		if processConfig.Tty {
-			// The callback is called after the process Start()
-			// so we are in the parent process. In TTY mode, stdin/out/err is the PtySlave
-			// which we close here.
-			if c, ok := processConfig.Stdout.(io.Closer); ok {
-				c.Close()
-			}
-		}
-		ec.Close()
-		return nil
-	}
-
-	// We use a callback here instead of a goroutine and an chan for
-	// synchronization purposes
-	cErr := promise.Go(func() error { return d.monitorExec(container, ec, callback) })
-	return ec.Wait(cErr)
-}
-
-func (d *Daemon) monitorExec(container *container.Container, execConfig *exec.Config, callback execdriver.DriverCallback) error {
-	pipes := execdriver.NewPipes(execConfig.Stdin(), execConfig.Stdout(), execConfig.Stderr(), execConfig.OpenStdin)
-	exitCode, err := d.Exec(container, execConfig, pipes, callback)
-	if err != nil {
-		logrus.Errorf("Error running command in existing container %s: %s", container.ID, err)
-	}
-	logrus.Debugf("Exec task in container %s exited with code %d", container.ID, exitCode)
-
-	if err := execConfig.CloseStreams(); err != nil {
-		logrus.Errorf("%s: %s", container.ID, err)
-	}
-
-	if execConfig.ProcessConfig.Terminal != nil {
-		if err := execConfig.ProcessConfig.Terminal.Close(); err != nil {
-			logrus.Errorf("Error closing terminal while running in container %s: %s", container.ID, err)
-		}
-	}
-	// remove the exec command from the container's store only and not the
-	// daemon's store so that the exec command can be inspected.
-	container.ExecCommands.Delete(execConfig.ID)
-	return err
 }

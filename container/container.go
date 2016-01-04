@@ -226,19 +226,7 @@ func (container *Container) GetRootResourcePath(path string) (string, error) {
 // ExitOnNext signals to the monitor that it should not restart the container
 // after we send the kill signal.
 func (container *Container) ExitOnNext() {
-	container.monitor.ExitOnNext()
-}
-
-// Resize changes the TTY of the process running inside the container
-// to the given height and width. The container must be running.
-func (container *Container) Resize(h, w int) error {
-	if container.Command.ProcessConfig.Terminal == nil {
-		return fmt.Errorf("Container %s does not have a terminal ready", container.ID)
-	}
-	if err := container.Command.ProcessConfig.Terminal.Resize(h, w); err != nil {
-		return err
-	}
-	return nil
+	// container.monitor.ExitOnNext() // FIXME:
 }
 
 // HostConfigPath returns the path to the container's JSON hostconfig
