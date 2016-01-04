@@ -3,11 +3,58 @@ package daemon
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/libcontainerd"
+	"github.com/docker/docker/pkg/stringid"
 )
+
+const (
+	defaultTimeIncrement = 100
+)
+
+func (daemon *Daemon) ContainerShouldRestart(container *container.Container, exitCode uint32) bool {
+	if container.ShouldStop {
+		container.HasBeenManuallyStopped = !daemon.IsShuttingDown()
+		return false
+	}
+
+	if exitCode != 0 {
+		container.FailureCount++
+	} else {
+		container.FailureCount = 0
+	}
+
+	executionTime := time.Now().Sub(container.StartedAt).Seconds()
+
+	if executionTime >= 10 {
+		container.TimeIncrement = defaultTimeIncrement
+	} else {
+		container.TimeIncrement *= 2
+	}
+
+	switch {
+	case container.HostConfig.RestartPolicy.IsAlways(), container.HostConfig.RestartPolicy.IsUnlessStopped():
+		return true
+	case container.HostConfig.RestartPolicy.IsOnFailure():
+		// the default value of 0 for MaximumRetryCount means that we will not enforce a maximum count
+		if max := container.HostConfig.RestartPolicy.MaximumRetryCount; max != 0 && container.FailureCount > max {
+			logrus.Debugf("stopping restart of container %s because maximum failure of %d has been reached",
+				stringid.TruncateID(container.ID), max)
+			// Reset the failureCount so next time the container is started we
+			// have a grace period
+			container.FailureCount = 0
+			container.TimeIncrement = defaultTimeIncrement
+			return false
+		}
+
+		return exitCode != 0
+	}
+
+	return false
+}
 
 func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 	c := daemon.containers.Get(id)
@@ -19,11 +66,24 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 	case "exit":
 		c.Reset(true)
 
-		c.SetStopped(&container.ExitStatus{ExitCode: int(e.ExitCode)}) // FIXME: OOMKilled
+		if daemon.ContainerShouldRestart(c, e.ExitCode) {
+			c.SetStopped(&container.ExitStatus{ExitCode: int(e.ExitCode)}) // FIXME: OOMKilled
 
-		// FIXME: only call this when no auto-restart
-		// Cleanup networking and mounts
-		daemon.Cleanup(c)
+			logrus.Debugf("Delaying restart by %d ms!", c.TimeIncrement)
+			c.RestartTimer = time.AfterFunc(time.Duration(c.TimeIncrement)*time.Millisecond,
+				func() {
+					c.RestartCount++
+					err := daemon.Run(c)
+					if err != nil {
+						logrus.Error(err)
+					}
+				})
+		} else {
+			// Cleanup networking and mounts
+			daemon.Cleanup(c)
+
+			c.SetStopped(&container.ExitStatus{ExitCode: int(e.ExitCode)}) // FIXME: OOMKilled
+		}
 
 		// FIXME: here is race condition between two RUN instructions in Dockerfile
 		// because they share same runconfig and change image. Must be fixed
@@ -33,8 +93,13 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 
 			return err
 		}
+
 	case "started":
 		c.SetRunning(int(e.Pid), true)
+
+		if c.TimeIncrement == 0 {
+			c.TimeIncrement = defaultTimeIncrement
+		}
 
 		if err := c.ToDisk(); err != nil {
 			c.Reset(false)
@@ -98,5 +163,6 @@ func (daemon *Daemon) ProcessExited(id, processId string, exitCode uint32) error
 		// daemon's store so that the exec command can be inspected.
 		container.ExecCommands.Delete(execConfig.ID)
 	}
+
 	return nil
 }

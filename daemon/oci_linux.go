@@ -9,7 +9,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/caps"
 	"github.com/docker/docker/pkg/idtools"
@@ -84,6 +83,9 @@ func setResources(s *specs.LinuxRuntimeSpec, c *container.Container) error {
 		}
 	}
 	s.Linux.Resources = r
+	if c.HostConfig.CgroupParent != "" {
+		s.Linux.CgroupsPath = c.HostConfig.CgroupParent
+	}
 	return nil
 }
 
@@ -361,7 +363,6 @@ func (daemon *Daemon) writeBundle(s combinedSpec, c *container.Container, mounts
 	if err != nil {
 		return err
 	}
-	logrus.Debugf("Write oci to: %s", cPath)
 	if err := json.NewEncoder(cf).Encode(ls); err != nil {
 		return err
 	}
@@ -370,7 +371,6 @@ func (daemon *Daemon) writeBundle(s combinedSpec, c *container.Container, mounts
 	if err != nil {
 		return err
 	}
-	logrus.Debugf("Write oci to: %s", rPath)
 	if err := json.NewEncoder(rf).Encode(rls); err != nil {
 		return err
 	}

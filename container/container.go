@@ -64,6 +64,22 @@ type CommonContainer struct {
 	// logDriver for closing
 	LogDriver logger.Logger  `json:"-"`
 	LogCopier *logger.Copier `json:"-"`
+
+	// Restart Policy
+
+	// failureCount is the number of times the container has failed to
+	// start in a row
+	FailureCount int `json:"-"`
+
+	// shouldStop signals the monitor that the next time the container exits it is
+	// either because docker or the user asked for the container to be stopped
+	ShouldStop bool `json:"-"`
+
+	RestartTimer *time.Timer `json:"-"`
+
+	// timeIncrement is the amount of time to wait between restarts
+	// this is in milliseconds
+	TimeIncrement int `json:"-"`
 }
 
 // NewBaseContainer creates a new container with its
@@ -226,7 +242,11 @@ func (container *Container) GetRootResourcePath(path string) (string, error) {
 // ExitOnNext signals to the monitor that it should not restart the container
 // after we send the kill signal.
 func (container *Container) ExitOnNext() {
-	// container.monitor.ExitOnNext() // FIXME:
+	container.ShouldStop = true
+	if container.RestartTimer != nil {
+		container.RestartTimer.Stop()
+	}
+	// container.monitor.ExitOnNext()
 }
 
 // HostConfigPath returns the path to the container's JSON hostconfig

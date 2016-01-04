@@ -185,7 +185,7 @@ func (container *Container) Start(s supervisor) error {
 	// 	return err
 	// }
 
-	// container.LastStartTime = time.Now()
+	container.RestartCount = 0
 
 	err := s.Run(container)
 	if err != nil {

@@ -149,6 +149,7 @@ func (daemon *Daemon) containerStart(container *container.Container) (err error)
 	if err := daemon.writeBundle(initSpec(container, env), container, mounts); err != nil {
 		return err
 	}
+
 	if err := container.Start(daemon); err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -44,13 +45,35 @@ type Client interface {
 	Stats(id string) (*containerd.Stats, error)
 }
 
+type process struct {
+	sync.RWMutex
+	stateMonitor
+	pid      uint32
+	console  libcontainer.Console
+	bundle   string
+	children map[string]*process
+}
+
+type client struct {
+	sync.RWMutex
+	backend    Backend
+	apiClient  containerd.APIClient
+	containers map[string]*process
+}
+
 func New(b Backend, addr string, createIfMissing bool) (Client, error) {
-	if createIfMissing && addr == "" {
-		logrus.Debugf("Starting containerd")
-		cmd := exec.Command("containerd", "--debug", "true")
-		cmd.Start()
-		time.Sleep(time.Second) // FIXME: better detection
-		addr = "/run/containerd/containerd.sock"
+
+	if createIfMissing {
+		if addr == "" {
+			addr = fmt.Sprintf("/run/containerd/containerd-docker-%d.sock", os.Getpid())
+		}
+
+		if _, err := os.Stat(addr); err != nil && os.IsNotExist(err) {
+			logrus.Debugf("Starting containerd on %s", addr)
+			cmd := exec.Command("containerd", "-l", addr, "--debug", "true")
+			cmd.Start()
+			time.Sleep(time.Second) // FIXME: better detection
+		}
 	}
 
 	dialOpts := []grpc.DialOption{grpc.WithInsecure()}
@@ -87,22 +110,6 @@ func New(b Backend, addr string, createIfMissing bool) (Client, error) {
 	return c, nil
 }
 
-type process struct {
-	sync.RWMutex
-	stateMonitor
-	pid      uint32
-	console  libcontainer.Console
-	bundle   string
-	children map[string]*process
-}
-
-type client struct {
-	sync.RWMutex
-	backend    Backend
-	apiClient  containerd.APIClient
-	containers map[string]*process
-}
-
 func (c *client) startMonitor() error {
 	events, err := c.apiClient.Events(context.Background(), &containerd.EventsRequest{})
 	if err != nil {
@@ -116,8 +123,8 @@ func (c *client) startMonitor() error {
 				go c.startMonitor()
 				return
 			}
-			logrus.Debugf("event: %+v ", e)
 
+			// TODO(mlaventure): use github.com/docker/containerd/supervisor.UpdateContainerEventType for matching events type
 			if e.Type == "updateContainer" {
 				state := ""
 				// this should be already in event and combined with other handling
@@ -132,7 +139,6 @@ func (c *client) startMonitor() error {
 						break
 					}
 				}
-				log.Println("l")
 				if state != "" {
 					e.Type = state
 				}
@@ -145,6 +151,7 @@ func (c *client) startMonitor() error {
 					logrus.Errorf("no state for container: %q", err)
 					continue
 				}
+
 				container.Lock()
 				for id, p := range container.children {
 					if p.pid == e.Pid {
@@ -161,13 +168,24 @@ func (c *client) startMonitor() error {
 					logrus.Errorf("no state for container: %q", err)
 					continue
 				}
+
+				// Remove container from list if we have exited
+				// We need to do so here in case the Message Handler decides to restart it.
+				c.Lock()
+				if e.Type == "exit" {
+					delete(c.containers, e.Id)
+				}
+				c.Unlock()
+
 				container.Lock()
+
 				container.handleMessage(c.backend, e)
 
 				if e.Type == "paused" || e.Type == "running" {
 					container.stateMonitor.handle(e.Type)
 				}
 				container.Unlock()
+
 			default:
 				logrus.Debugf("event unhandled: %+v", e)
 			}
@@ -197,6 +215,8 @@ func (c *client) Signal(id string, sig int) error {
 	if container.pid == 0 {
 		return fmt.Errorf("No active process for container %s", id)
 	}
+
+	fmt.Printf("Sending SIGNAL %d to %s\n", sig, id)
 	_, err = c.apiClient.Signal(context.Background(), &containerd.SignalRequest{
 		Id:     id,
 		Pid:    uint32(container.pid),
@@ -207,7 +227,7 @@ func (c *client) Signal(id string, sig int) error {
 func (c *client) Create(id, bundlePath string) (err error) {
 	c.Lock()
 	if _, ok := c.containers[id]; ok {
-		return fmt.Errorf("Container %s is aleady active")
+		return fmt.Errorf("Container %s is aleady active", id)
 	}
 	c.containers[id] = nil
 	c.Unlock()
@@ -251,6 +271,7 @@ func (c *client) Create(id, bundlePath string) (err error) {
 	if err != nil {
 		return err
 	}
+
 	container.pid = resp.Pid
 
 	c.Lock()
@@ -407,6 +428,7 @@ func (c *client) AddProcess(id, processId string, req AddProcessRequest) error {
 
 	return nil
 }
+
 func (c *client) Pause(id string) error {
 	return c.setState(id, "paused")
 }
@@ -426,7 +448,10 @@ func (c *client) setState(id, state string) error {
 		Status: state,
 	})
 	if err != nil {
+		container.Unlock()
 		return err
+	} else {
+		container.Unlock()
 	}
 	container.stateMonitor.append(state, ch)
 	container.Unlock()
