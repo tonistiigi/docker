@@ -244,6 +244,19 @@ RUN set -x \
 	&& go build -v -o /usr/local/bin/rsrc github.com/akavel/rsrc \
 	&& rm -rf "$GOPATH"
 
+# Install containerd
+ENV CONTAINERD_COMMIT 5d47499c517d3d9586e7828992c19ea7ccaa466c
+RUN set -x \
+	&& export GOPATH="$(mktemp -d)" \
+  && git clone git://github.com/tonistiigi/containerd.git "$GOPATH/src/github.com/docker/containerd" \
+  && git clone git://github.com/opencontainers/specs.git "$GOPATH/src/github.com/opencontainers/specs" \
+	&& cd "$GOPATH/src/github.com/opencontainers/specs" \
+	&& git checkout -q e79365a749f86254dec96609caff2a8acd15f689 \
+	&& cd "$GOPATH/src/github.com/docker/containerd" \
+	&& git checkout -q "$CONTAINERD_COMMIT" \
+	&& go get -v ./... \
+	&& make && make install
+
 # Wrap all commands in the "docker-in-docker" script to allow nested containers
 ENTRYPOINT ["hack/dind"]
 
