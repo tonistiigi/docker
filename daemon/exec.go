@@ -196,7 +196,7 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 		},
 	}
 
-	if err := d.apiClient.AddProcess(c.ID, name, r); err != nil {
+	if err := d.containerd.AddProcess(c.ID, name, r); err != nil {
 		return err
 	}
 

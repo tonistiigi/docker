@@ -18,7 +18,7 @@ func (daemon *Daemon) ContainerResize(name string, height, width int) error {
 		return derr.ErrorCodeNotRunning.WithArgs(container.ID)
 	}
 
-	if err = daemon.apiClient.Resize(container.ID, width, height); err == nil {
+	if err = daemon.containerd.Resize(container.ID, width, height); err == nil {
 		attributes := map[string]string{
 			"height": fmt.Sprintf("%d", height),
 			"width":  fmt.Sprintf("%d", width),
@@ -37,5 +37,5 @@ func (daemon *Daemon) ContainerExecResize(name string, height, width int) error 
 		return err
 	}
 
-	return daemon.apiClient.ResizeProcess(ec.ContainerID, ec.ID, width, height)
+	return daemon.containerd.ResizeProcess(ec.ContainerID, ec.ID, width, height)
 }

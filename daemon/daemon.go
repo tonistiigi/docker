@@ -134,7 +134,7 @@ type Daemon struct {
 	imageStore                image.Store
 	nameIndex                 *registrar.Registrar
 	linkIndex                 *linkIndex
-	apiClient                 libcontainerd.Client
+	containerd                libcontainerd.Client
 }
 
 // GetContainer looks for a container using the provided information, which could be
@@ -821,7 +821,7 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 	}
 	go d.execCommandGC()
 
-	d.apiClient, err = libcontainerd.New(d, config.ContainerdAddr, true)
+	d.containerd, err = libcontainerd.New(d, config.ContainerdAddr, true)
 	if err != nil {
 		return nil, err
 	}
@@ -959,7 +959,7 @@ func (daemon *Daemon) Run(c *container.Container) error {
 		BundlePath: filepath.Join(daemon.root, "bundles", c.ID),
 	}
 
-	return daemon.apiClient.Create(c.ID, r)
+	return daemon.containerd.Create(c.ID, r)
 }
 
 func (daemon *Daemon) attachTty(c *container.Container, consolePath *string, stdin *io.WriteCloser, stdoutWriter io.Writer) (libcontainer.Console, error) {
@@ -979,10 +979,10 @@ func (daemon *Daemon) attachTty(c *container.Container, consolePath *string, std
 
 func (daemon *Daemon) kill(c *container.Container, sig int) error {
 	// return daemon.execDriver.Kill(c.Command, sig)
-	return daemon.apiClient.Signal(c.ID, sig)
+	return daemon.containerd.Signal(c.ID, sig)
 }
 func (daemon *Daemon) stats(c *container.Container) (*execdriver.ResourceStats, error) {
-	stats, err := daemon.apiClient.Stats(c.ID)
+	stats, err := daemon.containerd.Stats(c.ID)
 	if err != nil {
 		return nil, err
 	}

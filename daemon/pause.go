@@ -40,7 +40,7 @@ func (daemon *Daemon) containerPause(container *container.Container) error {
 		return derr.ErrorCodeContainerRestarting.WithArgs(container.ID)
 	}
 
-	if err := daemon.apiClient.Pause(container.ID); err != nil {
+	if err := daemon.containerd.Pause(container.ID); err != nil {
 		return derr.ErrorCodeCantPause.WithArgs(container.ID, err)
 	}
 
