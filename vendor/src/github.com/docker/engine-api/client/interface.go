@@ -72,6 +72,11 @@ type APIClient interface {
 	VolumeInspect(volumeID string) (types.Volume, error)
 	VolumeList(filter filters.Args) (types.VolumesListResponse, error)
 	VolumeRemove(volumeID string) error
+	PluginList() (types.PluginsListResponse, error)
+	PluginRemove(name string) error
+	PluginActivate(name string) error
+	PluginDisable(name string) error
+	PluginLoad(name, version string) error
 }
 
 // Ensure that Client always implements APIClient.

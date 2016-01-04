@@ -34,11 +34,9 @@ func (daemon *Daemon) containerUnpause(container *container.Container) error {
 		return derr.ErrorCodeNotPaused.WithArgs(container.ID)
 	}
 
-	if err := daemon.execDriver.Unpause(container.Command); err != nil {
+	if err := daemon.containerd.Resume(container.ID); err != nil {
 		return derr.ErrorCodeCantUnpause.WithArgs(container.ID, err)
 	}
 
-	container.Paused = false
-	daemon.LogContainerEvent(container, "unpause")
 	return nil
 }

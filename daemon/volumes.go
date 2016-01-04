@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/docker/docker/container"
-	"github.com/docker/docker/daemon/execdriver"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/volume"
 	"github.com/docker/engine-api/types"
@@ -21,7 +20,7 @@ var (
 	ErrVolumeReadonly = errors.New("mounted volume is marked read-only")
 )
 
-type mounts []execdriver.Mount
+type mounts []container.Mount
 
 // volumeToAPIType converts a volume.Volume to the type used by the remote API
 func volumeToAPIType(v volume.Volume) *types.Volume {

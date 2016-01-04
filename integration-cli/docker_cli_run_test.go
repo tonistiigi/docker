@@ -2757,7 +2757,7 @@ func testReadOnlyFile(filename string, c *check.C) {
 
 	out, _, err := dockerCmdWithError("run", "--read-only", "--rm", "busybox", "touch", filename)
 	if err == nil {
-		c.Fatal("expected container to error on run with read only error")
+		c.Fatalf("expected container to error on run with read only error for %s", filename)
 	}
 	expected := "Read-only file system"
 	if !strings.Contains(string(out), expected) {
@@ -2766,7 +2766,7 @@ func testReadOnlyFile(filename string, c *check.C) {
 
 	out, _, err = dockerCmdWithError("run", "--read-only", "--privileged", "--rm", "busybox", "touch", filename)
 	if err == nil {
-		c.Fatal("expected container to error on run with read only error")
+		c.Fatalf("expected container to error on run with read only error for %s", filename)
 	}
 	expected = "Read-only file system"
 	if !strings.Contains(string(out), expected) {

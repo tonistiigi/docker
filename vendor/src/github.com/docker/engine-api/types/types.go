@@ -431,3 +431,14 @@ type NetworkDisconnect struct {
 	Container string
 	Force     bool
 }
+
+// Plugin represents the configuration of a plugin for the remote API
+type Plugin struct {
+	Name    string
+	Version string
+	Active  bool
+}
+
+// PluginListResponse contains the response for the remote API:
+// GET "/volumes"
+type PluginsListResponse []*Plugin
