@@ -12,7 +12,6 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/libnetwork/types"
-	"github.com/opencontainers/runc/libcontainer"
 	"github.com/opencontainers/runc/libcontainer/configs"
 )
 
@@ -45,15 +44,14 @@ func processSetKeyReexec() {
 	if err != nil {
 		return
 	}
-	var state libcontainer.State
+	var state configs.HookState
 	if err = json.Unmarshal(stateBuf, &state); err != nil {
 		return
 	}
 
 	controllerID := os.Args[2]
-	key := state.NamespacePaths[configs.NamespaceType("NEWNET")]
 
-	err = SetExternalKey(controllerID, containerID, key)
+	err = SetExternalKey(controllerID, containerID, fmt.Sprintf("/proc/%d/ns/net", state.Pid))
 	return
 }
 
