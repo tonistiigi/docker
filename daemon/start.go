@@ -144,7 +144,7 @@ func (daemon *Daemon) containerStart(container *container.Container) (err error)
 	mounts = append(mounts, container.IpcMounts()...)
 	mounts = append(mounts, container.TmpfsMounts()...)
 
-	container.Command.Mounts = mounts
+	// container.Command.Mounts = mounts
 
 	if err := daemon.writeBundle(initSpec(container, env), container); err != nil {
 		return err

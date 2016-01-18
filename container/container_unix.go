@@ -49,6 +49,15 @@ type Container struct {
 	SeccompProfile  string
 }
 
+// ExitStatus provides exit reasons for a container.
+type ExitStatus struct {
+	// The exit code with which the container exited.
+	ExitCode int
+
+	// Whether the container encountered an OOM.
+	OOMKilled bool
+}
+
 // CreateDaemonEnvironment returns the list of all environment variables given the list of
 // environment variables related to links.
 // Sets PATH, HOSTNAME and if container.Config.Tty is set: TERM.
@@ -439,8 +448,8 @@ func appendNetworkMounts(container *Container, volumeMounts []volume.MountPoint)
 }
 
 // NetworkMounts returns the list of network mounts.
-func (container *Container) NetworkMounts() []execdriver.Mount {
-	var mounts []execdriver.Mount
+func (container *Container) NetworkMounts() []Mount {
+	var mounts []Mount
 	shared := container.HostConfig.NetworkMode.IsContainer()
 	if container.ResolvConfPath != "" {
 		if _, err := os.Stat(container.ResolvConfPath); err != nil {
@@ -451,7 +460,7 @@ func (container *Container) NetworkMounts() []execdriver.Mount {
 			if m, exists := container.MountPoints["/etc/resolv.conf"]; exists {
 				writable = m.RW
 			}
-			mounts = append(mounts, execdriver.Mount{
+			mounts = append(mounts, Mount{
 				Source:      container.ResolvConfPath,
 				Destination: "/etc/resolv.conf",
 				Writable:    writable,
@@ -468,7 +477,7 @@ func (container *Container) NetworkMounts() []execdriver.Mount {
 			if m, exists := container.MountPoints["/etc/hostname"]; exists {
 				writable = m.RW
 			}
-			mounts = append(mounts, execdriver.Mount{
+			mounts = append(mounts, Mount{
 				Source:      container.HostnamePath,
 				Destination: "/etc/hostname",
 				Writable:    writable,
@@ -485,7 +494,7 @@ func (container *Container) NetworkMounts() []execdriver.Mount {
 			if m, exists := container.MountPoints["/etc/hosts"]; exists {
 				writable = m.RW
 			}
-			mounts = append(mounts, execdriver.Mount{
+			mounts = append(mounts, Mount{
 				Source:      container.HostsPath,
 				Destination: "/etc/hosts",
 				Writable:    writable,
@@ -565,12 +574,12 @@ func (container *Container) UnmountIpcMounts(unmount func(pth string) error) {
 }
 
 // IpcMounts returns the list of IPC mounts
-func (container *Container) IpcMounts() []execdriver.Mount {
-	var mounts []execdriver.Mount
+func (container *Container) IpcMounts() []Mount {
+	var mounts []Mount
 
 	if !container.HasMountFor("/dev/shm") {
 		label.SetFileLabel(container.ShmPath, container.MountLabel)
-		mounts = append(mounts, execdriver.Mount{
+		mounts = append(mounts, Mount{
 			Source:      container.ShmPath,
 			Destination: "/dev/shm",
 			Writable:    true,
@@ -579,7 +588,7 @@ func (container *Container) IpcMounts() []execdriver.Mount {
 	}
 	if !container.HasMountFor("/dev/mqueue") &&
 		container.MqueuePath != "" {
-		mounts = append(mounts, execdriver.Mount{
+		mounts = append(mounts, Mount{
 			Source:      container.MqueuePath,
 			Destination: "/dev/mqueue",
 			Writable:    true,
@@ -744,10 +753,10 @@ func copyOwnership(source, destination string) error {
 }
 
 // TmpfsMounts returns the list of tmpfs mounts
-func (container *Container) TmpfsMounts() []execdriver.Mount {
-	var mounts []execdriver.Mount
+func (container *Container) TmpfsMounts() []Mount {
+	var mounts []Mount
 	for dest, data := range container.HostConfig.Tmpfs {
-		mounts = append(mounts, execdriver.Mount{
+		mounts = append(mounts, Mount{
 			Source:      "tmpfs",
 			Destination: dest,
 			Data:        data,

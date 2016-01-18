@@ -15,12 +15,13 @@ import (
 	"github.com/docker/docker/daemon/execdriver"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/pkg/pubsub"
+	"github.com/docker/engine-api/types"
 	"github.com/opencontainers/runc/libcontainer/system"
 )
 
 type statsSupervisor interface {
 	// GetContainerStats collects all the stats related to a container
-	GetContainerStats(container *container.Container) (*execdriver.ResourceStats, error)
+	GetContainerStats(container *container.Container) (*types.StatsJSON, error)
 }
 
 // newStatsCollector returns a new statsCollector that collections
@@ -125,7 +126,8 @@ func (s *statsCollector) run() {
 				}
 				continue
 			}
-			stats.SystemUsage = systemUsage
+			// FIXME: move to containerd
+			stats.CPUStats.SystemUsage = systemUsage
 
 			pair.publisher.Publish(stats)
 		}

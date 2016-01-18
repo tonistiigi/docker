@@ -11,7 +11,8 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
-	"github.com/docker/docker/daemon/execdriver"
+	"github.com/docker/docker/daemon/caps"
+	"github.com/opencontainers/runc/libcontainer/devices"
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/opencontainers/specs"
 )
@@ -21,12 +22,38 @@ type combinedLinuxSpec struct {
 	rspec specs.LinuxRuntime
 }
 
-func setResources(s *specs.LinuxRuntimeSpec, c *container.Container) {
+func setResources(s *specs.LinuxRuntimeSpec, c *container.Container) error {
+	weightDevices, err := getBlkioWeightDevices(c.HostConfig)
+	if err != nil {
+		return err
+	}
+
+	readBpsDevice, err := getBlkioReadBpsDevices(c.HostConfig)
+	if err != nil {
+		return err
+	}
+
+	writeBpsDevice, err := getBlkioWriteBpsDevices(c.HostConfig)
+	if err != nil {
+		return err
+	}
+
+	readIOpsDevice, err := getBlkioReadIOpsDevices(c.HostConfig)
+	if err != nil {
+		return err
+	}
+
+	writeIOpsDevice, err := getBlkioWriteIOpsDevices(c.HostConfig)
+	if err != nil {
+		return err
+	}
+
 	r := &specs.Resources{
 		Memory: specs.Memory{
-			Limit:      uint64(c.HostConfig.Memory),
-			Swap:       uint64(c.HostConfig.MemorySwap),
-			Swappiness: 0, // fixme: -1
+			Limit:       uint64(c.HostConfig.Memory),
+			Reservation: uint64(c.HostConfig.MemoryReservation),
+			Swap:        uint64(c.HostConfig.MemorySwap),
+			Kernel:      uint64(c.HostConfig.KernelMemory),
 		},
 		CPU: specs.CPU{
 			Shares: uint64(c.HostConfig.CPUShares),
@@ -36,18 +63,55 @@ func setResources(s *specs.LinuxRuntimeSpec, c *container.Container) {
 			Quota:  uint64(c.HostConfig.CPUQuota),
 		},
 		BlockIO: specs.BlockIO{
-			Weight: c.HostConfig.BlkioWeight,
+			Weight:                  c.HostConfig.BlkioWeight,
+			WeightDevice:            weightDevices,
+			ThrottleReadBpsDevice:   readBpsDevice,
+			ThrottleWriteBpsDevice:  writeBpsDevice,
+			ThrottleReadIOPSDevice:  readIOpsDevice,
+			ThrottleWriteIOPSDevice: writeIOpsDevice,
 		},
-		DisableOOMKiller: *c.HostConfig.OomKillDisable,
 	}
-	if c.HostConfig.MemorySwappiness != nil {
-		swappiness := *c.HostConfig.MemorySwappiness
+	if c.HostConfig.OomKillDisable != nil {
+		r.DisableOOMKiller = *c.HostConfig.OomKillDisable
+	}
+
+	if sw := c.HostConfig.MemorySwappiness; sw != nil {
+		swappiness := *sw
 		r.Memory.Swappiness = uint64(swappiness)
 		if swappiness == -1 {
 			r.Memory.Swappiness = 0
 		}
 	}
 	s.Linux.Resources = r
+	return nil
+}
+
+func setDevices(s *specs.LinuxRuntimeSpec, c *container.Container) error {
+	// Build lists of devices allowed and created within the container.
+	var devs []specs.Device
+	if c.HostConfig.Privileged {
+		hostDevices, err := devices.HostDevices()
+		if err != nil {
+			return err
+		}
+		for _, d := range hostDevices {
+			devs = append(devs, specDevice(d))
+		}
+	} else {
+		// FIXME: This is missing the cgroups allowed devices conf + fuse
+		for _, deviceMapping := range c.HostConfig.Devices {
+			d, err := getDevicesFromPath(deviceMapping)
+			if err != nil {
+				return err
+			}
+
+			devs = append(devs, d...)
+		}
+	}
+
+	s.Linux.Devices = append(s.Linux.Devices, devs...)
+
+	return nil
 }
 
 func setRlimits(s *specs.LinuxRuntimeSpec, c *container.Container) error {
@@ -111,11 +175,17 @@ func setNamespace(s *specs.LinuxRuntimeSpec, ns specs.Namespace) {
 }
 
 func setCapabilities(s *specs.LinuxSpec, c *container.Container) error {
-	caps, err := execdriver.TweakCapabilities(s.Linux.Capabilities, c.HostConfig.CapAdd.Slice(), c.HostConfig.CapDrop.Slice())
-	if err != nil {
-		return err
+	var caplist []string
+	var err error
+	if c.HostConfig.Privileged {
+		caplist = caps.GetAllCapabilities()
+	} else {
+		caplist, err = caps.TweakCapabilities(s.Linux.Capabilities, c.HostConfig.CapAdd.Slice(), c.HostConfig.CapDrop.Slice())
+		if err != nil {
+			return err
+		}
 	}
-	s.Linux.Capabilities = caps
+	s.Linux.Capabilities = caplist
 	return nil
 }
 
@@ -170,16 +240,16 @@ func setNamespaces(daemon *Daemon, s *specs.LinuxRuntimeSpec, c *container.Conta
 	return nil
 }
 
-func execToSpecMount(m execdriver.Mount) specs.Mount {
+func execToSpecMount(m container.Mount) specs.Mount {
 	opts := []string{"rbind"}
-	// FIXME: mount propagation: #17034
+	// FIXME: mount propagation parsing/validation: #17034
 	if !m.Writable {
 		opts = append(opts, "ro")
 	}
 	return specs.Mount{
 		Type:    "bind",
 		Source:  m.Source,
-		Options: opts,
+		Options: append(opts, m.Data),
 	}
 }
 
@@ -221,9 +291,14 @@ func (daemon *Daemon) writeBundle(s combinedSpec, c *container.Container) error 
 		RuntimeSpec: s.rspec,
 		Linux:       defaultLinuxTemplate.rspec,
 	}
-	setResources(&rls, c)
+	if err := setResources(&rls, c); err != nil {
+		return fmt.Errorf("linux runtime spec resources: %v")
+	}
+	if err := setDevices(&rls, c); err != nil {
+		return fmt.Errorf("linux runtime spec devices: %v")
+	}
 	if err := setRlimits(&rls, c); err != nil {
-		fmt.Errorf("linux runtime spec rlimits: %v")
+		return fmt.Errorf("linux runtime spec rlimits: %v")
 	}
 	if err := setUser(&ls, c); err != nil {
 		return fmt.Errorf("linux spec user: %v")

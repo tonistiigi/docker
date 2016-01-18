@@ -1,15 +1,12 @@
 package container
 
 import (
-	"io"
-	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/daemon/execdriver"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/pkg/promise"
 	"github.com/docker/docker/pkg/stringid"
@@ -183,10 +180,10 @@ func (m *containerMonitor) Close() error {
 
 // Fixme: move to daemon? expose reset
 func (container *Container) Start(s supervisor) error {
-	if err := s.StartLogging(container); err != nil {
-		container.Reset(false)
-		return err
-	}
+	// if err := s.StartLogging(container); err != nil {
+	// 	container.Reset(false)
+	// 	return err
+	// }
 
 	// container.LastStartTime = time.Now()
 
@@ -212,7 +209,7 @@ func (container *Container) Start(s supervisor) error {
 func (m *containerMonitor) start() error {
 	var (
 		err        error
-		exitStatus execdriver.ExitStatus
+		exitStatus ExitStatus
 		// this variable indicates where we in execution flow:
 		// before Run or after
 		afterRun bool
@@ -370,37 +367,37 @@ func (m *containerMonitor) shouldRestart(exitCode int) bool {
 
 // callback ensures that the container's state is properly updated after we
 // received ack from the execution drivers
-func (m *containerMonitor) callback(processConfig *execdriver.ProcessConfig, pid int, chOOM <-chan struct{}) error {
-	go func() {
-		for range chOOM {
-			m.logEvent("oom")
-		}
-	}()
-
-	if processConfig.Tty {
-		// The callback is called after the process start()
-		// so we are in the parent process. In TTY mode, stdin/out/err is the PtySlave
-		// which we close here.
-		if c, ok := processConfig.Stdout.(io.Closer); ok {
-			c.Close()
-		}
-	}
-
-	m.container.SetRunning(pid)
-
-	// signal that the process has started
-	// close channel only if not closed
-	select {
-	case <-m.startSignal:
-	default:
-		close(m.startSignal)
-	}
-
-	if err := m.container.ToDiskLocking(); err != nil {
-		logrus.Errorf("Error saving container to disk: %v", err)
-	}
-	return nil
-}
+// func (m *containerMonitor) callback(processConfig *execdriver.ProcessConfig, pid int, chOOM <-chan struct{}) error {
+// 	go func() {
+// 		for range chOOM {
+// 			m.logEvent("oom")
+// 		}
+// 	}()
+//
+// 	if processConfig.Tty {
+// 		// The callback is called after the process start()
+// 		// so we are in the parent process. In TTY mode, stdin/out/err is the PtySlave
+// 		// which we close here.
+// 		if c, ok := processConfig.Stdout.(io.Closer); ok {
+// 			c.Close()
+// 		}
+// 	}
+//
+// 	m.container.SetRunning(pid, true)
+//
+// 	// signal that the process has started
+// 	// close channel only if not closed
+// 	select {
+// 	case <-m.startSignal:
+// 	default:
+// 		close(m.startSignal)
+// 	}
+//
+// 	if err := m.container.ToDiskLocking(); err != nil {
+// 		logrus.Errorf("Error saving container to disk: %v", err)
+// 	}
+// 	return nil
+// }
 
 // resetContainer resets the container's IO and ensures that the command is able to be executed again
 // by copying the data into a new struct
@@ -416,11 +413,11 @@ func (m *containerMonitor) resetContainer(lock bool) {
 		logrus.Errorf("%s: %s", container.ID, err)
 	}
 
-	if container.Command != nil && container.Command.ProcessConfig.Terminal != nil {
-		if err := container.Command.ProcessConfig.Terminal.Close(); err != nil {
-			logrus.Errorf("%s: Error closing terminal: %s", container.ID, err)
-		}
-	}
+	// if container.Command != nil && container.Command.ProcessConfig.Terminal != nil {
+	// 	if err := container.Command.ProcessConfig.Terminal.Close(); err != nil {
+	// 		logrus.Errorf("%s: Error closing terminal: %s", container.ID, err)
+	// 	}
+	// }
 
 	// Re-create a brand new stdin pipe once the container exited
 	if container.Config.OpenStdin {
@@ -448,19 +445,19 @@ func (m *containerMonitor) resetContainer(lock bool) {
 		container.LogDriver = nil
 	}
 
-	c := container.Command.ProcessConfig.Cmd
-
-	container.Command.ProcessConfig.Cmd = exec.Cmd{
-		Stdin:       c.Stdin,
-		Stdout:      c.Stdout,
-		Stderr:      c.Stderr,
-		Path:        c.Path,
-		Env:         c.Env,
-		ExtraFiles:  c.ExtraFiles,
-		Args:        c.Args,
-		Dir:         c.Dir,
-		SysProcAttr: c.SysProcAttr,
-	}
+	// c := container.Command.ProcessConfig.Cmd
+	//
+	// container.Command.ProcessConfig.Cmd = exec.Cmd{
+	// 	Stdin:       c.Stdin,
+	// 	Stdout:      c.Stdout,
+	// 	Stderr:      c.Stderr,
+	// 	Path:        c.Path,
+	// 	Env:         c.Env,
+	// 	ExtraFiles:  c.ExtraFiles,
+	// 	Args:        c.Args,
+	// 	Dir:         c.Dir,
+	// 	SysProcAttr: c.SysProcAttr,
+	// }
 }
 
 func (m *containerMonitor) logEvent(action string) {

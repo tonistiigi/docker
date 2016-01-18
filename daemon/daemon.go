@@ -36,6 +36,8 @@ import (
 	registrytypes "github.com/docker/engine-api/types/registry"
 	"github.com/docker/engine-api/types/strslice"
 	// register graph drivers
+
+	containerd "github.com/docker/containerd/api/grpc/types"
 	_ "github.com/docker/docker/daemon/graphdriver/register"
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/daemon/network"
@@ -75,7 +77,6 @@ import (
 	lntypes "github.com/docker/libnetwork/types"
 	"github.com/docker/libtrust"
 	"github.com/opencontainers/runc/libcontainer"
-	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"golang.org/x/net/context"
 )
 
@@ -222,33 +223,33 @@ func (daemon *Daemon) registerName(container *container.Container) error {
 }
 
 // Register makes a container object usable by the daemon as <container.ID>
-func (daemon *Daemon) Register(container *container.Container) error {
+func (daemon *Daemon) Register(c *container.Container) error {
 	// Attach to stdout and stderr
-	if container.Config.OpenStdin {
-		container.NewInputPipes()
+	if c.Config.OpenStdin {
+		c.NewInputPipes()
 	} else {
-		container.NewNopInputPipe()
+		c.NewNopInputPipe()
 	}
 
-	daemon.containers.Add(container.ID, container)
-	daemon.idIndex.Add(container.ID)
+	daemon.containers.Add(c.ID, c)
+	daemon.idIndex.Add(c.ID)
 
-	if container.IsRunning() {
-		logrus.Debugf("killing old running container %s", container.ID)
+	if c.IsRunning() {
+		logrus.Debugf("killing old running container %s", c.ID)
 		// Set exit code to 128 + SIGKILL (9) to properly represent unsuccessful exit
-		container.SetStoppedLocking(&execdriver.ExitStatus{ExitCode: 137})
+		c.SetStoppedLocking(&container.ExitStatus{ExitCode: 137})
 		// use the current driver and ensure that the container is dead x.x
 		cmd := &execdriver.Command{
 			CommonCommand: execdriver.CommonCommand{
-				ID: container.ID,
+				ID: c.ID,
 			},
 		}
 		daemon.execDriver.Terminate(cmd)
 
-		container.UnmountIpcMounts(mount.Unmount)
+		c.UnmountIpcMounts(mount.Unmount)
 
-		daemon.Unmount(container)
-		if err := container.ToDiskLocking(); err != nil {
+		daemon.Unmount(c)
+		if err := c.ToDiskLocking(); err != nil {
 			logrus.Errorf("Error saving stopped state to disk: %v", err)
 		}
 	}
@@ -309,6 +310,12 @@ func (daemon *Daemon) restore() error {
 			logrus.Errorf("Failed to register container %s: %s", c.ID, err)
 			continue
 		}
+		if err := daemon.containerd.Restore(c.ID, c.Config.Tty); err != nil {
+			logrus.Errorf("Failed to restore with containerd: %q", err)
+			continue
+		}
+
+		logrus.Debugf("container isRunning: %q", c.IsRunning())
 
 		// get list of containers we need to restart
 		if daemon.configStore.AutoRestart && c.ShouldRestart() {
@@ -949,17 +956,7 @@ func (daemon *Daemon) Unmount(container *container.Container) {
 // 	return daemon.execDriver.Run(c.Command, pipes, hooks)
 // }
 func (daemon *Daemon) Run(c *container.Container) error {
-	r := libcontainerd.CreateContainerRequest{
-		Streams: libcontainerd.Streams{
-			Terminal: c.Config.Tty,
-			Stdin:    c.Stdin(),
-			Stdout:   c.Stdout(),
-			Stderr:   c.Stderr(),
-		},
-		BundlePath: filepath.Join(daemon.root, "bundles", c.ID),
-	}
-
-	return daemon.containerd.Create(c.ID, r)
+	return daemon.containerd.Create(c.ID, filepath.Join(daemon.root, "bundles", c.ID))
 }
 
 func (daemon *Daemon) attachTty(c *container.Container, consolePath *string, stdin *io.WriteCloser, stdoutWriter io.Writer) (libcontainer.Console, error) {
@@ -981,57 +978,50 @@ func (daemon *Daemon) kill(c *container.Container, sig int) error {
 	// return daemon.execDriver.Kill(c.Command, sig)
 	return daemon.containerd.Signal(c.ID, sig)
 }
-func (daemon *Daemon) stats(c *container.Container) (*execdriver.ResourceStats, error) {
+
+func (daemon *Daemon) stats(c *container.Container) (*types.StatsJSON, error) {
 	stats, err := daemon.containerd.Stats(c.ID)
 	if err != nil {
 		return nil, err
 	}
-	st := &execdriver.ResourceStats{
-		Stats: &libcontainer.Stats{
-			CgroupStats: &cgroups.Stats{
-				CpuStats: cgroups.CpuStats{
-					CpuUsage: cgroups.CpuUsage{
-						TotalUsage:        stats.CgroupStats.CpuStats.CpuUsage.TotalUsage,
-						PercpuUsage:       stats.CgroupStats.CpuStats.CpuUsage.PercpuUsage,
-						UsageInKernelmode: stats.CgroupStats.CpuStats.CpuUsage.UsageInKernelmode,
-						UsageInUsermode:   stats.CgroupStats.CpuStats.CpuUsage.UsageInUsermode,
-					},
-					ThrottlingData: cgroups.ThrottlingData{}, // FIXME: some data seems to be missing, maybe get stats directly from cgroups
-				},
-				BlkioStats: cgroups.BlkioStats{},
-				// HugetlbStats: map[string]&cgroups.HugetlbStats,
+	s := &types.StatsJSON{}
+	cgs := stats.CgroupStats
+	if cgs != nil {
+		s.BlkioStats = types.BlkioStats{
+			IoServiceBytesRecursive: copyBlkioEntry(cgs.BlkioStats.IoServiceBytesRecursive),
+			IoServicedRecursive:     copyBlkioEntry(cgs.BlkioStats.IoServicedRecursive),
+			IoQueuedRecursive:       copyBlkioEntry(cgs.BlkioStats.IoQueuedRecursive),
+			IoServiceTimeRecursive:  copyBlkioEntry(cgs.BlkioStats.IoServiceTimeRecursive),
+			IoWaitTimeRecursive:     copyBlkioEntry(cgs.BlkioStats.IoWaitTimeRecursive),
+			IoMergedRecursive:       copyBlkioEntry(cgs.BlkioStats.IoMergedRecursive),
+			IoTimeRecursive:         copyBlkioEntry(cgs.BlkioStats.IoTimeRecursive),
+			SectorsRecursive:        copyBlkioEntry(cgs.BlkioStats.SectorsRecursive),
+		}
+		cpu := cgs.CpuStats
+		s.CPUStats = types.CPUStats{
+			CPUUsage: types.CPUUsage{
+				TotalUsage:        cpu.CpuUsage.TotalUsage,
+				PercpuUsage:       cpu.CpuUsage.PercpuUsage,
+				UsageInKernelmode: cpu.CpuUsage.UsageInKernelmode,
+				UsageInUsermode:   cpu.CpuUsage.UsageInUsermode,
 			},
-		},
-		Read: time.Unix(int64(stats.Timestamp), 0),
-	}
-
-	if stats.CgroupStats.MemoryStats != nil {
-		st.CgroupStats.MemoryStats.Cache = stats.CgroupStats.MemoryStats.Cache
-		st.CgroupStats.MemoryStats.Stats = stats.CgroupStats.MemoryStats.Stats
-		if stats.CgroupStats.MemoryStats.Usage != nil {
-			st.CgroupStats.MemoryStats.Usage = cgroups.MemoryData{
-				Usage:    stats.CgroupStats.MemoryStats.Usage.Usage,
-				MaxUsage: stats.CgroupStats.MemoryStats.Usage.MaxUsage,
-				Failcnt:  stats.CgroupStats.MemoryStats.Usage.Failcnt,
-			}
+			ThrottlingData: types.ThrottlingData{
+				Periods:          cpu.ThrottlingData.Periods,
+				ThrottledPeriods: cpu.ThrottlingData.ThrottledPeriods,
+				ThrottledTime:    cpu.ThrottlingData.ThrottledTime,
+			},
 		}
-		if stats.CgroupStats.MemoryStats.SwapUsage != nil {
-			st.CgroupStats.MemoryStats.SwapUsage = cgroups.MemoryData{
-				Usage:    stats.CgroupStats.MemoryStats.SwapUsage.Usage,
-				MaxUsage: stats.CgroupStats.MemoryStats.SwapUsage.MaxUsage,
-				Failcnt:  stats.CgroupStats.MemoryStats.SwapUsage.Failcnt,
-			}
-		}
-		if stats.CgroupStats.MemoryStats.KernelUsage != nil {
-			st.CgroupStats.MemoryStats.KernelUsage = cgroups.MemoryData{
-				Usage:    stats.CgroupStats.MemoryStats.KernelUsage.Usage,
-				MaxUsage: stats.CgroupStats.MemoryStats.KernelUsage.MaxUsage,
-				Failcnt:  stats.CgroupStats.MemoryStats.KernelUsage.Failcnt,
-			}
+		mem := cgs.MemoryStats.Usage
+		s.MemoryStats = types.MemoryStats{
+			Usage:    mem.Usage,
+			MaxUsage: mem.MaxUsage,
+			Stats:    cgs.MemoryStats.Stats,
+			Failcnt:  mem.Failcnt,
 		}
 	}
+	s.Read = time.Unix(int64(stats.Timestamp), 0)
 
-	return st, nil
+	return s, nil
 }
 
 func (daemon *Daemon) subscribeToContainerStats(c *container.Container) chan interface{} {
@@ -1616,7 +1606,7 @@ func (daemon *Daemon) IsShuttingDown() bool {
 }
 
 // GetContainerStats collects all the stats published by a container
-func (daemon *Daemon) GetContainerStats(container *container.Container) (*execdriver.ResourceStats, error) {
+func (daemon *Daemon) GetContainerStats(container *container.Container) (*types.StatsJSON, error) {
 	stats, err := daemon.stats(container)
 	if err != nil {
 		return nil, err
@@ -1627,7 +1617,22 @@ func (daemon *Daemon) GetContainerStats(container *container.Container) (*execdr
 	if nwStats, err = daemon.getNetworkStats(container); err != nil {
 		return nil, err
 	}
-	stats.Interfaces = nwStats
+
+	stats.Networks = make(map[string]types.NetworkStats)
+	for _, iface := range nwStats {
+		// For API Version >= 1.21, the original data of network will
+		// be returned.
+		stats.Networks[iface.Name] = types.NetworkStats{
+			RxBytes:   iface.RxBytes,
+			RxPackets: iface.RxPackets,
+			RxErrors:  iface.RxErrors,
+			RxDropped: iface.RxDropped,
+			TxBytes:   iface.TxBytes,
+			TxPackets: iface.TxPackets,
+			TxErrors:  iface.TxErrors,
+			TxDropped: iface.TxDropped,
+		}
+	}
 
 	return stats, nil
 }
@@ -1746,4 +1751,17 @@ func validateID(id string) error {
 		return derr.ErrorCodeEmptyID
 	}
 	return nil
+}
+
+func copyBlkioEntry(entries []*containerd.BlkioStatsEntry) []types.BlkioStatEntry {
+	out := make([]types.BlkioStatEntry, len(entries))
+	for i, re := range entries {
+		out[i] = types.BlkioStatEntry{
+			Major: re.Major,
+			Minor: re.Minor,
+			Op:    re.Op,
+			Value: re.Value,
+		}
+	}
+	return out
 }

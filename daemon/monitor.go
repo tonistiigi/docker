@@ -5,52 +5,77 @@ import (
 	"log"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/daemon/execdriver"
+	"github.com/docker/docker/container"
 	"github.com/docker/docker/libcontainerd"
 )
 
 func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
-	container := daemon.containers.Get(id)
-	if container == nil {
+	c := daemon.containers.Get(id)
+	if c == nil {
 		return fmt.Errorf("no such container: %s", id)
 	}
 
 	switch e.State {
 	case "exit":
-		container.Reset(true)
+		c.Reset(true)
 
-		container.SetStopped(&execdriver.ExitStatus{ExitCode: int(e.ExitCode)}) // FIXME: OOMKilled
+		c.SetStopped(&container.ExitStatus{ExitCode: int(e.ExitCode)}) // FIXME: OOMKilled
 
 		// FIXME: only call this when no auto-restart
 		// Cleanup networking and mounts
-		daemon.Cleanup(container)
+		daemon.Cleanup(c)
 
 		// FIXME: here is race condition between two RUN instructions in Dockerfile
 		// because they share same runconfig and change image. Must be fixed
 		// in builder/builder.go
-		if err := container.ToDisk(); err != nil {
-			logrus.Errorf("Error dumping container %s state to disk: %s", container.ID, err)
+		if err := c.ToDisk(); err != nil {
+			logrus.Errorf("Error dumping container %s state to disk: %s", c.ID, err)
 
 			return err
 		}
 	case "started":
-		container.SetRunning(int(e.Pid))
+		c.SetRunning(int(e.Pid), true)
 
-		if err := container.ToDisk(); err != nil {
-			container.Reset(false)
+		if err := c.ToDisk(); err != nil {
+			c.Reset(false)
+			return err
+		}
+	case "restored":
+		c.SetRunning(int(e.Pid), false)
+
+		if err := c.ToDisk(); err != nil {
+			c.Reset(false)
 			return err
 		}
 	case "paused":
 		log.Println("settopause")
-		container.Paused = true
-		daemon.LogContainerEvent(container, "pause")
+		c.Paused = true
+		daemon.LogContainerEvent(c, "pause")
 	case "running":
 		log.Println("settorun")
-		container.Paused = false
-		daemon.LogContainerEvent(container, "unpause")
+		c.Paused = false
+		daemon.LogContainerEvent(c, "unpause")
 	}
 
 	return nil
+}
+
+func (daemon *Daemon) PrepareContainerIOStreams(id string) (*libcontainerd.IO, error) {
+	c := daemon.containers.Get(id)
+	if c == nil {
+		return nil, fmt.Errorf("no such container: %s", id)
+	}
+	if err := daemon.StartLogging(c); err != nil {
+		c.Reset(false)
+		return nil, err
+	}
+
+	return &libcontainerd.IO{
+		Terminal: c.Config.Tty,
+		Stdin:    c.Stdin(),
+		Stdout:   c.Stdout(),
+		Stderr:   c.Stderr(),
+	}, nil
 }
 
 func (daemon *Daemon) ProcessExited(id, processId string, exitCode uint32) error {
@@ -61,7 +86,8 @@ func (daemon *Daemon) ProcessExited(id, processId string, exitCode uint32) error
 	}
 	execConfig := container.ExecCommands.Get(processId)
 	if execConfig != nil {
-		execConfig.ExitCode = int(exitCode)
+		ec := int(exitCode)
+		execConfig.ExitCode = &ec
 		execConfig.Running = false
 
 		if err := execConfig.CloseStreams(); err != nil {

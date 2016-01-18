@@ -188,7 +188,7 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 			Uid: 0,
 			Gid: 0, //FIXME
 		},
-		Streams: libcontainerd.Streams{
+		IO: libcontainerd.IO{
 			Terminal: ec.ProcessConfig.Tty,
 			Stdin:    ec.Stdin(),
 			Stdout:   ec.Stdout(),
@@ -211,23 +211,23 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 	return nil
 }
 
-// Exec calls the underlying exec driver to run
-func (d *Daemon) Exec(c *container.Container, execConfig *exec.Config, pipes *execdriver.Pipes, startCallback execdriver.DriverCallback) (int, error) {
-	hooks := execdriver.Hooks{
-		Start: startCallback,
-	}
-	exitStatus, err := d.execDriver.Exec(c.Command, execConfig.ProcessConfig, pipes, hooks)
-
-	// On err, make sure we don't leave ExitCode at zero
-	if err != nil && exitStatus == 0 {
-		exitStatus = 128
-	}
-
-	execConfig.ExitCode = &exitStatus
-	execConfig.Running = false
-
-	return exitStatus, err
-}
+// // Exec calls the underlying exec driver to run
+// func (d *Daemon) Exec(c *container.Container, execConfig *exec.Config, pipes *execdriver.Pipes, startCallback execdriver.DriverCallback) (int, error) {
+// 	hooks := execdriver.Hooks{
+// 		Start: startCallback,
+// 	}
+// 	exitStatus, err := d.execDriver.Exec(c.Command, execConfig.ProcessConfig, pipes, hooks)
+//
+// 	// On err, make sure we don't leave ExitCode at zero
+// 	if err != nil && exitStatus == 0 {
+// 		exitStatus = 128
+// 	}
+//
+// 	execConfig.ExitCode = &exitStatus
+// 	execConfig.Running = false
+//
+// 	return exitStatus, err
+// }
 
 // execCommandGC runs a ticker to clean up the daemon references
 // of exec configs that are no longer part of the container.

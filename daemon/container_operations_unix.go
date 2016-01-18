@@ -25,13 +25,13 @@ import (
 	"github.com/docker/docker/runconfig"
 	containertypes "github.com/docker/engine-api/types/container"
 	networktypes "github.com/docker/engine-api/types/network"
-	"github.com/docker/go-units"
 	"github.com/docker/libnetwork"
 	"github.com/docker/libnetwork/netlabel"
 	"github.com/docker/libnetwork/options"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/opencontainers/runc/libcontainer/devices"
 	"github.com/opencontainers/runc/libcontainer/label"
+	"github.com/opencontainers/specs"
 )
 
 func (daemon *Daemon) setupLinkedContainers(container *container.Container) ([]string, error) {
@@ -70,21 +70,21 @@ func (daemon *Daemon) setupLinkedContainers(container *container.Container) ([]s
 }
 
 func (daemon *Daemon) populateCommand(c *container.Container, env []string) error {
-	var en *execdriver.Network
-	if !c.Config.NetworkDisabled {
-		en = &execdriver.Network{}
-		if !daemon.execDriver.SupportsHooks() || c.HostConfig.NetworkMode.IsHost() {
-			en.NamespacePath = c.NetworkSettings.SandboxKey
-		}
-
-		if c.HostConfig.NetworkMode.IsContainer() {
-			nc, err := daemon.getNetworkedContainer(c.ID, c.HostConfig.NetworkMode.ConnectedContainer())
-			if err != nil {
-				return err
-			}
-			en.ContainerID = nc.ID
-		}
-	}
+	// var en *execdriver.Network
+	// if !c.Config.NetworkDisabled {
+	// 	en = &execdriver.Network{}
+	// 	if !daemon.execDriver.SupportsHooks() || c.HostConfig.NetworkMode.IsHost() {
+	// 		en.NamespacePath = c.NetworkSettings.SandboxKey
+	// 	}
+	//
+	// 	if c.HostConfig.NetworkMode.IsContainer() {
+	// 		nc, err := daemon.getNetworkedContainer(c.ID, c.HostConfig.NetworkMode.ConnectedContainer())
+	// 		if err != nil {
+	// 			return err
+	// 		}
+	// 		en.ContainerID = nc.ID
+	// 	}
+	// }
 
 	ipc := &execdriver.Ipc{}
 	var err error
@@ -114,116 +114,114 @@ func (daemon *Daemon) populateCommand(c *container.Container, env []string) erro
 		}
 	}
 
-	pid := &execdriver.Pid{}
-	pid.HostPid = c.HostConfig.PidMode.IsHost()
-
-	uts := &execdriver.UTS{
-		HostUTS: c.HostConfig.UTSMode.IsHost(),
-	}
+	// pid := &execdriver.Pid{}
+	// pid.HostPid = c.HostConfig.PidMode.IsHost()
+	//
+	// uts := &execdriver.UTS{
+	// 	HostUTS: c.HostConfig.UTSMode.IsHost(),
+	// }
 
 	// Build lists of devices allowed and created within the container.
-	var userSpecifiedDevices []*configs.Device
-	for _, deviceMapping := range c.HostConfig.Devices {
-		devs, err := getDevicesFromPath(deviceMapping)
-		if err != nil {
-			return err
-		}
+	// var userSpecifiedDevices []*configs.Device
+	// for _, deviceMapping := range c.HostConfig.Devices {
+	// 	devs, err := getDevicesFromPath(deviceMapping)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	//
+	// 	userSpecifiedDevices = append(userSpecifiedDevices, devs...)
+	// }
+	//
+	// allowedDevices := mergeDevices(configs.DefaultAllowedDevices, userSpecifiedDevices)
+	//
+	// autoCreatedDevices := mergeDevices(configs.DefaultAutoCreatedDevices, userSpecifiedDevices)
 
-		userSpecifiedDevices = append(userSpecifiedDevices, devs...)
-	}
+	// var rlimits []*units.Rlimit
+	// ulimits := c.HostConfig.Ulimits
+	//
+	// // Merge ulimits with daemon defaults
+	// ulIdx := make(map[string]*units.Ulimit)
+	// for _, ul := range ulimits {
+	// 	ulIdx[ul.Name] = ul
+	// }
+	// for name, ul := range daemon.configStore.Ulimits {
+	// 	if _, exists := ulIdx[name]; !exists {
+	// 		ulimits = append(ulimits, ul)
+	// 	}
+	// }
 
-	allowedDevices := mergeDevices(configs.DefaultAllowedDevices, userSpecifiedDevices)
+	// weightDevices, err := getBlkioWeightDevices(c.HostConfig)
+	// if err != nil {
+	// 	return err
+	// }
 
-	autoCreatedDevices := mergeDevices(configs.DefaultAutoCreatedDevices, userSpecifiedDevices)
+	// readBpsDevice, err := getBlkioReadBpsDevices(c.HostConfig)
+	// if err != nil {
+	// 	return err
+	// }
+	//
+	// writeBpsDevice, err := getBlkioWriteBpsDevices(c.HostConfig)
+	// if err != nil {
+	// 	return err
+	// }
+	//
+	// readIOpsDevice, err := getBlkioReadIOpsDevices(c.HostConfig)
+	// if err != nil {
+	// 	return err
+	// }
+	//
+	// writeIOpsDevice, err := getBlkioWriteIOpsDevices(c.HostConfig)
+	// if err != nil {
+	// 	return err
+	// }
 
-	var rlimits []*units.Rlimit
-	ulimits := c.HostConfig.Ulimits
+	// for _, limit := range ulimits {
+	// 	rl, err := limit.GetRlimit()
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	rlimits = append(rlimits, rl)
+	// }
 
-	// Merge ulimits with daemon defaults
-	ulIdx := make(map[string]*units.Ulimit)
-	for _, ul := range ulimits {
-		ulIdx[ul.Name] = ul
-	}
-	for name, ul := range daemon.configStore.Ulimits {
-		if _, exists := ulIdx[name]; !exists {
-			ulimits = append(ulimits, ul)
-		}
-	}
+	// resources := &execdriver.Resources{
+	// 	CommonResources: execdriver.CommonResources{
+	// 		Memory:            c.HostConfig.Memory,
+	// 		MemoryReservation: c.HostConfig.MemoryReservation,
+	// 		CPUShares:         c.HostConfig.CPUShares,
+	// 		BlkioWeight:       c.HostConfig.BlkioWeight,
+	// 	},
+	// 	MemorySwap:   c.HostConfig.MemorySwap,
+	// 	KernelMemory: c.HostConfig.KernelMemory,
+	// 	CpusetCpus:   c.HostConfig.CpusetCpus,
+	// 	CpusetMems:   c.HostConfig.CpusetMems,
+	// 	CPUPeriod:    c.HostConfig.CPUPeriod,
+	// 	CPUQuota:     c.HostConfig.CPUQuota,
+	// 	Rlimits:                      rlimits,
+	// 	BlkioWeightDevice:            weightDevices,
+	// 	BlkioThrottleReadBpsDevice:   readBpsDevice,
+	// 	BlkioThrottleWriteBpsDevice:  writeBpsDevice,
+	// 	BlkioThrottleReadIOpsDevice:  readIOpsDevice,
+	// 	BlkioThrottleWriteIOpsDevice: writeIOpsDevice,
+	// 	OomKillDisable:   *c.HostConfig.OomKillDisable,
+	// 	MemorySwappiness: -1,
+	// }
+	//
+	// if c.HostConfig.MemorySwappiness != nil {
+	// 	resources.MemorySwappiness = *c.HostConfig.MemorySwappiness
+	// }
 
-	weightDevices, err := getBlkioWeightDevices(c.HostConfig)
-	if err != nil {
-		return err
-	}
-
-	readBpsDevice, err := getBlkioReadBpsDevices(c.HostConfig)
-	if err != nil {
-		return err
-	}
-
-	writeBpsDevice, err := getBlkioWriteBpsDevices(c.HostConfig)
-	if err != nil {
-		return err
-	}
-
-	readIOpsDevice, err := getBlkioReadIOpsDevices(c.HostConfig)
-	if err != nil {
-		return err
-	}
-
-	writeIOpsDevice, err := getBlkioWriteIOpsDevices(c.HostConfig)
-	if err != nil {
-		return err
-	}
-
-	for _, limit := range ulimits {
-		rl, err := limit.GetRlimit()
-		if err != nil {
-			return err
-		}
-		rlimits = append(rlimits, rl)
-	}
-
-	resources := &execdriver.Resources{
-		CommonResources: execdriver.CommonResources{
-			Memory:            c.HostConfig.Memory,
-			MemoryReservation: c.HostConfig.MemoryReservation,
-			CPUShares:         c.HostConfig.CPUShares,
-			BlkioWeight:       c.HostConfig.BlkioWeight,
-		},
-		MemorySwap:                   c.HostConfig.MemorySwap,
-		KernelMemory:                 c.HostConfig.KernelMemory,
-		CpusetCpus:                   c.HostConfig.CpusetCpus,
-		CpusetMems:                   c.HostConfig.CpusetMems,
-		CPUPeriod:                    c.HostConfig.CPUPeriod,
-		CPUQuota:                     c.HostConfig.CPUQuota,
-		Rlimits:                      rlimits,
-		BlkioWeightDevice:            weightDevices,
-		BlkioThrottleReadBpsDevice:   readBpsDevice,
-		BlkioThrottleWriteBpsDevice:  writeBpsDevice,
-		BlkioThrottleReadIOpsDevice:  readIOpsDevice,
-		BlkioThrottleWriteIOpsDevice: writeIOpsDevice,
-		MemorySwappiness:             -1,
-	}
-
-	if c.HostConfig.OomKillDisable != nil {
-		resources.OomKillDisable = *c.HostConfig.OomKillDisable
-	}
-	if c.HostConfig.MemorySwappiness != nil {
-		resources.MemorySwappiness = *c.HostConfig.MemorySwappiness
-	}
-
-	processConfig := execdriver.ProcessConfig{
-		CommonProcessConfig: execdriver.CommonProcessConfig{
-			Entrypoint: c.Path,
-			Arguments:  c.Args,
-			Tty:        c.Config.Tty,
-		},
-		Privileged: c.HostConfig.Privileged,
-		User:       c.Config.User,
-	}
-
-	processConfig.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	processConfig.Env = env
+	// processConfig := execdriver.ProcessConfig{
+	// 	CommonProcessConfig: execdriver.CommonProcessConfig{
+	// 		Entrypoint: c.Path,
+	// 		Arguments:  c.Args,
+	// 		Tty:        c.Config.Tty,
+	// 	},
+	// 	Privileged: c.HostConfig.Privileged,
+	// 	User:       c.Config.User,
+	// }
+	//
+	// processConfig.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// processConfig.Env = env
 
 	remappedRoot := &execdriver.User{}
 	rootUID, rootGID := daemon.GetRemappedUIDGID()
@@ -249,31 +247,31 @@ func (daemon *Daemon) populateCommand(c *container.Container, env []string) erro
 	}
 	c.Command = &execdriver.Command{
 		CommonCommand: execdriver.CommonCommand{
-			ID:            c.ID,
-			MountLabel:    c.GetMountLabel(),
-			Network:       en,
-			ProcessConfig: processConfig,
-			ProcessLabel:  c.GetProcessLabel(),
-			Rootfs:        c.BaseFS,
-			Resources:     resources,
-			WorkingDir:    c.Config.WorkingDir,
+			ID:         c.ID,
+			MountLabel: c.GetMountLabel(),
+			// Network:       en,
+			// ProcessConfig: processConfig,
+			ProcessLabel: c.GetProcessLabel(),
+			Rootfs:       c.BaseFS,
+			// Resources:     resources,
+			WorkingDir: c.Config.WorkingDir,
 		},
-		AllowedDevices:     allowedDevices,
-		AppArmorProfile:    c.AppArmorProfile,
-		AutoCreatedDevices: autoCreatedDevices,
-		CapAdd:             c.HostConfig.CapAdd.Slice(),
-		CapDrop:            c.HostConfig.CapDrop.Slice(),
-		CgroupParent:       defaultCgroupParent,
-		GIDMapping:         gidMap,
-		GroupAdd:           c.HostConfig.GroupAdd,
-		Ipc:                ipc,
-		OomScoreAdj:        c.HostConfig.OomScoreAdj,
-		Pid:                pid,
-		ReadonlyRootfs:     c.HostConfig.ReadonlyRootfs,
-		RemappedRoot:       remappedRoot,
-		SeccompProfile:     c.SeccompProfile,
-		UIDMapping:         uidMap,
-		UTS:                uts,
+		// AllowedDevices:     allowedDevices,
+		AppArmorProfile: c.AppArmorProfile,
+		// AutoCreatedDevices: autoCreatedDevices,
+		CapAdd:       c.HostConfig.CapAdd.Slice(),
+		CapDrop:      c.HostConfig.CapDrop.Slice(),
+		CgroupParent: defaultCgroupParent,
+		GIDMapping:   gidMap,
+		GroupAdd:     c.HostConfig.GroupAdd,
+		Ipc:          ipc,
+		OomScoreAdj:  c.HostConfig.OomScoreAdj,
+		// Pid:                pid,
+		ReadonlyRootfs: c.HostConfig.ReadonlyRootfs,
+		RemappedRoot:   remappedRoot,
+		SeccompProfile: c.SeccompProfile,
+		UIDMapping:     uidMap,
+		// UTS:            uts,
 	}
 	if c.HostConfig.CgroupParent != "" {
 		c.Command.CgroupParent = c.HostConfig.CgroupParent
@@ -1109,12 +1107,25 @@ func killProcessDirectly(container *container.Container) error {
 	return nil
 }
 
-func getDevicesFromPath(deviceMapping containertypes.DeviceMapping) (devs []*configs.Device, err error) {
+func specDevice(d *configs.Device) specs.Device {
+	return specs.Device{
+		Type:        d.Type,
+		Path:        d.Path,
+		Major:       d.Major,
+		Minor:       d.Minor,
+		Permissions: d.Permissions,
+		FileMode:    d.FileMode,
+		UID:         d.Uid,
+		GID:         d.Gid,
+	}
+}
+
+func getDevicesFromPath(deviceMapping containertypes.DeviceMapping) (devs []specs.Device, err error) {
 	device, err := devices.DeviceFromPath(deviceMapping.PathOnHost, deviceMapping.CgroupPermissions)
 	// if there was no error, return the device
 	if err == nil {
 		device.Path = deviceMapping.PathInContainer
-		return append(devs, device), nil
+		return append(devs, specDevice(device)), nil
 	}
 
 	// if the device is not a device node
@@ -1134,7 +1145,7 @@ func getDevicesFromPath(deviceMapping containertypes.DeviceMapping) (devs []*con
 
 				// add the device to userSpecified devices
 				childDevice.Path = strings.Replace(dpath, deviceMapping.PathOnHost, deviceMapping.PathInContainer, 1)
-				devs = append(devs, childDevice)
+				devs = append(devs, specDevice(childDevice))
 
 				return nil
 			})

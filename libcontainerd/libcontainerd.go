@@ -5,11 +5,8 @@ import (
 	"io"
 	"log"
 	"net"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -30,18 +27,20 @@ type StateInfo struct {
 type Backend interface {
 	StateChanged(id string, state StateInfo) error
 	ProcessExited(id, processId string, exitCode uint32) error
+	PrepareContainerIOStreams(id string) (*IO, error)
 } // maybe state change instead
 
 // how to do the restore of containers? Restore(id) err , on err kill the old one. how to get the pid?
 
 type Client interface {
-	Create(id string, req CreateContainerRequest) error
+	Create(id, bundlePath string) error
 	Signal(id string, sig int) error
 	AddProcess(id, processId string, req AddProcessRequest) error
 	Resize(id string, width, height int) error
 	ResizeProcess(id, processId string, width, height int) error
 	Pause(id string) error
 	Resume(id string) error
+	Restore(id string, terminal bool) error
 	Stats(id string) (*containerd.Stats, error)
 }
 
@@ -90,11 +89,11 @@ func New(b Backend, addr string, createIfMissing bool) (Client, error) {
 
 type process struct {
 	sync.RWMutex
+	stateMonitor
 	pid      uint32
 	console  libcontainer.Console
 	bundle   string
 	children map[string]*process
-	cbs      map[string][]chan struct{}
 }
 
 type client struct {
@@ -166,10 +165,7 @@ func (c *client) startMonitor() error {
 				container.handleMessage(c.backend, e)
 
 				if e.Type == "paused" || e.Type == "running" {
-					if len(container.cbs[e.Type]) > 0 {
-						close(container.cbs[e.Type][0])
-						container.cbs[e.Type] = container.cbs[e.Type][1:]
-					}
+					container.stateMonitor.handle(e.Type)
 				}
 				container.Unlock()
 			default:
@@ -208,7 +204,7 @@ func (c *client) Signal(id string, sig int) error {
 	})
 	return err
 }
-func (c *client) Create(id string, req CreateContainerRequest) (err error) {
+func (c *client) Create(id, bundlePath string) (err error) {
 	c.Lock()
 	if _, ok := c.containers[id]; ok {
 		return fmt.Errorf("Container %s is aleady active")
@@ -224,32 +220,37 @@ func (c *client) Create(id string, req CreateContainerRequest) (err error) {
 		}
 	}()
 
-	r := &containerd.CreateContainerRequest{
-		Id:         id,
-		BundlePath: req.BundlePath,
-	}
-
-	stdin, console, err := req.Streams.attach(filepath.Join(r.BundlePath, "main"), &r.Stdin, &r.Stdout, &r.Stderr, &r.Console)
+	streams, err := GetStreams(bundlePath, id)
 	if err != nil {
 		return err
 	}
+
+	r := &containerd.CreateContainerRequest{
+		Id:         id,
+		BundlePath: bundlePath,
+		Stdin:      streams.FifoPath(0),
+		Stdout:     streams.FifoPath(1),
+		Stderr:     streams.FifoPath(2),
+	}
+
 	container := &process{
-		console: console,
-		bundle:  req.BundlePath,
-		cbs:     map[string][]chan struct{}{"paused": nil, "running": nil},
+		// console: console,
+		bundle: bundlePath,
+	}
+
+	io, err := c.backend.PrepareContainerIOStreams(id)
+	if err != nil {
+		return err
+	}
+
+	if err := streams.Attach(io.Stdin, io.Stdout, io.Stderr); err != nil {
+		return err
 	}
 
 	resp, err := c.apiClient.CreateContainer(context.Background(), r)
 	if err != nil {
 		return err
 	}
-	if stdin != nil && req.Stdin != nil {
-		go func() {
-			io.Copy(stdin, req.Stdin)
-			stdin.Close() // support leaving open
-		}()
-	}
-
 	container.pid = resp.Pid
 
 	c.Lock()
@@ -264,66 +265,53 @@ func (c *client) Create(id string, req CreateContainerRequest) (err error) {
 	})
 }
 
-func (s *Streams) attach(basePath string, stdin, stdout, stderr, console *string) (io.WriteCloser, libcontainer.Console, error) {
-	if s.Terminal {
-		c, err := libcontainer.NewConsole(os.Getuid(), os.Getgid())
-		if err != nil {
-			return nil, nil, err
-		}
-		*console = c.Path()
+func (c *client) restore(id, bundlePath string, pid uint32) (err error) {
+	c.Lock()
+	if _, ok := c.containers[id]; ok {
+		return fmt.Errorf("Container %s is aleady active")
+	}
+	c.containers[id] = nil
+	c.Unlock()
 
-		go func() {
-			io.Copy(s.Stdout, c)
-		}()
-		return c, c, nil
-	}
-	var stdinStream io.WriteCloser
-	for _, p := range []struct {
-		path string
-		flag int
-		done func(f *os.File)
-	}{
-		{
-			path: basePath + "-stdin",
-			flag: syscall.O_RDWR,
-			done: func(f *os.File) {
-				*stdin = f.Name()
-				stdinStream = f
-			},
-		},
-		{
-			path: basePath + "-stdout",
-			flag: syscall.O_RDWR,
-			done: func(f *os.File) {
-				*stdout = f.Name()
-				go func() {
-					io.Copy(s.Stdout, f)
-					f.Close()
-				}()
-			},
-		},
-		{
-			path: basePath + "-stderr",
-			flag: syscall.O_RDWR,
-			done: func(f *os.File) {
-				*stderr = f.Name()
-				go func() {
-					io.Copy(s.Stderr, f)
-					f.Close()
-				}()
-			},
-		},
-	} {
-		if err := syscall.Mkfifo(p.path, 0755); err != nil {
-			return nil, nil, fmt.Errorf("mkfifo: %s %v", p.path, err)
-		}
-		f, err := os.OpenFile(p.path, p.flag, 0)
+	defer func() {
 		if err != nil {
-			return nil, nil, fmt.Errorf("open: %s %v", p.path, err)
+			c.Lock()
+			delete(c.containers, id)
+			c.Unlock()
 		}
-		p.done(f)
+	}()
+
+	streams, err := GetStreams(bundlePath, id)
+	if err != nil {
+		return err
 	}
-	return stdinStream, nil, nil
+
+	io, err := c.backend.PrepareContainerIOStreams(id)
+	if err != nil {
+		return err
+	}
+	logrus.Debugf("attaching streams")
+	if err := streams.Attach(io.Stdin, io.Stdout, io.Stderr); err != nil {
+		return err
+	}
+
+	container := &process{
+		// console: console,
+		bundle: bundlePath,
+		pid:    pid,
+	}
+
+	c.Lock()
+	container.Lock()
+	defer container.Unlock()
+	c.containers[id] = container
+	c.Unlock()
+
+	return c.backend.StateChanged(id, StateInfo{
+		State: "restored",
+		Pid:   pid,
+	})
+	return nil
 }
 
 func (c *client) getContainer(id string) (*process, error) {
@@ -371,6 +359,17 @@ func (c *client) ResizeProcess(id, processId string, width, height int) error {
 }
 
 func (c *client) AddProcess(id, processId string, req AddProcessRequest) error {
+	// fixme: locks
+	cont, ok := c.containers[id]
+	if !ok {
+		return fmt.Errorf("invalid container: %s", id)
+	}
+
+	streams, err := GetStreams(cont.bundle, processId)
+	if err != nil {
+		return err
+	}
+
 	r := &containerd.AddProcessRequest{
 		Args:     req.Args,
 		Cwd:      req.Cwd,
@@ -378,18 +377,17 @@ func (c *client) AddProcess(id, processId string, req AddProcessRequest) error {
 		Id:       id,
 		Env:      req.Env, // FIXME
 		User:     req.User,
-	}
-	cont, ok := c.containers[id]
-	if !ok {
-		return fmt.Errorf("invalid container: %s", id)
+		Stdin:    streams.FifoPath(0),
+		Stdout:   streams.FifoPath(1),
+		Stderr:   streams.FifoPath(2),
 	}
 
-	stdin, console, err := req.Streams.attach(filepath.Join(cont.bundle, processId), &r.Stdin, &r.Stdout, &r.Stderr, &r.Console)
-	if err != nil {
+	if err := streams.Attach(req.Stdin, req.Stdout, req.Stderr); err != nil {
 		return err
 	}
+
 	container := &process{
-		console: console,
+	// console: console,
 	}
 
 	c.Lock() // todo: maybe lock early by ID
@@ -398,13 +396,6 @@ func (c *client) AddProcess(id, processId string, req AddProcessRequest) error {
 	resp, err := c.apiClient.AddProcess(context.Background(), r)
 	if err != nil {
 		return err
-	}
-
-	if stdin != nil && req.Stdin != nil {
-		go func() {
-			io.Copy(stdin, req.Stdin)
-			stdin.Close() // support leaving open
-		}()
 	}
 
 	container.pid = resp.Pid
@@ -437,7 +428,7 @@ func (c *client) setState(id, state string) error {
 	if err != nil {
 		return err
 	}
-	container.cbs[state] = append(container.cbs[state], ch)
+	container.stateMonitor.append(state, ch)
 	container.Unlock()
 	<-ch
 	return nil
@@ -462,24 +453,45 @@ func (c *client) Stats(id string) (*containerd.Stats, error) {
 }
 func (c *client) Info() {
 }
-func (c *client) Restore(id string) error {
-	return fmt.Errorf("not implemented")
+func (c *client) Restore(id string, console bool) error {
+	// TODO: optimize this into per container call
+	resp, err := c.apiClient.State(context.Background(), &containerd.StateRequest{})
+	if err != nil {
+		return fmt.Errorf("error getting containers state: %s", id)
+	}
+	for _, cont := range resp.Containers {
+		if cont.Id == id {
+			state := cont.Status
+			logrus.Debugf("container %s state %s", cont.Id, state)
+			if state == "running" {
+				var pid uint32
+				if len(cont.Processes) != 0 {
+					pid = cont.Processes[0].Pid
+				}
+				return c.restore(cont.Id, cont.BundlePath, pid)
+			}
+			return c.backend.StateChanged(cont.Id, StateInfo{
+				State: state,
+			})
+		}
+	}
+	logrus.Debugf("Container %s unknown")
+	return nil
 }
 
-type Streams struct {
+type IO struct {
 	Stdin    io.ReadCloser
 	Stdout   io.Writer
 	Stderr   io.Writer
 	Terminal bool
 }
 
-type CreateContainerRequest struct {
-	Streams
-	BundlePath string
-}
+// type CreateContainerRequest struct {
+// 	BundlePath string
+// }
 
 type AddProcessRequest struct {
-	Streams
+	IO
 	Args []string
 	Cwd  string
 	Env  []string

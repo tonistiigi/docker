@@ -6,7 +6,6 @@ import (
 	"sort"
 
 	"github.com/docker/docker/container"
-	"github.com/docker/docker/daemon/execdriver"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/volume"
 )
@@ -15,8 +14,8 @@ import (
 // of the configured mounts on the container to the execdriver mount structure
 // which will ultimately be passed into the exec driver during container creation.
 // It also ensures each of the mounts are lexographically sorted.
-func (daemon *Daemon) setupMounts(container *container.Container) ([]execdriver.Mount, error) {
-	var mnts []execdriver.Mount
+func (daemon *Daemon) setupMounts(container *container.Container) ([]Mount, error) {
+	var mnts []Mount
 	for _, mount := range container.MountPoints { // type is volume.MountPoint
 		if err := daemon.lazyInitializeVolume(container.ID, mount); err != nil {
 			return nil, err
@@ -29,7 +28,7 @@ func (daemon *Daemon) setupMounts(container *container.Container) ([]execdriver.
 		if s == "" {
 			return nil, derr.ErrorCodeVolumeNoSourceForMount.WithArgs(mount.Name, mount.Driver, mount.Destination)
 		}
-		mnts = append(mnts, execdriver.Mount{
+		mnts = append(mnts, Mount{
 			Source:      s,
 			Destination: mount.Destination,
 			Writable:    mount.RW,

@@ -4,8 +4,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/docker/docker/daemon/execdriver"
 )
 
 func TestStateRunStop(t *testing.T) {
@@ -52,7 +50,7 @@ func TestStateRunStop(t *testing.T) {
 			atomic.StoreInt64(&exit, int64(exitCode))
 			close(stopped)
 		}()
-		s.SetStoppedLocking(&execdriver.ExitStatus{ExitCode: i})
+		s.SetStoppedLocking(&ExitStatus{ExitCode: i})
 		if s.IsRunning() {
 			t.Fatal("State is running")
 		}

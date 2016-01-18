@@ -35,9 +35,9 @@ import (
 	"github.com/docker/libnetwork/netlabel"
 	"github.com/docker/libnetwork/options"
 	"github.com/docker/libnetwork/types"
-	blkiodev "github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/opencontainers/runc/libcontainer/label"
 	"github.com/opencontainers/runc/libcontainer/user"
+	"github.com/opencontainers/specs"
 )
 
 const (
@@ -52,16 +52,18 @@ const (
 	defaultRemappedID  string = "dockremap"
 )
 
-func getBlkioWeightDevices(config *containertypes.HostConfig) ([]*blkiodev.WeightDevice, error) {
+func getBlkioWeightDevices(config *containertypes.HostConfig) ([]*specs.WeightDevice, error) {
 	var stat syscall.Stat_t
-	var blkioWeightDevices []*blkiodev.WeightDevice
+	var blkioWeightDevices []*specs.WeightDevice
 
 	for _, weightDevice := range config.BlkioWeightDevice {
 		if err := syscall.Stat(weightDevice.Path, &stat); err != nil {
 			return nil, err
 		}
-		weightDevice := blkiodev.NewWeightDevice(int64(stat.Rdev/256), int64(stat.Rdev%256), weightDevice.Weight, 0)
-		blkioWeightDevices = append(blkioWeightDevices, weightDevice)
+		d := &specs.WeightDevice{Weight: weightDevice.Weight}
+		d.Major = int64(stat.Rdev / 256)
+		d.Major = int64(stat.Rdev % 256)
+		blkioWeightDevices = append(blkioWeightDevices, d)
 	}
 
 	return blkioWeightDevices, nil
@@ -94,61 +96,69 @@ func parseSecurityOpt(container *container.Container, config *containertypes.Hos
 	return err
 }
 
-func getBlkioReadIOpsDevices(config *containertypes.HostConfig) ([]*blkiodev.ThrottleDevice, error) {
-	var blkioReadIOpsDevice []*blkiodev.ThrottleDevice
+func getBlkioReadIOpsDevices(config *containertypes.HostConfig) ([]*specs.ThrottleDevice, error) {
+	var blkioReadIOpsDevice []*specs.ThrottleDevice
 	var stat syscall.Stat_t
 
 	for _, iopsDevice := range config.BlkioDeviceReadIOps {
 		if err := syscall.Stat(iopsDevice.Path, &stat); err != nil {
 			return nil, err
 		}
-		readIOpsDevice := blkiodev.NewThrottleDevice(int64(stat.Rdev/256), int64(stat.Rdev%256), iopsDevice.Rate)
-		blkioReadIOpsDevice = append(blkioReadIOpsDevice, readIOpsDevice)
+		d := &specs.ThrottleDevice{Rate: iopsDevice.Rate}
+		d.Major = int64(stat.Rdev / 256)
+		d.Major = int64(stat.Rdev % 256)
+		blkioReadIOpsDevice = append(blkioReadIOpsDevice, d)
 	}
 
 	return blkioReadIOpsDevice, nil
 }
 
-func getBlkioWriteIOpsDevices(config *containertypes.HostConfig) ([]*blkiodev.ThrottleDevice, error) {
-	var blkioWriteIOpsDevice []*blkiodev.ThrottleDevice
+func getBlkioWriteIOpsDevices(config *containertypes.HostConfig) ([]*specs.ThrottleDevice, error) {
+	var blkioWriteIOpsDevice []*specs.ThrottleDevice
 	var stat syscall.Stat_t
 
 	for _, iopsDevice := range config.BlkioDeviceWriteIOps {
 		if err := syscall.Stat(iopsDevice.Path, &stat); err != nil {
 			return nil, err
 		}
-		writeIOpsDevice := blkiodev.NewThrottleDevice(int64(stat.Rdev/256), int64(stat.Rdev%256), iopsDevice.Rate)
-		blkioWriteIOpsDevice = append(blkioWriteIOpsDevice, writeIOpsDevice)
+		d := &specs.ThrottleDevice{Rate: iopsDevice.Rate}
+		d.Major = int64(stat.Rdev / 256)
+		d.Major = int64(stat.Rdev % 256)
+		blkioWriteIOpsDevice = append(blkioWriteIOpsDevice, d)
 	}
 
 	return blkioWriteIOpsDevice, nil
 }
 
-func getBlkioReadBpsDevices(config *containertypes.HostConfig) ([]*blkiodev.ThrottleDevice, error) {
-	var blkioReadBpsDevice []*blkiodev.ThrottleDevice
+func getBlkioReadBpsDevices(config *containertypes.HostConfig) ([]*specs.ThrottleDevice, error) {
+	var blkioReadBpsDevice []*specs.ThrottleDevice
 	var stat syscall.Stat_t
 
 	for _, bpsDevice := range config.BlkioDeviceReadBps {
 		if err := syscall.Stat(bpsDevice.Path, &stat); err != nil {
 			return nil, err
 		}
-		readBpsDevice := blkiodev.NewThrottleDevice(int64(stat.Rdev/256), int64(stat.Rdev%256), bpsDevice.Rate)
-		blkioReadBpsDevice = append(blkioReadBpsDevice, readBpsDevice)
+		d := &specs.ThrottleDevice{Rate: bpsDevice.Rate}
+		d.Major = int64(stat.Rdev / 256)
+		d.Major = int64(stat.Rdev % 256)
+		blkioReadBpsDevice = append(blkioReadBpsDevice, d)
 	}
 
 	return blkioReadBpsDevice, nil
 }
 
-func getBlkioWriteBpsDevices(config *containertypes.HostConfig) ([]*blkiodev.ThrottleDevice, error) {
-	var blkioWriteBpsDevice []*blkiodev.ThrottleDevice
+func getBlkioWriteBpsDevices(config *containertypes.HostConfig) ([]*specs.ThrottleDevice, error) {
+	var blkioWriteBpsDevice []*specs.ThrottleDevice
 	var stat syscall.Stat_t
 
 	for _, bpsDevice := range config.BlkioDeviceWriteBps {
 		if err := syscall.Stat(bpsDevice.Path, &stat); err != nil {
 			return nil, err
 		}
-		writeBpsDevice := blkiodev.NewThrottleDevice(int64(stat.Rdev/256), int64(stat.Rdev%256), bpsDevice.Rate)
-		blkioWriteBpsDevice = append(blkioWriteBpsDevice, writeBpsDevice)
+		d := &specs.ThrottleDevice{Rate: bpsDevice.Rate}
+		d.Major = int64(stat.Rdev / 256)
+		d.Major = int64(stat.Rdev % 256)
+		blkioWriteBpsDevice = append(blkioWriteBpsDevice, d)
 	}
 
 	return blkioWriteBpsDevice, nil
