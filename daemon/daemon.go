@@ -956,7 +956,25 @@ func (daemon *Daemon) Unmount(container *container.Container) {
 // 	return daemon.execDriver.Run(c.Command, pipes, hooks)
 // }
 func (daemon *Daemon) Run(c *container.Container) error {
-	return daemon.containerd.Create(c.ID, filepath.Join(daemon.root, "bundles", c.ID))
+	bundleRoot := filepath.Join(daemon.root, "bundles", c.ID)
+	uidMap, gidMap := daemon.GetUIDGIDMaps()
+	if uidMap != nil {
+		streams, err := libcontainerd.GetStreams(bundleRoot, c.ID)
+		if err != nil {
+			return err
+		}
+		rootUID, rootGID, err := idtools.GetRootUIDGID(uidMap, gidMap)
+		if err != nil {
+			return err
+		}
+		for i := 0; i < 3; i++ {
+			logrus.Debugf("chown %q", streams.FifoPath(i))
+			if err := os.Chown(streams.FifoPath(i), rootUID, rootGID); err != nil {
+				return err
+			}
+		}
+	}
+	return daemon.containerd.Create(c.ID, bundleRoot)
 }
 
 func (daemon *Daemon) attachTty(c *container.Container, consolePath *string, stdin *io.WriteCloser, stdoutWriter io.Writer) (libcontainer.Console, error) {

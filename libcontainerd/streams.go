@@ -35,7 +35,7 @@ func GetStreams(base, id string) (Streams, error) {
 			return nil, err
 		}
 		if err == nil {
-			if fi.Mode()&os.ModeNamedPipe != 0 {
+			if fi.Mode()&os.ModeNamedPipe == 0 {
 				if err := os.Remove(p); err != nil {
 					return nil, err
 				}

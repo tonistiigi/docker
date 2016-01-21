@@ -12,6 +12,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/caps"
+	"github.com/docker/docker/pkg/idtools"
 	"github.com/opencontainers/runc/libcontainer/devices"
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/opencontainers/specs"
@@ -237,7 +238,28 @@ func setNamespaces(daemon *Daemon, s *specs.LinuxRuntimeSpec, c *container.Conta
 	if c.HostConfig.UTSMode.IsHost() {
 		delNamespace(s, specs.NamespaceType("uts"))
 	}
+	// user
+	uidMap, gidMap := daemon.GetUIDGIDMaps()
+	if uidMap != nil {
+		ns := specs.Namespace{Type: "user"}
+		setNamespace(s, ns)
+		s.Linux.UIDMappings = specMapping(uidMap)
+		s.Linux.GIDMappings = specMapping(gidMap)
+	}
+
 	return nil
+}
+
+func specMapping(s []idtools.IDMap) []specs.IDMapping {
+	var ids []specs.IDMapping
+	for _, item := range s {
+		ids = append(ids, specs.IDMapping{
+			HostID:      uint32(item.HostID),
+			ContainerID: uint32(item.ContainerID),
+			Size:        uint32(item.Size),
+		})
+	}
+	return ids
 }
 
 func execToSpecMount(m container.Mount) specs.Mount {
@@ -253,13 +275,9 @@ func execToSpecMount(m container.Mount) specs.Mount {
 	}
 }
 
-func setMounts(daemon *Daemon, s *specs.LinuxSpec, rs *specs.LinuxRuntimeSpec, c *container.Container) error {
-	execMounts, err := daemon.setupMounts(c)
-	if err != nil {
-		return err
-	}
+func setMounts(daemon *Daemon, s *specs.LinuxSpec, rs *specs.LinuxRuntimeSpec, c *container.Container, mounts []container.Mount) error {
 	userMounts := make(map[string]struct{})
-	for _, m := range execMounts {
+	for _, m := range mounts {
 		userMounts[m.Destination] = struct{}{}
 	}
 
@@ -275,14 +293,14 @@ func setMounts(daemon *Daemon, s *specs.LinuxSpec, rs *specs.LinuxRuntimeSpec, c
 		}
 	}
 	s.Mounts = defaultMPs
-	for _, m := range execMounts {
+	for _, m := range mounts {
 		s.Mounts = append(s.Mounts, specs.MountPoint{Name: m.Destination, Path: m.Destination})
 		rs.Mounts[m.Destination] = execToSpecMount(m)
 	}
 	return nil
 }
 
-func (daemon *Daemon) writeBundle(s combinedSpec, c *container.Container) error {
+func (daemon *Daemon) writeBundle(s combinedSpec, c *container.Container, mounts []container.Mount) error {
 	ls := specs.LinuxSpec{
 		Spec:  s.spec,
 		Linux: defaultLinuxTemplate.spec,
@@ -309,24 +327,33 @@ func (daemon *Daemon) writeBundle(s combinedSpec, c *container.Container) error 
 	if err := setCapabilities(&ls, c); err != nil {
 		return fmt.Errorf("linux spec capabilities: %v", err)
 	}
-	if err := setMounts(daemon, &ls, &rls, c); err != nil {
+	if err := setMounts(daemon, &ls, &rls, c, mounts); err != nil {
 		return fmt.Errorf("linux mounts: %v", err)
 	}
 
 	for _, ns := range rls.Linux.Namespaces {
 		if ns.Type == "network" && ns.Path == "" {
+			target, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(os.Getpid()), "exe"))
+			if err != nil {
+				return err
+			}
+
 			rls.RuntimeSpec.Hooks = specs.Hooks{
 				Prestart: []specs.Hook{{
-					Path: filepath.Join("/proc", strconv.Itoa(os.Getpid()), "exe"), // FIXME: cross-platform
+					Path: target, // FIXME: cross-platform
 					Args: []string{"libnetwork-setkey", c.ID, daemon.netController.ID()},
 				}},
 			}
 		}
 	}
 
+	rootUID, rootGID := daemon.GetRemappedUIDGID()
 	bundleDir := filepath.Join(daemon.root, "bundles", c.ID)
-	os.MkdirAll(filepath.Join(bundleDir, "rootfs"), 0777)
-	if err := syscall.Mount(c.BaseFS, filepath.Join(bundleDir, "rootfs"), "bind", syscall.MS_REC|syscall.MS_BIND, ""); err != nil {
+	rootfsDir := filepath.Join(bundleDir, "rootfs")
+	if err := idtools.MkdirAllAs(rootfsDir, 0700, rootUID, rootGID); err != nil && !os.IsExist(err) {
+		return err
+	}
+	if err := syscall.Mount(c.BaseFS, rootfsDir, "bind", syscall.MS_REC|syscall.MS_BIND, ""); err != nil {
 		return err
 	}
 	cPath := filepath.Join(bundleDir, "config.json")

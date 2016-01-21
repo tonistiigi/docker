@@ -18,14 +18,6 @@ var defaultTemplate = combinedSpec{
 				Path: "/dev/pts",
 			},
 			{
-				Name: "shm",
-				Path: "/dev/shm",
-			},
-			{
-				Name: "mqueue",
-				Path: "/dev/mqueue",
-			},
-			{
 				Name: "sysfs",
 				Path: "/sys",
 			},
@@ -52,16 +44,6 @@ var defaultTemplate = combinedSpec{
 				Source:  "devpts",
 				Options: []string{"newinstance", "ptmxmode=0666", "mode=0620", "gid=5"},
 			},
-			"shm": {
-				Type:    "tmpfs",
-				Source:  "shm",
-				Options: []string{"nosuid", "noexec", "nodev", "mode=1777", "size=65536k"},
-			},
-			"mqueue": {
-				Type:    "mqueue",
-				Source:  "mqueue",
-				Options: []string{"nosuid", "noexec", "nodev"},
-			},
 			"sysfs": {
 				Type:    "sysfs",
 				Source:  "sysfs",
@@ -70,7 +52,7 @@ var defaultTemplate = combinedSpec{
 			"cgroup": {
 				Type:    "cgroup",
 				Source:  "cgroup",
-				Options: []string{"nosuid", "noexec", "nodev", "ro"},
+				Options: []string{"nosuid", "noexec", "nodev"},
 			},
 		},
 	},

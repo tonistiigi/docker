@@ -23,9 +23,13 @@ func initSpec(c *container.Container, env []string) combinedSpec {
 		Path:     "rootfs",
 		Readonly: c.HostConfig.ReadonlyRootfs,
 	}
+	cwd := c.Config.WorkingDir
+	if len(cwd) == 0 {
+		cwd = "/"
+	}
 	cspec.spec.Process = specs.Process{
 		Args:     append([]string{c.Path}, c.Args...),
-		Cwd:      c.Config.WorkingDir,
+		Cwd:      cwd,
 		Env:      env,
 		Terminal: c.Config.Tty,
 	}
