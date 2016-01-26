@@ -138,33 +138,45 @@ func setRlimits(s *specs.LinuxRuntimeSpec, c *container.Container) error {
 }
 
 func setUser(s *specs.LinuxSpec, c *container.Container) error {
-	passwdPath, err := user.GetPasswdPath()
+	uid, gid, additionalGids, err := getUser(c)
 	if err != nil {
 		return err
+	}
+	s.Process.User.UID = uid
+	s.Process.User.GID = gid
+	s.Process.User.AdditionalGids = additionalGids
+	return nil
+}
+
+func getUser(c *container.Container) (uint32, uint32, []uint32, error) {
+	passwdPath, err := user.GetPasswdPath()
+	if err != nil {
+		return 0, 0, nil, err
 	}
 	groupPath, err := user.GetGroupPath()
 	if err != nil {
-		return err
+		return 0, 0, nil, err
 	}
 	execUser, err := user.GetExecUserPath(c.Config.User, nil, passwdPath, groupPath)
 	if err != nil {
-		return err
+		return 0, 0, nil, err
 	}
 
 	var addGroups []int
 	if len(c.HostConfig.GroupAdd) > 0 {
 		addGroups, err = user.GetAdditionalGroupsPath(c.HostConfig.GroupAdd, groupPath)
 		if err != nil {
-			return err
+			return 0, 0, nil, err
 		}
 	}
-	s.Process.User.UID = uint32(execUser.Uid)
-	s.Process.User.GID = uint32(execUser.Gid)
+	uid := uint32(execUser.Uid)
+	gid := uint32(execUser.Gid)
 	sgids := append(execUser.Sgids, addGroups...)
+	var additionalGids []uint32
 	for _, g := range sgids {
-		s.Process.User.AdditionalGids = append(s.Process.User.AdditionalGids, uint32(g))
+		additionalGids = append(additionalGids, uint32(g))
 	}
-	return nil
+	return uid, gid, additionalGids, nil
 }
 
 func setNamespace(s *specs.LinuxRuntimeSpec, ns specs.Namespace) {

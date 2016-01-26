@@ -223,13 +223,13 @@ func (daemon *Daemon) populateCommand(c *container.Container, env []string) erro
 	// processConfig.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	// processConfig.Env = env
 
-	remappedRoot := &execdriver.User{}
-	rootUID, rootGID := daemon.GetRemappedUIDGID()
-	if rootUID != 0 {
-		remappedRoot.UID = rootUID
-		remappedRoot.GID = rootGID
-	}
-	uidMap, gidMap := daemon.GetUIDGIDMaps()
+	// remappedRoot := &execdriver.User{}
+	// rootUID, rootGID := daemon.GetRemappedUIDGID()
+	// if rootUID != 0 {
+	// 	remappedRoot.UID = rootUID
+	// 	remappedRoot.GID = rootGID
+	// }
+	// uidMap, gidMap := daemon.GetUIDGIDMaps()
 
 	if !daemon.seccompEnabled {
 		if c.SeccompProfile != "" && c.SeccompProfile != "unconfined" {
@@ -252,25 +252,25 @@ func (daemon *Daemon) populateCommand(c *container.Container, env []string) erro
 			// Network:       en,
 			// ProcessConfig: processConfig,
 			ProcessLabel: c.GetProcessLabel(),
-			Rootfs:       c.BaseFS,
+			// Rootfs:       c.BaseFS,
 			// Resources:     resources,
-			WorkingDir: c.Config.WorkingDir,
+			// WorkingDir: c.Config.WorkingDir,
 		},
 		// AllowedDevices:     allowedDevices,
-		AppArmorProfile: c.AppArmorProfile,
+		// AppArmorProfile: c.AppArmorProfile,
 		// AutoCreatedDevices: autoCreatedDevices,
-		CapAdd:       c.HostConfig.CapAdd.Slice(),
-		CapDrop:      c.HostConfig.CapDrop.Slice(),
+		// CapAdd:       c.HostConfig.CapAdd.Slice(),
+		// CapDrop:      c.HostConfig.CapDrop.Slice(),
 		CgroupParent: defaultCgroupParent,
-		GIDMapping:   gidMap,
-		GroupAdd:     c.HostConfig.GroupAdd,
-		Ipc:          ipc,
-		OomScoreAdj:  c.HostConfig.OomScoreAdj,
+		// GIDMapping:   gidMap,
+		// GroupAdd:    c.HostConfig.GroupAdd,
+		Ipc:         ipc,
+		OomScoreAdj: c.HostConfig.OomScoreAdj,
 		// Pid:                pid,
-		ReadonlyRootfs: c.HostConfig.ReadonlyRootfs,
-		RemappedRoot:   remappedRoot,
+		// ReadonlyRootfs: c.HostConfig.ReadonlyRootfs,
+		// RemappedRoot:   remappedRoot,
 		SeccompProfile: c.SeccompProfile,
-		UIDMapping:     uidMap,
+		// UIDMapping:     uidMap,
 		// UTS:            uts,
 	}
 	if c.HostConfig.CgroupParent != "" {

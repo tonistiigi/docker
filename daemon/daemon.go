@@ -94,6 +94,7 @@ var (
 	validContainerNamePattern = utils.RestrictedNamePattern
 
 	errSystemNotSupported = errors.New("The Docker daemon is not supported on this platform.")
+	errNotRunning         = errors.New("Container is not running")
 )
 
 // ErrImageDoesNotExist is error returned when no image can be found for a reference.
@@ -999,6 +1000,9 @@ func (daemon *Daemon) kill(c *container.Container, sig int) error {
 }
 
 func (daemon *Daemon) stats(c *container.Container) (*types.StatsJSON, error) {
+	if !c.IsRunning() {
+		return nil, errNotRunning
+	}
 	stats, err := daemon.containerd.Stats(c.ID)
 	if err != nil {
 		return nil, err

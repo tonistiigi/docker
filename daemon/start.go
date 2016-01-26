@@ -128,6 +128,7 @@ func (daemon *Daemon) containerStart(container *container.Container) (err error)
 		return err
 	}
 	env := container.CreateDaemonEnvironment(linkedEnv)
+	container.Env = env
 	if err := daemon.populateCommand(container, env); err != nil {
 		return err
 	}

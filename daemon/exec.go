@@ -179,14 +179,19 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 	} else {
 		ec.NewNopInputPipe()
 	}
+	uid, gid, additionalGids, err := getUser(c)
+	if err != nil {
+		return err
+	}
 
 	r := libcontainerd.AddProcessRequest{
 		Args: append([]string{ec.ProcessConfig.Entrypoint}, ec.ProcessConfig.Arguments...),
 		Cwd:  c.Config.WorkingDir,
-		Env:  c.CreateDaemonEnvironment(nil), // FIXME
+		Env:  c.Env,
 		User: &containerd.User{
-			Uid: 0,
-			Gid: 0, //FIXME
+			Uid:            uid,
+			Gid:            gid,
+			AdditionalGids: additionalGids,
 		},
 		IO: libcontainerd.IO{
 			Terminal: ec.ProcessConfig.Tty,

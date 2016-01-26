@@ -12,7 +12,6 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
-	"github.com/docker/docker/daemon/execdriver"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/pkg/pubsub"
 	"github.com/docker/engine-api/types"
@@ -121,7 +120,7 @@ func (s *statsCollector) run() {
 		for _, pair := range pairs {
 			stats, err := s.supervisor.GetContainerStats(pair.container)
 			if err != nil {
-				if err != execdriver.ErrNotRunning {
+				if err != errNotRunning {
 					logrus.Errorf("collecting stats for %s: %v", pair.container.ID, err)
 				}
 				continue

@@ -64,6 +64,7 @@ type CommonContainer struct {
 	// logDriver for closing
 	LogDriver logger.Logger  `json:"-"`
 	LogCopier *logger.Copier `json:"-"`
+	Env       []string       `json:"-"`
 
 	// Restart Policy
 

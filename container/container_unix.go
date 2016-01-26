@@ -81,7 +81,6 @@ func (container *Container) CreateDaemonEnvironment(linkedEnv []string) []string
 	// we need to replace the 'env' keys where they match and append anything
 	// else.
 	env = utils.ReplaceOrAppendEnvValues(env, container.Config.Env)
-
 	return env
 }
 
