@@ -53,6 +53,7 @@ type Client interface {
 type process struct {
 	sync.RWMutex
 	stateMonitor
+	oom      bool
 	pid      uint32
 	console  libcontainer.Console
 	bundle   string
@@ -238,6 +239,15 @@ func (c *client) startMonitor() error {
 			}
 
 			switch e.Type {
+			case "oom":
+				container, err := c.getContainer(e.Id)
+				if err != nil {
+					logrus.Errorf("no state for container: %q", err)
+					continue
+				}
+				container.Lock()
+				container.oom = true
+				container.Unlock()
 			case "execExit":
 				container, err := c.getContainer(e.Id)
 				if err != nil {
@@ -291,9 +301,10 @@ func (p *process) handleMessage(b Backend, e *containerd.Event) {
 	log.Println("handleMessage", e.Type)
 
 	err := b.StateChanged(e.Id, StateInfo{
-		State:    e.Type,
-		ExitCode: e.Status,
-		Pid:      e.Pid,
+		State:     e.Type,
+		ExitCode:  e.Status,
+		Pid:       e.Pid,
+		OOMKilled: e.Type == "exit" && p.oom,
 	})
 	if err != nil {
 		logrus.Errorf("unhandled exit for %s: %q", e.Id, err)
