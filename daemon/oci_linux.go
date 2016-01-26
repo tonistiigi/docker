@@ -344,6 +344,9 @@ func (daemon *Daemon) writeBundle(s combinedSpec, c *container.Container, mounts
 	if err := setMounts(daemon, &ls, &rls, c, mounts); err != nil {
 		return fmt.Errorf("linux mounts: %v", err)
 	}
+	if err := setSeccomp(daemon, &rls, c); err != nil {
+		return fmt.Errorf("linux seccomp: %v", err)
+	}
 
 	for _, ns := range rls.Linux.Namespaces {
 		if ns.Type == "network" && ns.Path == "" {
