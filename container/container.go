@@ -67,17 +67,17 @@ type CommonContainer struct {
 
 	// Restart Policy
 
-	// failureCount is the number of times the container has failed to
+	// FailureCount is the number of times the container has failed to
 	// start in a row
 	FailureCount int `json:"-"`
 
-	// shouldStop signals the monitor that the next time the container exits it is
+	// ShouldStop signals the monitor that the next time the container exits it is
 	// either because docker or the user asked for the container to be stopped
 	ShouldStop bool `json:"-"`
 
 	RestartTimer *time.Timer `json:"-"`
 
-	// timeIncrement is the amount of time to wait between restarts
+	// TimeIncrement is the amount of time to wait between restarts
 	// this is in milliseconds
 	TimeIncrement int `json:"-"`
 }
