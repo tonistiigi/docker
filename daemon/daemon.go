@@ -828,7 +828,8 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 	}
 	go d.execCommandGC()
 
-	d.containerd, err = libcontainerd.New(d, config.ContainerdAddr, true)
+	libcontainerdRootPath := filepath.Join(config.ExecRoot, "libcontainerd")
+	d.containerd, err = libcontainerd.New(d, libcontainerdRootPath, config.ContainerdAddr, true)
 	if err != nil {
 		return nil, err
 	}

@@ -7,11 +7,15 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Sirupsen/logrus"
 	containerd "github.com/docker/containerd/api/grpc/types"
+	sysinfo "github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/pkg/term"
 	"github.com/opencontainers/runc/libcontainer"
 	"golang.org/x/net/context"
@@ -59,20 +63,97 @@ type client struct {
 	backend    Backend
 	apiClient  containerd.APIClient
 	containers map[string]*process
+	execRoot   string
 }
 
-func New(b Backend, addr string, createIfMissing bool) (Client, error) {
+// TODO: need a portable version for windows (os.FindProcess should work for Windows)
+func isProcessAlive(pid int) bool {
+	err := syscall.Kill(int(pid), syscall.Signal(0))
+	if err == nil || err == syscall.EPERM {
+		return true
+	}
 
-	if createIfMissing {
-		if addr == "" {
-			addr = fmt.Sprintf("/run/containerd/containerd-docker-%d.sock", os.Getpid())
+	return false
+}
+
+func startDaemon(root, addr string) (int, error) {
+	if err := sysinfo.MkdirAll(root, 0700); err != nil {
+		return -1, err
+	}
+
+	path := filepath.Join(root, "containerd.pid")
+
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0600)
+	defer f.Close()
+	if err != nil {
+		return -1, err
+	}
+
+	// File exist, check if the daemon is alive
+	b := make([]byte, 8)
+	n, err := f.Read(b)
+	if err != nil && err != io.EOF {
+		return -1, err
+	}
+
+	if n > 0 {
+		pid, err := strconv.ParseUint(string(b[:n]), 10, 64)
+		if err != nil {
+			return -1, err
 		}
+		if isProcessAlive(int(pid)) {
+			logrus.Infof("Previous instance of containerd still alive (%d)", pid)
+			return int(pid), nil
+		}
+	}
 
-		if _, err := os.Stat(addr); err != nil && os.IsNotExist(err) {
-			logrus.Debugf("Starting containerd on %s", addr)
-			cmd := exec.Command("containerd", "-l", addr, "--debug", "true")
-			cmd.Start()
-			time.Sleep(time.Second) // FIXME: better detection
+	// rewind the file
+	_, err = f.Seek(0, os.SEEK_SET)
+	if err != nil {
+		return -1, err
+	}
+
+	// Truncate it
+	err = f.Truncate(0)
+	if err != nil {
+		return -1, err
+	}
+
+	// Start a new instance
+	cmd := exec.Command("containerd", "-l", addr, "--debug", "true") // TODO(mlaventure): get optional flag for debug mode
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	err = cmd.Start()
+	if err != nil {
+		return -1, err
+	}
+
+	logrus.Infof("New containerd pid: %d\n", cmd.Process.Pid)
+
+	_, err = f.WriteString(fmt.Sprintf("%d", cmd.Process.Pid))
+	if err != nil {
+		//TODO: need to be OS agnostic
+		syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)
+		return -1, err
+	}
+
+	go func() {
+		// Reap our child when needed
+		cmd.Wait()
+	}()
+
+	return cmd.Process.Pid, nil
+}
+
+func New(b Backend, execRoot, addr string, createIfMissing bool) (Client, error) {
+	var daemonPid = -1
+
+	if createIfMissing && addr == "" {
+		var err error
+
+		addr = filepath.Join(execRoot, "containerd.sock")
+
+		if daemonPid, err = startDaemon(execRoot, addr); err != nil {
+			return nil, err
 		}
 	}
 
@@ -88,12 +169,35 @@ func New(b Backend, addr string, createIfMissing bool) (Client, error) {
 		return nil, fmt.Errorf("Error connecting to containerd: %v", err)
 	}
 	go func() {
+		var transientFailureCount = 0
 		state := grpc.Idle
 		for {
 			s, err := conn.WaitForStateChange(context.Background(), state)
 			logrus.Println("connstate", s, err)
 			if err == nil {
 				state = s
+			}
+
+			if daemonPid != -1 {
+				switch state {
+				case grpc.TransientFailure:
+					// Reset state to be notified of next failure
+					transientFailureCount++
+					if transientFailureCount == 3 {
+						transientFailureCount = 0
+						if isProcessAlive(daemonPid) {
+							//TODO: need to be OS agnostic
+							syscall.Kill(daemonPid, syscall.SIGKILL)
+						}
+						daemonPid, _ = startDaemon(execRoot, addr)
+					} else {
+						state = grpc.Idle
+						time.Sleep(3 * time.Second)
+					}
+				case grpc.Shutdown:
+					// Well, We asked for it to stop, just return
+					return
+				}
 			}
 		}
 	}()
