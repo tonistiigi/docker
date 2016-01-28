@@ -17,6 +17,7 @@ import (
 	containerd "github.com/docker/containerd/api/grpc/types"
 	sysinfo "github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/pkg/term"
+	"github.com/docker/docker/utils"
 	"github.com/opencontainers/runc/libcontainer"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -66,16 +67,6 @@ type client struct {
 	execRoot   string
 }
 
-// TODO: need a portable version for windows (os.FindProcess should work for Windows)
-func isProcessAlive(pid int) bool {
-	err := syscall.Kill(int(pid), syscall.Signal(0))
-	if err == nil || err == syscall.EPERM {
-		return true
-	}
-
-	return false
-}
-
 func startDaemon(root, addr string) (int, error) {
 	if err := sysinfo.MkdirAll(root, 0700); err != nil {
 		return -1, err
@@ -101,7 +92,7 @@ func startDaemon(root, addr string) (int, error) {
 		if err != nil {
 			return -1, err
 		}
-		if isProcessAlive(int(pid)) {
+		if utils.IsProcessAlive(int(pid)) {
 			logrus.Infof("Previous instance of containerd still alive (%d)", pid)
 			return int(pid), nil
 		}
@@ -131,8 +122,7 @@ func startDaemon(root, addr string) (int, error) {
 
 	_, err = f.WriteString(fmt.Sprintf("%d", cmd.Process.Pid))
 	if err != nil {
-		//TODO: need to be OS agnostic
-		syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)
+		utils.KillProcess(cmd.Process.Pid)
 		return -1, err
 	}
 
@@ -185,9 +175,8 @@ func New(b Backend, execRoot, addr string, createIfMissing bool) (Client, error)
 					transientFailureCount++
 					if transientFailureCount == 3 {
 						transientFailureCount = 0
-						if isProcessAlive(daemonPid) {
-							//TODO: need to be OS agnostic
-							syscall.Kill(daemonPid, syscall.SIGKILL)
+						if utils.IsProcessAlive(daemonPid) {
+							utils.KillProcess(daemonPid)
 						}
 						daemonPid, _ = startDaemon(execRoot, addr)
 					} else {
