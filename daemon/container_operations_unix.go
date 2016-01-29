@@ -14,7 +14,6 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
-	"github.com/docker/docker/daemon/execdriver"
 	"github.com/docker/docker/daemon/links"
 	"github.com/docker/docker/daemon/network"
 	derr "github.com/docker/docker/errors"
@@ -86,7 +85,7 @@ func (daemon *Daemon) populateCommand(c *container.Container, env []string) erro
 	// 	}
 	// }
 
-	ipc := &execdriver.Ipc{}
+	// ipc := &execdriver.Ipc{}
 	var err error
 	c.ShmPath, err = c.ShmResourcePath()
 	if err != nil {
@@ -98,11 +97,11 @@ func (daemon *Daemon) populateCommand(c *container.Container, env []string) erro
 		if err != nil {
 			return err
 		}
-		ipc.ContainerID = ic.ID
+		// ipc.ContainerID = ic.ID
 		c.ShmPath = ic.ShmPath
 	} else {
-		ipc.HostIpc = c.HostConfig.IpcMode.IsHost()
-		if ipc.HostIpc {
+		// ipc.HostIpc = c.HostConfig.IpcMode.IsHost()
+		if c.HostConfig.IpcMode.IsHost() {
 			if _, err := os.Stat("/dev/shm"); err != nil {
 				return fmt.Errorf("/dev/shm is not mounted, but must be for --ipc=host")
 			}
@@ -239,43 +238,43 @@ func (daemon *Daemon) populateCommand(c *container.Container, env []string) erro
 		c.SeccompProfile = "unconfined"
 	}
 
-	defaultCgroupParent := "/docker"
-	if daemon.configStore.CgroupParent != "" {
-		defaultCgroupParent = daemon.configStore.CgroupParent
-	} else if daemon.usingSystemd() {
-		defaultCgroupParent = "system.slice"
-	}
-	c.Command = &execdriver.Command{
-		CommonCommand: execdriver.CommonCommand{
-			ID:         c.ID,
-			MountLabel: c.GetMountLabel(),
-			// Network:       en,
-			// ProcessConfig: processConfig,
-			ProcessLabel: c.GetProcessLabel(),
-			// Rootfs:       c.BaseFS,
-			// Resources:     resources,
-			// WorkingDir: c.Config.WorkingDir,
-		},
-		// AllowedDevices:     allowedDevices,
-		// AppArmorProfile: c.AppArmorProfile,
-		// AutoCreatedDevices: autoCreatedDevices,
-		// CapAdd:       c.HostConfig.CapAdd.Slice(),
-		// CapDrop:      c.HostConfig.CapDrop.Slice(),
-		CgroupParent: defaultCgroupParent,
-		// GIDMapping:   gidMap,
-		// GroupAdd:    c.HostConfig.GroupAdd,
-		Ipc:         ipc,
-		OomScoreAdj: c.HostConfig.OomScoreAdj,
-		// Pid:                pid,
-		// ReadonlyRootfs: c.HostConfig.ReadonlyRootfs,
-		// RemappedRoot:   remappedRoot,
-		SeccompProfile: c.SeccompProfile,
-		// UIDMapping:     uidMap,
-		// UTS:            uts,
-	}
-	if c.HostConfig.CgroupParent != "" {
-		c.Command.CgroupParent = c.HostConfig.CgroupParent
-	}
+	// defaultCgroupParent := "/docker"
+	// if daemon.configStore.CgroupParent != "" {
+	// 	defaultCgroupParent = daemon.configStore.CgroupParent
+	// } else if daemon.usingSystemd() {
+	// 	defaultCgroupParent = "system.slice"
+	// }
+	// c.Command = &execdriver.Command{
+	// 	CommonCommand: execdriver.CommonCommand{
+	// 		ID:         c.ID,
+	// 		MountLabel: c.GetMountLabel(),
+	// 		// Network:       en,
+	// 		// ProcessConfig: processConfig,
+	// 		ProcessLabel: c.GetProcessLabel(),
+	// 		// Rootfs:       c.BaseFS,
+	// 		// Resources:     resources,
+	// 		// WorkingDir: c.Config.WorkingDir,
+	// 	},
+	// 	// AllowedDevices:     allowedDevices,
+	// 	// AppArmorProfile: c.AppArmorProfile,
+	// 	// AutoCreatedDevices: autoCreatedDevices,
+	// 	// CapAdd:       c.HostConfig.CapAdd.Slice(),
+	// 	// CapDrop:      c.HostConfig.CapDrop.Slice(),
+	// 	CgroupParent: defaultCgroupParent,
+	// 	// GIDMapping:   gidMap,
+	// 	// GroupAdd:    c.HostConfig.GroupAdd,
+	// 	Ipc:         ipc,
+	// 	OomScoreAdj: c.HostConfig.OomScoreAdj,
+	// 	// Pid:                pid,
+	// 	// ReadonlyRootfs: c.HostConfig.ReadonlyRootfs,
+	// 	// RemappedRoot:   remappedRoot,
+	// 	SeccompProfile: c.SeccompProfile,
+	// 	// UIDMapping:     uidMap,
+	// 	// UTS:            uts,
+	// }
+	// if c.HostConfig.CgroupParent != "" {
+	// 	c.Command.CgroupParent = c.HostConfig.CgroupParent
+	// }
 
 	return nil
 }
@@ -329,11 +328,10 @@ func (daemon *Daemon) buildSandboxOptions(container *container.Container, n libn
 		sboxOptions = append(sboxOptions, libnetwork.OptionUseDefaultSandbox())
 		sboxOptions = append(sboxOptions, libnetwork.OptionOriginHostsPath("/etc/hosts"))
 		sboxOptions = append(sboxOptions, libnetwork.OptionOriginResolvConfPath("/etc/resolv.conf"))
-	} else if daemon.execDriver.SupportsHooks() {
-		// OptionUseExternalKey is mandatory for userns support.
-		// But optional for non-userns support
-		sboxOptions = append(sboxOptions, libnetwork.OptionUseExternalKey())
 	}
+	// OptionUseExternalKey is mandatory for userns support.
+	// But optional for non-userns support
+	sboxOptions = append(sboxOptions, libnetwork.OptionUseExternalKey())
 
 	container.HostsPath, err = container.GetRootResourcePath("hosts")
 	if err != nil {

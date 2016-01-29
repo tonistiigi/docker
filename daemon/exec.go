@@ -9,7 +9,6 @@ import (
 	containerd "github.com/docker/containerd/api/grpc/types"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/exec"
-	"github.com/docker/docker/daemon/execdriver"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/pkg/pools"
@@ -104,26 +103,28 @@ func (d *Daemon) ContainerExecCreate(config *types.ExecConfig) (string, error) {
 		}
 	}
 
-	processConfig := &execdriver.ProcessConfig{
-		CommonProcessConfig: execdriver.CommonProcessConfig{
-			Tty:        config.Tty,
-			Entrypoint: entrypoint,
-			Arguments:  args,
-		},
-	}
-	setPlatformSpecificExecProcessConfig(config, container, processConfig)
+	// processConfig := &execdriver.ProcessConfig{
+	// 	CommonProcessConfig: execdriver.CommonProcessConfig{
+	// 		Tty:        config.Tty,
+	// 		Entrypoint: entrypoint,
+	// 		Arguments:  args,
+	// 	},
+	// }
+	// setPlatformSpecificExecProcessConfig(config, container, processConfig)
 
 	execConfig := exec.NewConfig()
 	execConfig.OpenStdin = config.AttachStdin
 	execConfig.OpenStdout = config.AttachStdout
 	execConfig.OpenStderr = config.AttachStderr
-	execConfig.ProcessConfig = processConfig
+	// execConfig.ProcessConfig = processConfig
 	execConfig.ContainerID = container.ID
 	execConfig.DetachKeys = keys
+	execConfig.Entrypoint = entrypoint
+	execConfig.Args = args
 
 	d.registerExecCommand(container, execConfig)
 
-	d.LogContainerEvent(container, "exec_create: "+execConfig.ProcessConfig.Entrypoint+" "+strings.Join(execConfig.ProcessConfig.Arguments, " "))
+	d.LogContainerEvent(container, "exec_create: "+execConfig.Entrypoint+" "+strings.Join(execConfig.Args, " "))
 
 	return execConfig.ID, nil
 }
@@ -156,7 +157,7 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 
 	c := d.containers.Get(ec.ContainerID)
 	logrus.Debugf("starting exec command %s in container %s", ec.ID, c.ID)
-	d.LogContainerEvent(c, "exec_start: "+ec.ProcessConfig.Entrypoint+" "+strings.Join(ec.ProcessConfig.Arguments, " "))
+	d.LogContainerEvent(c, "exec_start: "+ec.Entrypoint+" "+strings.Join(ec.Args, " "))
 
 	if ec.OpenStdin {
 		r, w := io.Pipe()
@@ -185,7 +186,7 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 	}
 
 	r := libcontainerd.AddProcessRequest{
-		Args: append([]string{ec.ProcessConfig.Entrypoint}, ec.ProcessConfig.Arguments...),
+		Args: append([]string{ec.Entrypoint}, ec.Args...),
 		Cwd:  c.Config.WorkingDir,
 		Env:  c.Env,
 		User: &containerd.User{
@@ -194,7 +195,7 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 			AdditionalGids: additionalGids,
 		},
 		IO: libcontainerd.IO{
-			Terminal: ec.ProcessConfig.Tty,
+			Terminal: ec.Tty,
 			Stdin:    ec.Stdin(),
 			Stdout:   ec.Stdout(),
 			Stderr:   ec.Stderr(),
@@ -207,7 +208,7 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 
 	ec.Close()
 
-	attachErr := container.AttachStreams(ec.StreamConfig, ec.OpenStdin, true, ec.ProcessConfig.Tty, cStdin, cStdout, cStderr, ec.DetachKeys)
+	attachErr := container.AttachStreams(ec.StreamConfig, ec.OpenStdin, true, ec.Tty, cStdin, cStdout, cStderr, ec.DetachKeys)
 
 	err = <-attachErr
 	if err != nil {

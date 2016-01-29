@@ -25,6 +25,10 @@ var defaultTemplate = combinedSpec{
 				Name: "cgroup",
 				Path: "/sys/fs/cgroup",
 			},
+			{
+				Name: "mqueue",
+				Path: "/dev/mqueue",
+			},
 		},
 	},
 	rspec: specs.RuntimeSpec{
@@ -52,6 +56,11 @@ var defaultTemplate = combinedSpec{
 			"cgroup": {
 				Type:    "cgroup",
 				Source:  "cgroup",
+				Options: []string{"nosuid", "noexec", "nodev"},
+			},
+			"mqueue": {
+				Type:    "mqueue",
+				Source:  "mqueue",
 				Options: []string{"nosuid", "noexec", "nodev"},
 			},
 		},

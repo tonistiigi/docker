@@ -1,11 +1,9 @@
 package exec
 
 import (
+	"fmt"
 	"sync"
-	"time"
 
-	"github.com/docker/docker/daemon/execdriver"
-	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/runconfig"
 )
@@ -16,16 +14,19 @@ import (
 type Config struct {
 	sync.Mutex
 	*runconfig.StreamConfig
-	ID            string
-	Running       bool
-	ExitCode      *int
-	ProcessConfig *execdriver.ProcessConfig
-	OpenStdin     bool
-	OpenStderr    bool
-	OpenStdout    bool
-	CanRemove     bool
-	ContainerID   string
-	DetachKeys    []byte
+	ID       string
+	Running  bool
+	ExitCode *int
+	// ProcessConfig *execdriver.ProcessConfig
+	OpenStdin   bool
+	OpenStderr  bool
+	OpenStdout  bool
+	CanRemove   bool
+	ContainerID string
+	DetachKeys  []byte
+	Entrypoint  string
+	Args        []string
+	Tty         bool
 
 	// waitStart will be closed immediately after the exec is really started.
 	waitStart chan struct{}
@@ -113,10 +114,11 @@ func (c *Config) Close() {
 
 // Resize changes the size of the terminal for the exec process.
 func (c *Config) Resize(h, w int) error {
-	select {
-	case <-c.waitStart:
-	case <-time.After(time.Second):
-		return derr.ErrorCodeExecResize.WithArgs(c.ID)
-	}
-	return c.ProcessConfig.Terminal.Resize(h, w)
+	// select {
+	// case <-c.waitStart:
+	// case <-time.After(time.Second):
+	// 	return derr.ErrorCodeExecResize.WithArgs(c.ID)
+	// }
+	// return c.ProcessConfig.Terminal.Resize(h, w)
+	return fmt.Errorf("not implemented")
 }

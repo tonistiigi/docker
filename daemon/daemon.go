@@ -26,8 +26,6 @@ import (
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/events"
 	"github.com/docker/docker/daemon/exec"
-	"github.com/docker/docker/daemon/execdriver"
-	"github.com/docker/docker/daemon/execdriver/execdrivers"
 	"github.com/docker/engine-api/types"
 	containertypes "github.com/docker/engine-api/types/container"
 	eventtypes "github.com/docker/engine-api/types/events"
@@ -55,7 +53,6 @@ import (
 	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/graphdb"
 	"github.com/docker/docker/pkg/idtools"
-	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/namesgenerator"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/registrar"
@@ -119,24 +116,24 @@ type Daemon struct {
 	trustKey                  libtrust.PrivateKey
 	idIndex                   *truncindex.TruncIndex
 	configStore               *Config
-	execDriver                execdriver.Driver
-	statsCollector            *statsCollector
-	defaultLogConfig          containertypes.LogConfig
-	RegistryService           *registry.Service
-	EventsService             *events.Events
-	netController             libnetwork.NetworkController
-	volumes                   *store.VolumeStore
-	discoveryWatcher          discoveryReloader
-	root                      string
-	seccompEnabled            bool
-	shutdown                  bool
-	uidMaps                   []idtools.IDMap
-	gidMaps                   []idtools.IDMap
-	layerStore                layer.Store
-	imageStore                image.Store
-	nameIndex                 *registrar.Registrar
-	linkIndex                 *linkIndex
-	containerd                libcontainerd.Client
+	// execDriver                execdriver.Driver
+	statsCollector   *statsCollector
+	defaultLogConfig containertypes.LogConfig
+	RegistryService  *registry.Service
+	EventsService    *events.Events
+	netController    libnetwork.NetworkController
+	volumes          *store.VolumeStore
+	discoveryWatcher discoveryReloader
+	root             string
+	seccompEnabled   bool
+	shutdown         bool
+	uidMaps          []idtools.IDMap
+	gidMaps          []idtools.IDMap
+	layerStore       layer.Store
+	imageStore       image.Store
+	nameIndex        *registrar.Registrar
+	linkIndex        *linkIndex
+	containerd       libcontainerd.Client
 }
 
 // GetContainer looks for a container using the provided information, which could be
@@ -234,26 +231,6 @@ func (daemon *Daemon) Register(c *container.Container) error {
 
 	daemon.containers.Add(c.ID, c)
 	daemon.idIndex.Add(c.ID)
-
-	if c.IsRunning() {
-		logrus.Debugf("killing old running container %s", c.ID)
-		// Set exit code to 128 + SIGKILL (9) to properly represent unsuccessful exit
-		c.SetStoppedLocking(&container.ExitStatus{ExitCode: 137})
-		// use the current driver and ensure that the container is dead x.x
-		cmd := &execdriver.Command{
-			CommonCommand: execdriver.CommonCommand{
-				ID: c.ID,
-			},
-		}
-		daemon.execDriver.Terminate(cmd)
-
-		c.UnmountIpcMounts(mount.Unmount)
-
-		daemon.Unmount(c)
-		if err := c.ToDiskLocking(); err != nil {
-			logrus.Errorf("Error saving stopped state to disk: %v", err)
-		}
-	}
 
 	return nil
 }
@@ -793,10 +770,10 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 		return nil, fmt.Errorf("Devices cgroup isn't mounted")
 	}
 
-	ed, err := execdrivers.NewDriver(config.ExecOptions, config.ExecRoot, config.Root, sysInfo)
-	if err != nil {
-		return nil, err
-	}
+	// ed, err := execdrivers.NewDriver(config.ExecOptions, config.ExecRoot, config.Root, sysInfo)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	d.ID = trustKey.PublicKey().KeyID()
 	d.repository = daemonRepo
@@ -807,7 +784,7 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 	d.trustKey = trustKey
 	d.idIndex = truncindex.NewTruncIndex([]string{})
 	d.configStore = config
-	d.execDriver = ed
+	// d.execDriver = ed
 	d.statsCollector = d.newStatsCollector(1 * time.Second)
 	d.defaultLogConfig = containertypes.LogConfig{
 		Type:   config.LogConfig.Type,
@@ -1421,11 +1398,11 @@ func (daemon *Daemon) GraphDriverName() string {
 	return daemon.layerStore.DriverName()
 }
 
-// ExecutionDriver returns the currently used driver for creating and
-// starting execs in a container.
-func (daemon *Daemon) ExecutionDriver() execdriver.Driver {
-	return daemon.execDriver
-}
+// // ExecutionDriver returns the currently used driver for creating and
+// // starting execs in a container.
+// func (daemon *Daemon) ExecutionDriver() execdriver.Driver {
+// 	return daemon.execDriver
+// }
 
 // GetUIDGIDMaps returns the current daemon's user namespace settings
 // for the full uid and gid maps which will be applied to containers

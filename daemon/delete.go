@@ -132,9 +132,6 @@ func (daemon *Daemon) cleanupContainer(container *container.Container, forceRemo
 		return derr.ErrorCodeRmDriverFS.WithArgs(daemon.GraphDriverName(), container.ID, err)
 	}
 
-	if err = daemon.execDriver.Clean(container.ID); err != nil {
-		return derr.ErrorCodeRmExecDriver.WithArgs(container.ID, err)
-	}
 	return nil
 }
 

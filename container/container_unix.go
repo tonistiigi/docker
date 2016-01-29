@@ -13,7 +13,6 @@ import (
 	"syscall"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/daemon/execdriver"
 	derr "github.com/docker/docker/errors"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/symlink"
@@ -597,18 +596,18 @@ func (container *Container) IpcMounts() []Mount {
 	return mounts
 }
 
-func updateCommand(c *execdriver.Command, resources containertypes.Resources) {
-	c.Resources.BlkioWeight = resources.BlkioWeight
-	c.Resources.CPUShares = resources.CPUShares
-	c.Resources.CPUPeriod = resources.CPUPeriod
-	c.Resources.CPUQuota = resources.CPUQuota
-	c.Resources.CpusetCpus = resources.CpusetCpus
-	c.Resources.CpusetMems = resources.CpusetMems
-	c.Resources.Memory = resources.Memory
-	c.Resources.MemorySwap = resources.MemorySwap
-	c.Resources.MemoryReservation = resources.MemoryReservation
-	c.Resources.KernelMemory = resources.KernelMemory
-}
+// func updateCommand(c *execdriver.Command, resources containertypes.Resources) {
+// 	c.Resources.BlkioWeight = resources.BlkioWeight
+// 	c.Resources.CPUShares = resources.CPUShares
+// 	c.Resources.CPUPeriod = resources.CPUPeriod
+// 	c.Resources.CPUQuota = resources.CPUQuota
+// 	c.Resources.CpusetCpus = resources.CpusetCpus
+// 	c.Resources.CpusetMems = resources.CpusetMems
+// 	c.Resources.Memory = resources.Memory
+// 	c.Resources.MemorySwap = resources.MemorySwap
+// 	c.Resources.MemoryReservation = resources.MemoryReservation
+// 	c.Resources.KernelMemory = resources.KernelMemory
+// }
 
 // UpdateContainer updates resources of a container.
 func (container *Container) UpdateContainer(hostConfig *containertypes.HostConfig) error {
@@ -653,8 +652,9 @@ func (container *Container) UpdateContainer(hostConfig *containertypes.HostConfi
 	// If container is running (including paused), we need to update
 	// the command so we can update configs to the real world.
 	if container.IsRunning() {
+		return fmt.Errorf("docker update is not supported atm")
 		container.Lock()
-		updateCommand(container.Command, *cResources)
+		// updateCommand(container.Command, *cResources)
 		container.Unlock()
 	}
 
