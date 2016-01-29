@@ -57,9 +57,7 @@ type CommonContainer struct {
 	HasBeenManuallyStopped bool // used for unless-stopped restart policy
 	MountPoints            map[string]*volume.MountPoint
 	HostConfig             *containertypes.HostConfig `json:"-"` // do not serialize the host config in the json, otherwise we'll make the container unportable
-	// Command                *execdriver.Command        `json:"-"`
-	monitor      *containerMonitor
-	ExecCommands *exec.Store `json:"-"`
+	ExecCommands           *exec.Store                `json:"-"`
 	// logDriver for closing
 	LogDriver logger.Logger  `json:"-"`
 	LogCopier *logger.Copier `json:"-"`
