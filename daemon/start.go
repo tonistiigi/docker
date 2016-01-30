@@ -129,13 +129,9 @@ func (daemon *Daemon) containerStart(container *container.Container) (err error)
 	}
 	env := container.CreateDaemonEnvironment(linkedEnv)
 	container.Env = env
-	if err := daemon.populateCommand(container, env); err != nil {
+
+	if err := daemon.setupIpcDirs(container); err != nil {
 		return err
-	}
-	if !container.HostConfig.IpcMode.IsContainer() && !container.HostConfig.IpcMode.IsHost() {
-		if err := daemon.setupIpcDirs(container); err != nil {
-			return err
-		}
 	}
 
 	mounts, err := daemon.setupMounts(container)
