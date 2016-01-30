@@ -254,7 +254,9 @@ RUN set -x \
 	&& git checkout -q e79365a749f86254dec96609caff2a8acd15f689 \
 	&& cd "$GOPATH/src/github.com/docker/containerd" \
 	&& git checkout -q "$CONTAINERD_COMMIT" \
+	&& sed -i -e 's/^BUILDTAGS=libcontainer$/BUILDTAGS=libcontainer seccomp/' Makefile \
 	&& go get -v ./... \
+	&& go get github.com/seccomp/libseccomp-golang \
 	&& make && make install
 
 # Wrap all commands in the "docker-in-docker" script to allow nested containers

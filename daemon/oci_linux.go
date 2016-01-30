@@ -239,10 +239,13 @@ func setNamespaces(daemon *Daemon, s *specs.LinuxRuntimeSpec, c *container.Conta
 		if err != nil {
 			return err
 		}
-		ns.Path = fmt.Sprintf("/proc/%d/ns/net", ic.State.GetPID())
+		ns.Path = fmt.Sprintf("/proc/%d/ns/ipc", ic.State.GetPID())
 		setNamespace(s, ns)
-	} else {
+	} else if c.HostConfig.IpcMode.IsHost() {
 		delNamespace(s, specs.NamespaceType("ipc"))
+	} else {
+		ns := specs.Namespace{Type: "ipc"}
+		setNamespace(s, ns)
 	}
 	// pid
 	if c.HostConfig.PidMode.IsHost() {
@@ -389,6 +392,7 @@ func (daemon *Daemon) writeBundle(s combinedSpec, c *container.Container, mounts
 	if err := json.NewEncoder(rf).Encode(rls); err != nil {
 		return err
 	}
+
 	return nil
 }
 
