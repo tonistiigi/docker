@@ -25,9 +25,8 @@ type supervisor interface {
 	IsShuttingDown() bool
 }
 
+// Reset puts a container into a state where it can be restarted again.
 func (container *Container) Reset(lock bool) {
-	logrus.Debugf("resetting %d\n", container.ID)
-
 	if lock {
 		container.Lock()
 		defer container.Unlock()
@@ -36,12 +35,6 @@ func (container *Container) Reset(lock bool) {
 	if err := container.CloseStreams(); err != nil {
 		logrus.Errorf("%s: %s", container.ID, err)
 	}
-
-	// if container.Command != nil && container.Command.ProcessConfig.Terminal != nil {
-	// 	if err := container.Command.ProcessConfig.Terminal.Close(); err != nil {
-	// 		logrus.Errorf("%s: Error closing terminal: %s", container.ID, err)
-	// 	}
-	// }
 
 	// Re-create a brand new stdin pipe once the container exited
 	if container.Config.OpenStdin {
@@ -67,28 +60,15 @@ func (container *Container) Reset(lock bool) {
 	}
 }
 
-// Fixme: move to daemon? expose reset
+// Start starts the container main process.
 func (container *Container) Start(s supervisor) error {
-	// if err := s.StartLogging(container); err != nil {
-	// 	container.Reset(false)
-	// 	return err
-	// }
-
+	// Fixme: move to daemon? expose reset
 	container.RestartCount = 0
 
 	err := s.Run(container)
 	if err != nil {
 		container.Reset(false)
 		return err
-	}
-
-	if container.Config.Tty {
-		// The callback is called after the process start()
-		// so we are in the parent process. In TTY mode, stdin/out/err is the PtySlave
-		// which we close here. FIXME
-		// if c, ok := container.Stdout().(io.Closer); ok {
-		// 		c.Close()
-		// 	}
 	}
 
 	return nil

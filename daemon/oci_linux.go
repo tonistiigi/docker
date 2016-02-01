@@ -327,16 +327,16 @@ func (daemon *Daemon) writeBundle(s combinedSpec, c *container.Container, mounts
 		Linux:       defaultLinuxTemplate.rspec,
 	}
 	if err := setResources(&rls, c); err != nil {
-		return fmt.Errorf("linux runtime spec resources: %v")
+		return fmt.Errorf("linux runtime spec resources: %v", err)
 	}
 	if err := setDevices(&rls, c); err != nil {
-		return fmt.Errorf("linux runtime spec devices: %v")
+		return fmt.Errorf("linux runtime spec devices: %v", err)
 	}
 	if err := setRlimits(&rls, c); err != nil {
-		return fmt.Errorf("linux runtime spec rlimits: %v")
+		return fmt.Errorf("linux runtime spec rlimits: %v", err)
 	}
 	if err := setUser(&ls, c); err != nil {
-		return fmt.Errorf("linux spec user: %v")
+		return fmt.Errorf("linux spec user: %v", err)
 	}
 	if err := setNamespaces(daemon, &rls, c); err != nil {
 		return fmt.Errorf("linux spec namespaces: %v", err)

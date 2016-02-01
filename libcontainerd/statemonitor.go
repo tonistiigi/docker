@@ -1,5 +1,6 @@
 package libcontainerd
 
+// stateMonitor is helper to get notifications from pause responses.
 type stateMonitor struct {
 	waiters map[string][]chan struct{}
 }

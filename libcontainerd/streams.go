@@ -12,6 +12,8 @@ import (
 
 var names = [3]string{"stdin", "stdout", "stderr"}
 
+// Streams is an object for dealing with container input-output streams.
+// FIXME: RemoteStreams?
 type Streams interface {
 	Attach(io.ReadCloser, io.Writer, io.Writer) error
 	Cleanup() error
@@ -19,14 +21,13 @@ type Streams interface {
 }
 
 type streams struct {
-	// waitopen sync.WaitGroup
-	// waitdone sync.WaitGroup
 	files    [3]*os.File
 	base     string
 	id       string
 	attached bool
 }
 
+// GetStreams returns streams for a container ID.
 func GetStreams(base, id string) (Streams, error) {
 	for i := 0; i < 3; i++ {
 		p := fifoname(base, id, i)
@@ -40,7 +41,7 @@ func GetStreams(base, id string) (Streams, error) {
 					return nil, err
 				}
 			} else {
-				logrus.Debugf("reusing", p)
+				logrus.Debugf("reusing fifo: %s", p)
 				continue
 			}
 		}
@@ -48,7 +49,6 @@ func GetStreams(base, id string) (Streams, error) {
 			return nil, fmt.Errorf("mkfifo: %s %v", p, err)
 		}
 	}
-	logrus.Debugf("clean return")
 	return &streams{base: base, id: id}, nil
 }
 
@@ -58,11 +58,11 @@ func (s *streams) Attach(stdin io.ReadCloser, stdout, stderr io.Writer) error {
 	}
 	for i := 0; i < 3; i++ {
 		switch i {
-		case 0:
+		case syscall.Stdin:
 			go s.startInputStream(stdin, i)
-		case 1:
+		case syscall.Stdout:
 			go s.startOutputStream(stdout, i)
-		case 2:
+		case syscall.Stderr:
 			go s.startOutputStream(stderr, i)
 		}
 
@@ -101,11 +101,6 @@ func (s *streams) startOutputStream(target io.Writer, i int) {
 	}
 	f.Close()
 }
-
-//
-// func (s *Streams) Detach() {
-//
-// }
 
 func (s *streams) Cleanup() error {
 	for i := 0; i < 3; i++ {

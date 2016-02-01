@@ -15,6 +15,8 @@ const (
 	defaultTimeIncrement = 100
 )
 
+// ContainerShouldRestart returns true if container should be restarted by the
+// restart manager.
 func (daemon *Daemon) ContainerShouldRestart(container *container.Container, exitCode uint32) bool {
 	if container.ShouldStop {
 		container.HasBeenManuallyStopped = !daemon.IsShuttingDown()
@@ -56,6 +58,7 @@ func (daemon *Daemon) ContainerShouldRestart(container *container.Container, exi
 	return false
 }
 
+// StateChanged updates daemon inter...
 func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 	c := daemon.containers.Get(id)
 	if c == nil {
@@ -125,6 +128,8 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 	return nil
 }
 
+// PrepareContainerIOStreams returns io streams that will be connected to the
+// container process.
 func (daemon *Daemon) PrepareContainerIOStreams(id string) (*libcontainerd.IO, error) {
 	c := daemon.containers.Get(id)
 	if c == nil {
@@ -143,13 +148,14 @@ func (daemon *Daemon) PrepareContainerIOStreams(id string) (*libcontainerd.IO, e
 	}, nil
 }
 
-func (daemon *Daemon) ProcessExited(id, processId string, exitCode uint32) error {
-	logrus.Debugf("process exited: id: %d process: %d exitCode: %d", id, processId, exitCode)
+// ProcessExited is a function that is called when executed process exits.
+func (daemon *Daemon) ProcessExited(id, processID string, exitCode uint32) error {
+	logrus.Debugf("process exited: id: %d process: %d exitCode: %d", id, processID, exitCode)
 	container := daemon.containers.Get(id)
 	if container == nil {
 		return fmt.Errorf("no such container: %s", id)
 	}
-	execConfig := container.ExecCommands.Get(processId)
+	execConfig := container.ExecCommands.Get(processID)
 	if execConfig != nil {
 		ec := int(exitCode)
 		execConfig.ExitCode = &ec

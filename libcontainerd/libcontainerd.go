@@ -3,7 +3,6 @@ package libcontainerd
 import (
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -23,6 +22,12 @@ import (
 	"google.golang.org/grpc"
 )
 
+const (
+	maxConnectionRetryCount = 3
+	connectionRetryDelay    = 3 * time.Second
+)
+
+// StateInfo contains description about the new state container has entered.
 type StateInfo struct {
 	State     string
 	Pid       uint32
@@ -30,34 +35,41 @@ type StateInfo struct {
 	OOMKilled bool
 }
 
+// Backend defines callbacks that the client of the library needs to implement.
 type Backend interface {
 	StateChanged(id string, state StateInfo) error
-	ProcessExited(id, processId string, exitCode uint32) error
+	ProcessExited(id, processID string, exitCode uint32) error
 	PrepareContainerIOStreams(id string) (*IO, error)
-} // maybe state change instead
+}
 
-// how to do the restore of containers? Restore(id) err , on err kill the old one. how to get the pid?
-
+// Client privides access to containerd features.
 type Client interface {
 	Create(id, bundlePath string) error
 	Signal(id string, sig int) error
-	AddProcess(id, processId string, req AddProcessRequest) error
+	AddProcess(id, processID string, req AddProcessRequest) error
 	Resize(id string, width, height int) error
-	ResizeProcess(id, processId string, width, height int) error
+	ResizeProcess(id, processID string, width, height int) error
 	Pause(id string) error
 	Resume(id string) error
 	Restore(id string, terminal bool) error
 	Stats(id string) (*containerd.Stats, error)
 }
 
-type process struct {
-	sync.RWMutex
-	stateMonitor
-	oom      bool
-	pid      uint32
-	console  libcontainer.Console
-	bundle   string
-	children map[string]*process
+// IO contains input-output streams for a container process.
+type IO struct {
+	Stdin    io.ReadCloser
+	Stdout   io.Writer
+	Stderr   io.Writer
+	Terminal bool
+}
+
+// AddProcessRequest describes a new process created inside existing container.
+type AddProcessRequest struct {
+	IO
+	Args []string
+	Cwd  string
+	Env  []string
+	User *containerd.User
 }
 
 type client struct {
@@ -65,7 +77,18 @@ type client struct {
 	backend    Backend
 	apiClient  containerd.APIClient
 	containers map[string]*process
-	execRoot   string
+}
+
+// process keeps the state for both main container process and exec process.
+type process struct {
+	sync.RWMutex
+	stateMonitor
+
+	oom      bool
+	console  libcontainer.Console
+	pid      uint32
+	bundle   string
+	children map[string]*process
 }
 
 func startDaemon(root, addr string) (int, error) {
@@ -112,7 +135,9 @@ func startDaemon(root, addr string) (int, error) {
 	}
 
 	// Start a new instance
-	cmd := exec.Command("containerd", "-l", addr, "--debug", "true") // TODO(mlaventure): get optional flag for debug mode
+	cmd := exec.Command("containerd", "-l", addr, "--debug", "true")
+	// TODO(mlaventure): get optional flag for debug mode
+	// TODO: store logs?
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	err = cmd.Start()
 	if err != nil {
@@ -121,8 +146,7 @@ func startDaemon(root, addr string) (int, error) {
 
 	logrus.Infof("New containerd pid: %d\n", cmd.Process.Pid)
 
-	_, err = f.WriteString(fmt.Sprintf("%d", cmd.Process.Pid))
-	if err != nil {
+	if _, err := f.WriteString(fmt.Sprintf("%d", cmd.Process.Pid)); err != nil {
 		utils.KillProcess(cmd.Process.Pid)
 		return -1, err
 	}
@@ -135,14 +159,13 @@ func startDaemon(root, addr string) (int, error) {
 	return cmd.Process.Pid, nil
 }
 
+// New creates a fresh instance of libcontainerd client.
 func New(b Backend, execRoot, addr string, createIfMissing bool) (Client, error) {
 	var daemonPid = -1
 
 	if createIfMissing && addr == "" {
 		var err error
-
 		addr = filepath.Join(execRoot, "containerd.sock")
-
 		if daemonPid, err = startDaemon(execRoot, addr); err != nil {
 			return nil, err
 		}
@@ -174,7 +197,7 @@ func New(b Backend, execRoot, addr string, createIfMissing bool) (Client, error)
 				case grpc.TransientFailure:
 					// Reset state to be notified of next failure
 					transientFailureCount++
-					if transientFailureCount == 3 {
+					if transientFailureCount >= maxConnectionRetryCount {
 						transientFailureCount = 0
 						if utils.IsProcessAlive(daemonPid) {
 							utils.KillProcess(daemonPid)
@@ -182,7 +205,7 @@ func New(b Backend, execRoot, addr string, createIfMissing bool) (Client, error)
 						daemonPid, _ = startDaemon(execRoot, addr)
 					} else {
 						state = grpc.Idle
-						time.Sleep(3 * time.Second)
+						time.Sleep(connectionRetryDelay)
 					}
 				case grpc.Shutdown:
 					// Well, We asked for it to stop, just return
@@ -192,10 +215,13 @@ func New(b Backend, execRoot, addr string, createIfMissing bool) (Client, error)
 		}
 	}()
 
-	// FIXME conn cleanup
 	apiClient := containerd.NewAPIClient(conn)
 
-	c := &client{backend: b, apiClient: apiClient, containers: make(map[string]*process)}
+	c := &client{
+		backend:    b,
+		apiClient:  apiClient,
+		containers: make(map[string]*process),
+	}
 
 	if err := c.startMonitor(); err != nil {
 		return nil, err
@@ -213,7 +239,7 @@ func (c *client) startMonitor() error {
 		for {
 			e, err := events.Recv()
 			if err != nil {
-				logrus.Error(err) // FIXME: handle
+				logrus.Error(err)
 				go c.startMonitor()
 				return
 			}
@@ -282,7 +308,14 @@ func (c *client) startMonitor() error {
 
 				container.Lock()
 
-				container.handleMessage(c.backend, e)
+				if err := c.backend.StateChanged(e.Id, StateInfo{
+					State:     e.Type,
+					ExitCode:  e.Status,
+					Pid:       e.Pid,
+					OOMKilled: e.Type == "exit" && container.oom,
+				}); err != nil {
+					logrus.Errorf("unhandled state change for %s: %q", e.Id, err)
+				}
 
 				if e.Type == "paused" || e.Type == "running" {
 					container.stateMonitor.handle(e.Type)
@@ -297,20 +330,6 @@ func (c *client) startMonitor() error {
 	return nil
 }
 
-func (p *process) handleMessage(b Backend, e *containerd.Event) {
-	log.Println("handleMessage", e.Type)
-
-	err := b.StateChanged(e.Id, StateInfo{
-		State:     e.Type,
-		ExitCode:  e.Status,
-		Pid:       e.Pid,
-		OOMKilled: e.Type == "exit" && p.oom,
-	})
-	if err != nil {
-		logrus.Errorf("unhandled exit for %s: %q", e.Id, err)
-	}
-}
-
 func (c *client) Signal(id string, sig int) error {
 	container, err := c.getContainer(id)
 	if err != nil {
@@ -320,7 +339,6 @@ func (c *client) Signal(id string, sig int) error {
 		return fmt.Errorf("No active process for container %s", id)
 	}
 
-	fmt.Printf("Sending SIGNAL %d to %s\n", sig, id)
 	_, err = c.apiClient.Signal(context.Background(), &containerd.SignalRequest{
 		Id:     id,
 		Pid:    uint32(container.pid),
@@ -328,6 +346,7 @@ func (c *client) Signal(id string, sig int) error {
 	})
 	return err
 }
+
 func (c *client) Create(id, bundlePath string) (err error) {
 	c.Lock()
 	if _, ok := c.containers[id]; ok {
@@ -352,13 +371,12 @@ func (c *client) Create(id, bundlePath string) (err error) {
 	r := &containerd.CreateContainerRequest{
 		Id:         id,
 		BundlePath: bundlePath,
-		Stdin:      streams.FifoPath(0),
-		Stdout:     streams.FifoPath(1),
-		Stderr:     streams.FifoPath(2),
+		Stdin:      streams.FifoPath(syscall.Stdin),
+		Stdout:     streams.FifoPath(syscall.Stdout),
+		Stderr:     streams.FifoPath(syscall.Stderr),
 	}
 
 	container := &process{
-		// console: console,
 		bundle: bundlePath,
 	}
 
@@ -393,7 +411,7 @@ func (c *client) Create(id, bundlePath string) (err error) {
 func (c *client) restore(id, bundlePath string, pid uint32) (err error) {
 	c.Lock()
 	if _, ok := c.containers[id]; ok {
-		return fmt.Errorf("Container %s is aleady active")
+		return fmt.Errorf("Container %s is aleady active", id)
 	}
 	c.containers[id] = nil
 	c.Unlock()
@@ -436,17 +454,6 @@ func (c *client) restore(id, bundlePath string, pid uint32) (err error) {
 		State: "restored",
 		Pid:   pid,
 	})
-	return nil
-}
-
-func (c *client) getContainer(id string) (*process, error) {
-	c.RLock()
-	container, ok := c.containers[id]
-	c.RUnlock()
-	if !ok || container == nil {
-		return nil, fmt.Errorf("Invalid container: %s", id)
-	}
-	return container, nil
 }
 
 func (c *client) Resize(id string, width, height int) error {
@@ -463,19 +470,19 @@ func (c *client) Resize(id string, width, height int) error {
 	})
 }
 
-func (c *client) ResizeProcess(id, processId string, width, height int) error {
+func (c *client) ResizeProcess(id, processID string, width, height int) error {
 	container, err := c.getContainer(id)
 	if err != nil {
 		return err
 	}
 	container.RLock()
-	process, ok := container.children[processId]
+	process, ok := container.children[processID]
 	container.RUnlock()
 	if !ok {
 		return fmt.Errorf("Invalid process: %s", id)
 	}
 	if process.console == nil {
-		return fmt.Errorf("No active terminal for process %s", processId)
+		return fmt.Errorf("No active terminal for process %s", processID)
 	}
 	return term.SetWinsize(process.console.Fd(), &term.Winsize{
 		Height: uint16(height),
@@ -483,14 +490,14 @@ func (c *client) ResizeProcess(id, processId string, width, height int) error {
 	})
 }
 
-func (c *client) AddProcess(id, processId string, req AddProcessRequest) error {
+func (c *client) AddProcess(id, processID string, req AddProcessRequest) error {
 	// fixme: locks
 	cont, ok := c.containers[id]
 	if !ok {
 		return fmt.Errorf("invalid container: %s", id)
 	}
 
-	streams, err := GetStreams(cont.bundle, processId)
+	streams, err := GetStreams(cont.bundle, processID)
 	if err != nil {
 		return err
 	}
@@ -500,11 +507,11 @@ func (c *client) AddProcess(id, processId string, req AddProcessRequest) error {
 		Cwd:      req.Cwd,
 		Terminal: req.Terminal,
 		Id:       id,
-		Env:      req.Env, // FIXME
+		Env:      req.Env,
 		User:     req.User,
-		Stdin:    streams.FifoPath(0),
-		Stdout:   streams.FifoPath(1),
-		Stderr:   streams.FifoPath(2),
+		Stdin:    streams.FifoPath(syscall.Stdin),
+		Stdout:   streams.FifoPath(syscall.Stdout),
+		Stderr:   streams.FifoPath(syscall.Stderr),
 	}
 
 	if err := streams.Attach(req.Stdin, req.Stdout, req.Stderr); err != nil {
@@ -528,7 +535,7 @@ func (c *client) AddProcess(id, processId string, req AddProcessRequest) error {
 		c.containers[id].children = make(map[string]*process)
 	}
 
-	c.containers[id].children[processId] = container
+	c.containers[id].children[processID] = container
 
 	return nil
 }
@@ -554,9 +561,9 @@ func (c *client) setState(id, state string) error {
 	if err != nil {
 		container.Unlock()
 		return err
-	} else {
-		container.Unlock()
 	}
+	container.Unlock()
+
 	container.stateMonitor.append(state, ch)
 	container.Unlock()
 	<-ch
@@ -566,6 +573,7 @@ func (c *client) setState(id, state string) error {
 func (c *client) Resume(id string) error {
 	return c.setState(id, "running")
 }
+
 func (c *client) Stats(id string) (*containerd.Stats, error) {
 	req := &containerd.PullStatsRequest{
 		Ids: []string{id},
@@ -580,8 +588,7 @@ func (c *client) Stats(id string) (*containerd.Stats, error) {
 	}
 	return stats, nil
 }
-func (c *client) Info() {
-}
+
 func (c *client) Restore(id string, console bool) error {
 	// TODO: optimize this into per container call
 	resp, err := c.apiClient.State(context.Background(), &containerd.StateRequest{})
@@ -608,21 +615,12 @@ func (c *client) Restore(id string, console bool) error {
 	return nil
 }
 
-type IO struct {
-	Stdin    io.ReadCloser
-	Stdout   io.Writer
-	Stderr   io.Writer
-	Terminal bool
-}
-
-// type CreateContainerRequest struct {
-// 	BundlePath string
-// }
-
-type AddProcessRequest struct {
-	IO
-	Args []string
-	Cwd  string
-	Env  []string
-	User *containerd.User
+func (c *client) getContainer(id string) (*process, error) {
+	c.RLock()
+	container, ok := c.containers[id]
+	c.RUnlock()
+	if !ok || container == nil {
+		return nil, fmt.Errorf("Invalid container: %s", id)
+	}
+	return container, nil
 }

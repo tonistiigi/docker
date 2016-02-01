@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	containerd "github.com/docker/containerd/api/grpc/types"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/api"
 	"github.com/docker/docker/builder"
@@ -34,8 +35,6 @@ import (
 	registrytypes "github.com/docker/engine-api/types/registry"
 	"github.com/docker/engine-api/types/strslice"
 	// register graph drivers
-
-	containerd "github.com/docker/containerd/api/grpc/types"
 	_ "github.com/docker/docker/daemon/graphdriver/register"
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/daemon/network"
@@ -778,7 +777,6 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 	d.trustKey = trustKey
 	d.idIndex = truncindex.NewTruncIndex([]string{})
 	d.configStore = config
-	// d.execDriver = ed
 	d.statsCollector = d.newStatsCollector(1 * time.Second)
 	d.defaultLogConfig = containertypes.LogConfig{
 		Type:   config.LogConfig.Type,
@@ -918,6 +916,7 @@ func (daemon *Daemon) Unmount(container *container.Container) {
 	}
 }
 
+// Run starts a container with containerd.
 func (daemon *Daemon) Run(c *container.Container) error {
 	bundleRoot := filepath.Join(daemon.root, "bundles", c.ID)
 	uidMap, gidMap := daemon.GetUIDGIDMaps()
