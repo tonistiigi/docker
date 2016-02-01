@@ -245,17 +245,14 @@ RUN set -x \
 	&& rm -rf "$GOPATH"
 
 # Install containerd
-ENV CONTAINERD_COMMIT 54deef243eb1389d1c86813cb2790dfb07ea6c61
+ENV CONTAINERD_COMMIT with-stats-events-patch
 RUN set -x \
 	&& export GOPATH="$(mktemp -d)" \
   && git clone git://github.com/tonistiigi/containerd.git "$GOPATH/src/github.com/docker/containerd" \
-  && git clone git://github.com/opencontainers/specs.git "$GOPATH/src/github.com/opencontainers/specs" \
-	&& cd "$GOPATH/src/github.com/opencontainers/specs" \
-	&& git checkout -q e79365a749f86254dec96609caff2a8acd15f689 \
 	&& cd "$GOPATH/src/github.com/docker/containerd" \
-	&& export GOPATH="$GOPATH/src/github.com/docker/containerd/vendor:$GOPATH" \
 	&& git checkout -q "$CONTAINERD_COMMIT" \
 	&& sed -i -e 's/^BUILDTAGS=libcontainer$/BUILDTAGS=libcontainer seccomp/' Makefile \
+	&& export GOPATH="$GOPATH/src/github.com/docker/containerd/vendor:$GOPATH" \
 	&& go get -v ./... \
 	&& go get github.com/seccomp/libseccomp-golang \
 	&& make && make install
