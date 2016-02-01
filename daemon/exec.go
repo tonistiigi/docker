@@ -103,20 +103,10 @@ func (d *Daemon) ContainerExecCreate(config *types.ExecConfig) (string, error) {
 		}
 	}
 
-	// processConfig := &execdriver.ProcessConfig{
-	// 	CommonProcessConfig: execdriver.CommonProcessConfig{
-	// 		Tty:        config.Tty,
-	// 		Entrypoint: entrypoint,
-	// 		Arguments:  args,
-	// 	},
-	// }
-	// setPlatformSpecificExecProcessConfig(config, container, processConfig)
-
 	execConfig := exec.NewConfig()
 	execConfig.OpenStdin = config.AttachStdin
 	execConfig.OpenStdout = config.AttachStdout
 	execConfig.OpenStderr = config.AttachStderr
-	// execConfig.ProcessConfig = processConfig
 	execConfig.ContainerID = container.ID
 	execConfig.DetachKeys = keys
 	execConfig.Entrypoint = entrypoint
@@ -216,24 +206,6 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 	}
 	return nil
 }
-
-// // Exec calls the underlying exec driver to run
-// func (d *Daemon) Exec(c *container.Container, execConfig *exec.Config, pipes *execdriver.Pipes, startCallback execdriver.DriverCallback) (int, error) {
-// 	hooks := execdriver.Hooks{
-// 		Start: startCallback,
-// 	}
-// 	exitStatus, err := d.execDriver.Exec(c.Command, execConfig.ProcessConfig, pipes, hooks)
-//
-// 	// On err, make sure we don't leave ExitCode at zero
-// 	if err != nil && exitStatus == 0 {
-// 		exitStatus = 128
-// 	}
-//
-// 	execConfig.ExitCode = &exitStatus
-// 	execConfig.Running = false
-//
-// 	return exitStatus, err
-// }
 
 // execCommandGC runs a ticker to clean up the daemon references
 // of exec configs that are no longer part of the container.

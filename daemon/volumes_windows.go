@@ -11,7 +11,7 @@ import (
 )
 
 // setupMounts configures the mount points for a container by appending each
-// of the configured mounts on the container to the execdriver mount structure
+// of the configured mounts on the container to the oci mount structure
 // which will ultimately be passed into the exec driver during container creation.
 // It also ensures each of the mounts are lexographically sorted.
 func (daemon *Daemon) setupMounts(container *container.Container) ([]Mount, error) {

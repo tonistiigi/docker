@@ -20,7 +20,6 @@ type supervisor interface {
 	// StartLogging starts the logging driver for the container
 	StartLogging(*Container) error
 	// Run starts a container
-	// Run(c *Container, pipes *execdriver.Pipes, startCallback execdriver.DriverCallback) (execdriver.ExitStatus, error)
 	Run(c *Container) error
 	// IsShuttingDown tells whether the supervisor is shutting down or not
 	IsShuttingDown() bool

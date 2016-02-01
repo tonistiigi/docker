@@ -14,10 +14,9 @@ import (
 type Config struct {
 	sync.Mutex
 	*runconfig.StreamConfig
-	ID       string
-	Running  bool
-	ExitCode *int
-	// ProcessConfig *execdriver.ProcessConfig
+	ID          string
+	Running     bool
+	ExitCode    *int
 	OpenStdin   bool
 	OpenStderr  bool
 	OpenStdout  bool

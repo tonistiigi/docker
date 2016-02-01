@@ -116,24 +116,23 @@ type Daemon struct {
 	trustKey                  libtrust.PrivateKey
 	idIndex                   *truncindex.TruncIndex
 	configStore               *Config
-	// execDriver                execdriver.Driver
-	statsCollector   *statsCollector
-	defaultLogConfig containertypes.LogConfig
-	RegistryService  *registry.Service
-	EventsService    *events.Events
-	netController    libnetwork.NetworkController
-	volumes          *store.VolumeStore
-	discoveryWatcher discoveryReloader
-	root             string
-	seccompEnabled   bool
-	shutdown         bool
-	uidMaps          []idtools.IDMap
-	gidMaps          []idtools.IDMap
-	layerStore       layer.Store
-	imageStore       image.Store
-	nameIndex        *registrar.Registrar
-	linkIndex        *linkIndex
-	containerd       libcontainerd.Client
+	statsCollector            *statsCollector
+	defaultLogConfig          containertypes.LogConfig
+	RegistryService           *registry.Service
+	EventsService             *events.Events
+	netController             libnetwork.NetworkController
+	volumes                   *store.VolumeStore
+	discoveryWatcher          discoveryReloader
+	root                      string
+	seccompEnabled            bool
+	shutdown                  bool
+	uidMaps                   []idtools.IDMap
+	gidMaps                   []idtools.IDMap
+	layerStore                layer.Store
+	imageStore                image.Store
+	nameIndex                 *registrar.Registrar
+	linkIndex                 *linkIndex
+	containerd                libcontainerd.Client
 }
 
 // GetContainer looks for a container using the provided information, which could be
@@ -770,11 +769,6 @@ func NewDaemon(config *Config, registryService *registry.Service) (daemon *Daemo
 		return nil, fmt.Errorf("Devices cgroup isn't mounted")
 	}
 
-	// ed, err := execdrivers.NewDriver(config.ExecOptions, config.ExecRoot, config.Root, sysInfo)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
 	d.ID = trustKey.PublicKey().KeyID()
 	d.repository = daemonRepo
 	d.containers = container.NewMemoryStore()
@@ -924,16 +918,6 @@ func (daemon *Daemon) Unmount(container *container.Container) {
 	}
 }
 
-// Run uses the execution driver to run a given container
-// func (daemon *Daemon) Run(c *container.Container, pipes *execdriver.Pipes, startCallback execdriver.DriverCallback) (execdriver.ExitStatus, error) {
-// 	hooks := execdriver.Hooks{
-// 		Start: startCallback,
-// 	}
-// 	hooks.PreStart = append(hooks.PreStart, func(processConfig *execdriver.ProcessConfig, pid int, chOOM <-chan struct{}) error {
-// 		return daemon.setNetworkNamespaceKey(c.ID, pid)
-// 	})
-// 	return daemon.execDriver.Run(c.Command, pipes, hooks)
-// }
 func (daemon *Daemon) Run(c *container.Container) error {
 	bundleRoot := filepath.Join(daemon.root, "bundles", c.ID)
 	uidMap, gidMap := daemon.GetUIDGIDMaps()
@@ -947,7 +931,6 @@ func (daemon *Daemon) Run(c *container.Container) error {
 			return err
 		}
 		for i := 0; i < 3; i++ {
-			logrus.Debugf("chown %q", streams.FifoPath(i))
 			if err := os.Chown(streams.FifoPath(i), rootUID, rootGID); err != nil {
 				return err
 			}
@@ -1397,12 +1380,6 @@ func (daemon *Daemon) GetImageOnBuild(name string) (builder.Image, error) {
 func (daemon *Daemon) GraphDriverName() string {
 	return daemon.layerStore.DriverName()
 }
-
-// // ExecutionDriver returns the currently used driver for creating and
-// // starting execs in a container.
-// func (daemon *Daemon) ExecutionDriver() execdriver.Driver {
-// 	return daemon.execDriver
-// }
 
 // GetUIDGIDMaps returns the current daemon's user namespace settings
 // for the full uid and gid maps which will be applied to containers
