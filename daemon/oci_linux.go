@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/caps"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/pkg/mount"
 	"github.com/opencontainers/runc/libcontainer/devices"
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/opencontainers/specs"
@@ -262,12 +263,129 @@ func specMapping(s []idtools.IDMap) []specs.IDMapping {
 	return ids
 }
 
+func getMountInfo(mountinfo []*mount.Info, dir string) *mount.Info {
+	for _, m := range mountinfo {
+		if m.Mountpoint == dir {
+			return m
+		}
+	}
+	return nil
+}
+
+// Get the source mount point of directory passed in as argument. Also return
+// optional fields.
+func getSourceMount(source string) (string, string, error) {
+	// Ensure any symlinks are resolved.
+	sourcePath, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		return "", "", err
+	}
+
+	mountinfos, err := mount.GetMounts()
+	if err != nil {
+		return "", "", err
+	}
+
+	mountinfo := getMountInfo(mountinfos, sourcePath)
+	if mountinfo != nil {
+		return sourcePath, mountinfo.Optional, nil
+	}
+
+	path := sourcePath
+	for {
+		path = filepath.Dir(path)
+
+		mountinfo = getMountInfo(mountinfos, path)
+		if mountinfo != nil {
+			return path, mountinfo.Optional, nil
+		}
+
+		if path == "/" {
+			break
+		}
+	}
+
+	// If we are here, we did not find parent mount. Something is wrong.
+	return "", "", fmt.Errorf("Could not find source mount of %s", source)
+}
+
+// Ensure mount point on which path is mounted, is shared.
+func ensureShared(path string) error {
+	sharedMount := false
+
+	sourceMount, optionalOpts, err := getSourceMount(path)
+	if err != nil {
+		return err
+	}
+	// Make sure source mount point is shared.
+	optsSplit := strings.Split(optionalOpts, " ")
+	for _, opt := range optsSplit {
+		if strings.HasPrefix(opt, "shared:") {
+			sharedMount = true
+			break
+		}
+	}
+
+	if !sharedMount {
+		return fmt.Errorf("Path %s is mounted on %s but it is not a shared mount.", path, sourceMount)
+	}
+	return nil
+}
+
+// Ensure mount point on which path is mounted, is either shared or slave.
+func ensureSharedOrSlave(path string) error {
+	sharedMount := false
+	slaveMount := false
+
+	sourceMount, optionalOpts, err := getSourceMount(path)
+	if err != nil {
+		return err
+	}
+	// Make sure source mount point is shared.
+	optsSplit := strings.Split(optionalOpts, " ")
+	for _, opt := range optsSplit {
+		if strings.HasPrefix(opt, "shared:") {
+			sharedMount = true
+			break
+		} else if strings.HasPrefix(opt, "master:") {
+			slaveMount = true
+			break
+		}
+	}
+
+	if !sharedMount && !slaveMount {
+		return fmt.Errorf("Path %s is mounted on %s but it is not a shared or slave mount.", path, sourceMount)
+	}
+	return nil
+}
+
+var (
+	mountPropagationMap = map[string]int{
+		"private":  mount.PRIVATE,
+		"rprivate": mount.RPRIVATE,
+		"shared":   mount.SHARED,
+		"rshared":  mount.RSHARED,
+		"slave":    mount.SLAVE,
+		"rslave":   mount.RSLAVE,
+	}
+
+	mountPropagationReverseMap = map[int]string{
+		mount.PRIVATE:  "private",
+		mount.RPRIVATE: "rprivate",
+		mount.SHARED:   "shared",
+		mount.RSHARED:  "rshared",
+		mount.SLAVE:    "slave",
+		mount.RSLAVE:   "rslave",
+	}
+)
+
 func execToSpecMount(m container.Mount) specs.Mount {
 	opts := []string{"rbind"}
 	// FIXME: mount propagation parsing/validation: #17034
 	if !m.Writable {
 		opts = append(opts, "ro")
 	}
+
 	return specs.Mount{
 		Type:    "bind",
 		Source:  m.Source,
@@ -292,11 +410,47 @@ func setMounts(daemon *Daemon, s *specs.LinuxSpec, rs *specs.LinuxRuntimeSpec, c
 			defaultMPs = append(defaultMPs, mp)
 		}
 	}
+
 	s.Mounts = defaultMPs
 	for _, m := range mounts {
 		s.Mounts = append(s.Mounts, specs.MountPoint{Name: m.Destination, Path: m.Destination})
-		rs.Mounts[m.Destination] = execToSpecMount(m)
+
+		// Determine property of RootPropagation based on volume
+		// properties. If a volume is shared, then keep root propagation
+		// shared. This should work for slave and private volumes too.
+		//
+		// For slave volumes, it can be either [r]shared/[r]slave.
+		//
+		// For private volumes any root propagation value should work.
+		pFlag := mountPropagationMap[m.Propagation]
+		if pFlag == mount.SHARED || pFlag == mount.RSHARED {
+			if err := ensureShared(m.Source); err != nil {
+				return err
+			}
+			rootpg := mountPropagationMap[rs.Linux.RootfsPropagation]
+			if rootpg != mount.SHARED && rootpg != mount.RSHARED {
+				rs.Linux.RootfsPropagation = mountPropagationReverseMap[mount.SHARED]
+			}
+		} else if pFlag == mount.SLAVE || pFlag == mount.RSLAVE {
+			if err := ensureSharedOrSlave(m.Source); err != nil {
+				return err
+			}
+			rootpg := mountPropagationMap[rs.Linux.RootfsPropagation]
+			if rootpg != mount.SHARED && rootpg != mount.RSHARED && rootpg != mount.SLAVE && rootpg != mount.RSLAVE {
+				rs.Linux.RootfsPropagation = mountPropagationReverseMap[mount.RSLAVE]
+			}
+		}
+
+		specMount := execToSpecMount(m)
+		if pFlag != 0 {
+			specMount.Options = append(specMount.Options, mountPropagationReverseMap[pFlag])
+		}
+
+		rs.Mounts[m.Destination] = specMount
+
+		fmt.Printf("specMount: %#v\n", specMount)
 	}
+	fmt.Printf("rootfsPropagation: %#v\n", rs.Linux.RootfsPropagation)
 	return nil
 }
 
