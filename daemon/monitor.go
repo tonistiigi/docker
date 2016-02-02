@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"time"
 
@@ -128,24 +129,52 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 	return nil
 }
 
-// PrepareContainerIOStreams returns io streams that will be connected to the
-// container process.
-func (daemon *Daemon) PrepareContainerIOStreams(id string) (*libcontainerd.IO, error) {
+func (daemon *Daemon) AttachStreams(id string, iop libcontainerd.IOPipe) error {
 	c := daemon.containers.Get(id)
 	if c == nil {
-		return nil, fmt.Errorf("no such container: %s", id)
+		if err := daemon.attachStreamsExec(id, iop); err != nil {
+			return fmt.Errorf("no such container: %s", id)
+		}
+		return nil
 	}
 	if err := daemon.StartLogging(c); err != nil {
 		c.Reset(false)
-		return nil, err
+		return err
 	}
 
-	return &libcontainerd.IO{
-		Terminal: c.Config.Tty,
-		Stdin:    c.Stdin(),
-		Stdout:   c.Stdout(),
-		Stderr:   c.Stderr(),
-	}, nil
+	if stdin := c.Stdin(); stdin != nil {
+		go func() {
+			io.Copy(iop.Stdin, stdin)
+			iop.Stdin.Close()
+		}()
+	}
+	go func() {
+		io.Copy(c.Stdout(), iop.Stdout)
+	}()
+	go func() {
+		io.Copy(c.Stderr(), iop.Stderr)
+	}()
+	return nil
+}
+
+func (daemon *Daemon) attachStreamsExec(id string, iop libcontainerd.IOPipe) error {
+	c, err := daemon.getExecConfig(id)
+	if err != nil {
+		return fmt.Errorf("no such exec: %s", id)
+	}
+	if stdin := c.Stdin(); stdin != nil {
+		go func() {
+			io.Copy(iop.Stdin, stdin)
+			iop.Stdin.Close()
+		}()
+	}
+	go func() {
+		io.Copy(c.Stdout(), iop.Stdout)
+	}()
+	go func() {
+		io.Copy(c.Stderr(), iop.Stderr)
+	}()
+	return nil
 }
 
 // ProcessExited is a function that is called when executed process exits.

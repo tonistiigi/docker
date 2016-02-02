@@ -39,8 +39,10 @@ type LinuxRuntime struct {
 	SelinuxProcessLabel string `json:"selinuxProcessLabel"`
 	// Seccomp specifies the seccomp security settings for the container.
 	Seccomp Seccomp `json:"seccomp"`
-	// RootfsPropagation is the rootfs mount propagation mode for the container
+	// RootfsPropagation is the rootfs mount propagation mode for the container.
 	RootfsPropagation string `json:"rootfsPropagation,omitempty"`
+	// NoNewPrivileges controls whether additional privileges could be gained by processes in the container.
+	NoNewPrivileges bool `json:"noNewPrivileges,omitempty"`
 }
 
 // Namespace is the configuration for a linux namespace
@@ -191,9 +193,7 @@ type Pids struct {
 // Network identification and priority configuration
 type Network struct {
 	// Set class identifier for container's network packets
-	// this is actually a string instead of a uint64 to overcome the json
-	// limitation of specifying hex numbers
-	ClassID string `json:"classID"`
+	ClassID *uint32 `json:"classID"`
 	// Set priority of network traffic for container
 	Priorities []InterfacePriority `json:"priorities"`
 }

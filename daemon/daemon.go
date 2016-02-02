@@ -286,12 +286,10 @@ func (daemon *Daemon) restore() error {
 			logrus.Errorf("Failed to register container %s: %s", c.ID, err)
 			continue
 		}
-		if err := daemon.containerd.Restore(c.ID, c.Config.Tty); err != nil {
+		if err := daemon.containerd.Restore(c.ID); err != nil {
 			logrus.Errorf("Failed to restore with containerd: %q", err)
 			continue
 		}
-
-		logrus.Debugf("container isRunning: %q", c.IsRunning())
 
 		// get list of containers we need to restart
 		if daemon.configStore.AutoRestart && c.ShouldRestart() {
@@ -919,22 +917,22 @@ func (daemon *Daemon) Unmount(container *container.Container) {
 // Run starts a container with containerd.
 func (daemon *Daemon) Run(c *container.Container) error {
 	bundleRoot := filepath.Join(daemon.root, "bundles", c.ID)
-	uidMap, gidMap := daemon.GetUIDGIDMaps()
-	if uidMap != nil {
-		streams, err := libcontainerd.GetStreams(bundleRoot, c.ID)
-		if err != nil {
-			return err
-		}
-		rootUID, rootGID, err := idtools.GetRootUIDGID(uidMap, gidMap)
-		if err != nil {
-			return err
-		}
-		for i := 0; i < 3; i++ {
-			if err := os.Chown(streams.FifoPath(i), rootUID, rootGID); err != nil {
-				return err
-			}
-		}
-	}
+	// uidMap, gidMap := daemon.GetUIDGIDMaps()
+	// if uidMap != nil {
+	// 	streams, err := libcontainerd.GetStreams(bundleRoot, c.ID)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	rootUID, rootGID, err := idtools.GetRootUIDGID(uidMap, gidMap)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	for i := 0; i < 3; i++ {
+	// 		if err := os.Chown(streams.FifoPath(i), rootUID, rootGID); err != nil {
+	// 			return err
+	// 		}
+	// 	}
+	// }
 	return daemon.containerd.Create(c.ID, bundleRoot)
 }
 

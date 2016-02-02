@@ -5,7 +5,7 @@ package specs
 // bundle is packaged for distribution.
 type Spec struct {
 	// Version is the version of the specification that is supported.
-	Version string `json:"version"`
+	Version string `json:"ociVersion"`
 	// Platform is the host information for OS and Arch.
 	Platform Platform `json:"platform"`
 	// Process is the container's main process.
@@ -30,7 +30,7 @@ type Process struct {
 	Env []string `json:"env,omitempty"`
 	// Cwd is the current working directory for the process and must be
 	// relative to the container's root.
-	Cwd string `json:"cwd,omitempty"`
+	Cwd string `json:"cwd"`
 }
 
 // Root contains information about the container's root filesystem on the host.

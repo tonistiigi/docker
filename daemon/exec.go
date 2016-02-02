@@ -111,6 +111,7 @@ func (d *Daemon) ContainerExecCreate(config *types.ExecConfig) (string, error) {
 	execConfig.DetachKeys = keys
 	execConfig.Entrypoint = entrypoint
 	execConfig.Args = args
+	execConfig.Tty = config.Tty
 
 	d.registerExecCommand(container, execConfig)
 
@@ -184,21 +185,14 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 			Gid:            gid,
 			AdditionalGids: additionalGids,
 		},
-		IO: libcontainerd.IO{
-			Terminal: ec.Tty,
-			Stdin:    ec.Stdin(),
-			Stdout:   ec.Stdout(),
-			Stderr:   ec.Stderr(),
-		},
+		Terminal: ec.Tty,
 	}
+
+	attachErr := container.AttachStreams(ec.StreamConfig, ec.OpenStdin, true, ec.Tty, cStdin, cStdout, cStderr, ec.DetachKeys)
 
 	if err := d.containerd.AddProcess(c.ID, name, r); err != nil {
 		return err
 	}
-
-	ec.Close()
-
-	attachErr := container.AttachStreams(ec.StreamConfig, ec.OpenStdin, true, ec.Tty, cStdin, cStdout, cStderr, ec.DetachKeys)
 
 	err = <-attachErr
 	if err != nil {
