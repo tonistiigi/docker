@@ -52,6 +52,63 @@ const (
 	defaultRemappedID  string = "dockremap"
 )
 
+func getMemoryResources(config *containertypes.HostConfig) *specs.Memory {
+	memory := specs.Memory{}
+
+	if config.Memory > 0 {
+		limit := uint64(config.Memory)
+		memory.Limit = &limit
+	}
+
+	if config.MemoryReservation > 0 {
+		reservation := uint64(config.MemoryReservation)
+		memory.Reservation = &reservation
+	}
+
+	if config.MemorySwap != 0 {
+		swap := uint64(config.MemorySwap)
+		memory.Swap = &swap
+	}
+
+	if config.KernelMemory != 0 {
+		kmem := uint64(config.KernelMemory)
+		memory.Kernel = &kmem
+	}
+
+	return &memory
+}
+
+func getCPUResources(config *containertypes.HostConfig) *specs.CPU {
+	cpu := specs.CPU{}
+
+	if config.CPUShares != 0 {
+		shares := uint64(config.CPUShares)
+		cpu.Shares = &shares
+	}
+
+	if config.CpusetCpus != "" {
+		cpuset := config.CpusetCpus
+		cpu.Cpus = &cpuset
+	}
+
+	if config.CpusetMems != "" {
+		cpuset := config.CpusetMems
+		cpu.Mems = &cpuset
+	}
+
+	if config.CPUPeriod != 0 {
+		period := uint64(config.CPUPeriod)
+		cpu.Period = &period
+	}
+
+	if config.CPUQuota != 0 {
+		quota := uint64(config.CPUQuota)
+		cpu.Quota = &quota
+	}
+
+	return &cpu
+}
+
 func getBlkioWeightDevices(config *containertypes.HostConfig) ([]*specs.WeightDevice, error) {
 	var stat syscall.Stat_t
 	var blkioWeightDevices []*specs.WeightDevice
@@ -60,7 +117,8 @@ func getBlkioWeightDevices(config *containertypes.HostConfig) ([]*specs.WeightDe
 		if err := syscall.Stat(weightDevice.Path, &stat); err != nil {
 			return nil, err
 		}
-		d := &specs.WeightDevice{Weight: weightDevice.Weight}
+		weight := weightDevice.Weight
+		d := &specs.WeightDevice{Weight: &weight}
 		d.Major = int64(stat.Rdev / 256)
 		d.Major = int64(stat.Rdev % 256)
 		blkioWeightDevices = append(blkioWeightDevices, d)
@@ -104,7 +162,8 @@ func getBlkioReadIOpsDevices(config *containertypes.HostConfig) ([]*specs.Thrott
 		if err := syscall.Stat(iopsDevice.Path, &stat); err != nil {
 			return nil, err
 		}
-		d := &specs.ThrottleDevice{Rate: iopsDevice.Rate}
+		rate := iopsDevice.Rate
+		d := &specs.ThrottleDevice{Rate: &rate}
 		d.Major = int64(stat.Rdev / 256)
 		d.Major = int64(stat.Rdev % 256)
 		blkioReadIOpsDevice = append(blkioReadIOpsDevice, d)
@@ -121,7 +180,8 @@ func getBlkioWriteIOpsDevices(config *containertypes.HostConfig) ([]*specs.Throt
 		if err := syscall.Stat(iopsDevice.Path, &stat); err != nil {
 			return nil, err
 		}
-		d := &specs.ThrottleDevice{Rate: iopsDevice.Rate}
+		rate := iopsDevice.Rate
+		d := &specs.ThrottleDevice{Rate: &rate}
 		d.Major = int64(stat.Rdev / 256)
 		d.Major = int64(stat.Rdev % 256)
 		blkioWriteIOpsDevice = append(blkioWriteIOpsDevice, d)
@@ -138,7 +198,8 @@ func getBlkioReadBpsDevices(config *containertypes.HostConfig) ([]*specs.Throttl
 		if err := syscall.Stat(bpsDevice.Path, &stat); err != nil {
 			return nil, err
 		}
-		d := &specs.ThrottleDevice{Rate: bpsDevice.Rate}
+		rate := bpsDevice.Rate
+		d := &specs.ThrottleDevice{Rate: &rate}
 		d.Major = int64(stat.Rdev / 256)
 		d.Major = int64(stat.Rdev % 256)
 		blkioReadBpsDevice = append(blkioReadBpsDevice, d)
@@ -155,7 +216,8 @@ func getBlkioWriteBpsDevices(config *containertypes.HostConfig) ([]*specs.Thrott
 		if err := syscall.Stat(bpsDevice.Path, &stat); err != nil {
 			return nil, err
 		}
-		d := &specs.ThrottleDevice{Rate: bpsDevice.Rate}
+		rate := bpsDevice.Rate
+		d := &specs.ThrottleDevice{Rate: &rate}
 		d.Major = int64(stat.Rdev / 256)
 		d.Major = int64(stat.Rdev % 256)
 		blkioWriteBpsDevice = append(blkioWriteBpsDevice, d)

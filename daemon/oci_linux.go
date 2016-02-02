@@ -48,44 +48,27 @@ func setResources(s *specs.LinuxRuntimeSpec, c *container.Container) error {
 		return err
 	}
 
+	memoryRes := getMemoryResources(c.HostConfig)
+
+	cpuRes := getCPUResources(c.HostConfig)
+
+	blkioWeight := c.HostConfig.BlkioWeight
+
 	r := &specs.Resources{
-		Memory: specs.Memory{
-			Limit:       uint64(c.HostConfig.Memory),
-			Reservation: uint64(c.HostConfig.MemoryReservation),
-			Swap:        uint64(c.HostConfig.MemorySwap),
-			Kernel:      uint64(c.HostConfig.KernelMemory),
-		},
-		CPU: specs.CPU{
-			Shares: uint64(c.HostConfig.CPUShares),
-			Cpus:   c.HostConfig.CpusetCpus,
-			Mems:   c.HostConfig.CpusetMems,
-			Period: uint64(c.HostConfig.CPUPeriod),
-			Quota:  uint64(c.HostConfig.CPUQuota),
-		},
-		BlockIO: specs.BlockIO{
-			Weight:                  c.HostConfig.BlkioWeight,
+		Memory: memoryRes,
+		CPU:    cpuRes,
+		BlockIO: &specs.BlockIO{
+			Weight:                  &blkioWeight,
 			WeightDevice:            weightDevices,
 			ThrottleReadBpsDevice:   readBpsDevice,
 			ThrottleWriteBpsDevice:  writeBpsDevice,
 			ThrottleReadIOPSDevice:  readIOpsDevice,
 			ThrottleWriteIOPSDevice: writeIOpsDevice,
 		},
-	}
-	if c.HostConfig.OomKillDisable != nil {
-		r.DisableOOMKiller = *c.HostConfig.OomKillDisable
+		DisableOOMKiller: c.HostConfig.OomKillDisable,
 	}
 
-	if sw := c.HostConfig.MemorySwappiness; sw != nil {
-		swappiness := *sw
-		r.Memory.Swappiness = uint64(swappiness)
-		if swappiness == -1 {
-			r.Memory.Swappiness = 0
-		}
-	}
 	s.Linux.Resources = r
-	if c.HostConfig.CgroupParent != "" {
-		s.Linux.CgroupsPath = c.HostConfig.CgroupParent
-	}
 	return nil
 }
 
