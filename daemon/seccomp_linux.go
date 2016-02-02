@@ -16,6 +16,11 @@ import (
 func setSeccomp(daemon *Daemon, rs *specs.LinuxRuntimeSpec, c *container.Container) error {
 	var seccomp *specs.Seccomp
 	var err error
+
+	if c.HostConfig.Privileged {
+		return nil
+	}
+
 	if !daemon.seccompEnabled {
 		if c.SeccompProfile != "" && c.SeccompProfile != "unconfined" {
 			return fmt.Errorf("Seccomp is not enabled in your kernel, cannot run a custom seccomp profile.")
