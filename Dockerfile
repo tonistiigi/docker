@@ -244,17 +244,23 @@ RUN set -x \
 	&& go build -v -o /usr/local/bin/rsrc github.com/akavel/rsrc \
 	&& rm -rf "$GOPATH"
 
+# Install runc
+ENV RUNC_COMMIT fbc74c0ebaabb796d3b367d3226b638771272ff8
+RUN set -x \
+	&& export GOPATH="$(mktemp -d)" \
+  && git clone git://github.com/crosbymichael/runc.git "$GOPATH/src/github.com/opencontainers/runc" \
+	&& cd "$GOPATH/src/github.com/opencontainers/runc" \
+	&& git checkout -q "$RUNC_COMMIT" \
+	&& make && make install
+
+
 # Install containerd
-ENV CONTAINERD_COMMIT 3610808419b0cf772fbd17e91e362cb45a57791b
+ENV CONTAINERD_COMMIT 01176f2d7f8948610ef637b6c9545fa51a196532
 RUN set -x \
 	&& export GOPATH="$(mktemp -d)" \
   && git clone git://github.com/docker/containerd.git "$GOPATH/src/github.com/docker/containerd" \
 	&& cd "$GOPATH/src/github.com/docker/containerd" \
 	&& git checkout -q "$CONTAINERD_COMMIT" \
-	&& sed -i -e 's/^BUILDTAGS=libcontainer$/BUILDTAGS=libcontainer seccomp/' Makefile \
-	&& export GOPATH="$GOPATH/src/github.com/docker/containerd/vendor:$GOPATH" \
-	&& go get -v ./... \
-	&& go get github.com/seccomp/libseccomp-golang \
 	&& make && make install
 
 # Wrap all commands in the "docker-in-docker" script to allow nested containers

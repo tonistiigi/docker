@@ -498,7 +498,7 @@ func (c *client) AddProcess(id, processID string, req AddProcessRequest) error {
 func (c *client) openFifos(base, id, pid string) (*IOPipe, error) {
 	for i := 0; i < 3; i++ {
 		p := fifoname(base, pid, i)
-		if err := syscall.Mkfifo(p, 0700); err != nil && !os.IsNotExist(err) {
+		if err := syscall.Mkfifo(p, 0700); err != nil && !os.IsExist(err) {
 			return nil, fmt.Errorf("mkfifo: %s %v", p, err)
 		}
 	}

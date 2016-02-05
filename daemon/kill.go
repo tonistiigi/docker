@@ -52,7 +52,7 @@ func (daemon *Daemon) killWithSignal(container *container.Container, sig int) er
 		return derr.ErrorCodeNotRunning.WithArgs(container.ID)
 	}
 
-	daemon.containers.Get(container.ID).ExitOnNext()
+	container.ExitOnNext()
 
 	// if the container is currently restarting we do not need to send the signal
 	// to the process.  Telling the monitor that it should exit on it's next event

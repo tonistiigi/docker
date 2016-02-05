@@ -534,7 +534,7 @@ func (daemon *Daemon) writeBundle(s combinedSpec, c *container.Container, mounts
 }
 
 func (daemon *Daemon) destroyBundle(id string) {
-	// bundleDir := filepath.Join(daemon.root, "bundles", id)
-	// syscall.Unmount(filepath.Join(bundleDir, "rootfs"), syscall.MNT_DETACH)
-	// os.RemoveAll(bundleDir)
+	bundleDir := filepath.Join(daemon.root, "bundles", id)
+	syscall.Unmount(filepath.Join(bundleDir, "rootfs"), syscall.MNT_DETACH)
+	os.RemoveAll(bundleDir)
 }
