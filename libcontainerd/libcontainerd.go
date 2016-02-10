@@ -26,6 +26,8 @@ import (
 const (
 	maxConnectionRetryCount = 3
 	connectionRetryDelay    = 3 * time.Second
+	containerdPidFileName   = "containerd.pid"
+	containerdSockFileName  = "containerd.sock"
 )
 
 var fdnames = [3]string{"stdin", "stdout", "stderr"}
@@ -55,6 +57,9 @@ type Client interface {
 	Resume(id string) error
 	Restore(id string) error
 	Stats(id string) (*containerd.Stats, error)
+
+	// Stop containerd if it was started by libcontainerd
+	Cleanup()
 }
 
 type IOPipe struct {
@@ -78,6 +83,9 @@ type client struct {
 	backend    Backend
 	apiClient  containerd.APIClient
 	containers map[string]*process
+	daemonPid  int
+	execRoot   string
+	rpcConn    *grpc.ClientConn
 }
 
 // process keeps the state for both main container process and exec process.
@@ -97,7 +105,7 @@ func startDaemon(root, addr string) (int, error) {
 		return -1, err
 	}
 
-	path := filepath.Join(root, "containerd.pid")
+	path := filepath.Join(root, containerdPidFileName)
 
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0600)
 	defer f.Close()
@@ -166,7 +174,7 @@ func New(b Backend, execRoot, addr string, createIfMissing bool) (Client, error)
 
 	if createIfMissing && addr == "" {
 		var err error
-		addr = filepath.Join(execRoot, "containerd.sock")
+		addr = filepath.Join(execRoot, containerdSockFileName)
 		if daemonPid, err = startDaemon(execRoot, addr); err != nil {
 			return nil, err
 		}
@@ -222,6 +230,9 @@ func New(b Backend, execRoot, addr string, createIfMissing bool) (Client, error)
 		backend:    b,
 		apiClient:  apiClient,
 		containers: make(map[string]*process),
+		daemonPid:  daemonPid,
+		execRoot:   execRoot,
+		rpcConn:    conn,
 	}
 
 	if err := c.startMonitor(); err != nil {
@@ -229,6 +240,35 @@ func New(b Backend, execRoot, addr string, createIfMissing bool) (Client, error)
 	}
 
 	return c, nil
+}
+
+func (c *client) Cleanup() {
+	if c.daemonPid == -1 {
+		return
+	}
+
+	c.rpcConn.Close()
+
+	// Ask the daemon to quit
+	syscall.Kill(c.daemonPid, syscall.SIGTERM)
+
+	// Wait up to 15secs for it to stop
+	for i := 0; i < 15; i++ {
+		if !utils.IsProcessAlive(c.daemonPid) {
+			break
+		}
+
+		time.Sleep(1 * time.Second)
+	}
+
+	if utils.IsProcessAlive(c.daemonPid) {
+		logrus.Warnf("libcontainerd: containerd (%d) didn't stop within 15 secs, killing it\n", c.daemonPid)
+		syscall.Kill(c.daemonPid, syscall.SIGKILL)
+	}
+
+	// cleanup some files
+	os.Remove(filepath.Join(c.execRoot, containerdPidFileName))
+	os.Remove(filepath.Join(c.execRoot, containerdSockFileName))
 }
 
 func (c *client) startMonitor() error {

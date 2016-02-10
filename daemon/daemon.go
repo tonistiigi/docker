@@ -871,6 +871,8 @@ func (daemon *Daemon) Shutdown() error {
 		daemon.netController.Stop()
 	}
 
+	daemon.containerd.Cleanup()
+
 	if daemon.layerStore != nil {
 		if err := daemon.layerStore.Cleanup(); err != nil {
 			logrus.Errorf("Error during layer Store.Cleanup(): %v", err)
