@@ -824,19 +824,12 @@ func (daemon *Daemon) setupIpcDirs(c *container.Container) error {
 		return err
 	}
 
-	c.MqueuePath, err = c.MqueueResourcePath()
-	if err != nil {
-		return err
-	}
-
 	if c.HostConfig.IpcMode.IsContainer() {
 		ic, err := daemon.getIpcContainer(c)
 		if err != nil {
 			return err
 		}
-		// ipc.ContainerID = ic.ID
 		c.ShmPath = ic.ShmPath
-		c.MqueuePath = ic.MqueuePath
 	} else if c.HostConfig.IpcMode.IsHost() {
 		if _, err := os.Stat("/dev/shm"); err != nil {
 			return fmt.Errorf("/dev/shm is not mounted, but must be for --ipc=host")

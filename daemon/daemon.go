@@ -964,6 +964,9 @@ func (daemon *Daemon) stats(c *container.Container) (*types.StatsJSON, error) {
 	if err != nil {
 		return nil, err
 	}
+	if stats == nil {
+		return nil, fmt.Errorf("not-implemented")
+	}
 	s := &types.StatsJSON{}
 	cgs := stats.CgroupStats
 	if cgs != nil {
