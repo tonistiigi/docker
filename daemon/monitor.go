@@ -147,6 +147,8 @@ func (daemon *Daemon) AttachStreams(id string, iop libcontainerd.IOPipe) error {
 			io.Copy(iop.Stdin, stdin)
 			iop.Stdin.Close()
 		}()
+	} else {
+		iop.Stdin.Close()
 	}
 	go func() {
 		io.Copy(c.Stdout(), iop.Stdout)

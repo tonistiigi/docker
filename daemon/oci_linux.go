@@ -447,10 +447,7 @@ func setMounts(daemon *Daemon, s *specs.LinuxSpec, rs *specs.LinuxRuntimeSpec, c
 		}
 
 		rs.Mounts[m.Destination] = specMount
-
-		fmt.Printf("specMount: %#v\n", specMount)
 	}
-	fmt.Printf("rootfsPropagation: %#v\n", rs.Linux.RootfsPropagation)
 	return nil
 }
 
