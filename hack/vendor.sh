@@ -84,6 +84,6 @@ clone git github.com/aws/aws-sdk-go v0.9.9
 clone git github.com/vaughan0/go-ini a98ad7ee00ec53921f08832bc06ecf7fd600e6a1
 
 clone git google.golang.org/grpc a22b6611561e9f0a3e0919690dd2caf48f14c517 https://github.com/grpc/grpc-go.git
-clone git github.com/docker/containerd 3610808419b0cf772fbd17e91e362cb45a57791b
+clone git github.com/docker/containerd d2bf71043f0201d5f3fa085d96dad6549c827bb8
 
 clean

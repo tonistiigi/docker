@@ -13,7 +13,7 @@ service API {
 	rpc ListCheckpoint(ListCheckpointRequest) returns (ListCheckpointResponse) {}
 	rpc State(StateRequest) returns (StateResponse) {}
 	rpc Events(EventsRequest) returns (stream Event) {}
-	rpc GetStats(StatsRequest) returns (stream Stats) {}
+	rpc Stats(StatsRequest) returns (StatsResponse) {}
 }
 
 message UpdateProcessRequest {
@@ -34,9 +34,11 @@ message CreateContainerRequest {
     string stdin = 4; // path to the file where stdin will be read (optional)
 	string stdout = 5; // path to file where stdout will be written (optional)
 	string stderr = 6; // path to file where stderr will be written (optional)
+    repeated string labels = 7;
 }
 
 message CreateContainerResponse {
+    Container container = 1;
 }
 
 message SignalRequest {
@@ -103,6 +105,7 @@ message ListCheckpointResponse {
 }
 
 message StateRequest {
+    string id = 1; // container id for a single container
 }
 
 message ContainerState {
@@ -128,6 +131,8 @@ message Container {
 	string bundlePath = 3; // Path to OCI bundle
 	repeated Process processes = 4; // List of processes which run in container
 	string status = 5; // Container status ("running", "paused", etc.)
+    repeated string labels = 6;
+    repeated uint32 pids = 7;
 }
 
 // Machine is information about machine on which containerd is run
@@ -241,7 +246,7 @@ message CgroupStats {
 	map<string, HugetlbStats> hugetlb_stats = 4; // the map is in the format "size of hugepage: stats of the hugepage"
 }
 
-message Stats {
+message StatsResponse {
 	repeated NetworkStats network_stats = 1;
 	CgroupStats cgroup_stats = 2;
 	uint64 timestamp = 3;
