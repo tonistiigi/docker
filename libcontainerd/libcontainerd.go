@@ -56,7 +56,7 @@ type Client interface {
 	Pause(id string) error
 	Resume(id string) error
 	Restore(id string) error
-	Stats(id string) (*containerd.Stats, error)
+	Stats(id string) (*containerd.StatsResponse, error)
 
 	// Stop containerd if it was started by libcontainerd
 	Cleanup()
@@ -400,16 +400,14 @@ func (c *client) Create(id, bundlePath string) (err error) {
 		return err
 	}
 
+	c.Lock() // This lock is here so the callback is not called too early
+
 	r := &containerd.CreateContainerRequest{
 		Id:         id,
 		BundlePath: bundlePath,
 		Stdin:      fifoname(bundlePath, "init", syscall.Stdin),
 		Stdout:     fifoname(bundlePath, "init", syscall.Stdout),
 		Stderr:     fifoname(bundlePath, "init", syscall.Stderr),
-	}
-
-	container := &process{
-		bundle: bundlePath,
 	}
 
 	_, err = c.apiClient.CreateContainer(context.Background(), r)
@@ -421,11 +419,14 @@ func (c *client) Create(id, bundlePath string) (err error) {
 	if err := c.backend.AttachStreams(id, *iopipe); err != nil {
 		return err
 	}
-	// container.pid = resp.Pid
 
-	c.Lock()
+	container := &process{
+		bundle: bundlePath,
+	}
 	container.Lock()
 	defer container.Unlock()
+	// container.pid = resp.Pid
+
 	c.containers[id] = container
 	c.Unlock()
 
@@ -609,20 +610,11 @@ func (c *client) Resume(id string) error {
 	return c.setState(id, "running")
 }
 
-func (c *client) Stats(id string) (*containerd.Stats, error) {
-	// req := &containerd.PullStatsRequest{
-	// 	Ids: []string{id},
-	// }
-	// resp, err := c.apiClient.PullStats(context.Background(), req)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// stats, ok := resp.Stats[id]
-	// if !ok {
-	// 	return nil, fmt.Errorf("invalid stats response")
-	// }
-	// return stats, nil
-	return nil, nil
+func (c *client) Stats(id string) (*containerd.StatsResponse, error) {
+	req := &containerd.StatsRequest{
+		Id: id,
+	}
+	return c.apiClient.Stats(context.Background(), req)
 }
 
 func (c *client) Restore(id string) error {
