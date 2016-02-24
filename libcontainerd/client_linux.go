@@ -12,7 +12,8 @@ import (
 	"github.com/opencontainers/specs"
 )
 
-type CreateClient interface {
+// CreateContainer defines methods for container creation.
+type CreateContainer interface {
 	Create(id string, spec specs.LinuxSpec, options ...CreateOption) error
 }
 
