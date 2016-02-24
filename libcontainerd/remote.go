@@ -138,30 +138,30 @@ func (r *remote) handleConnectionChange() {
 	}
 }
 
-func (c *remote) Cleanup() {
-	if c.daemonPid == -1 {
+func (r *remote) Cleanup() {
+	if r.daemonPid == -1 {
 		return
 	}
-	c.rpcConn.Close()
+	r.rpcConn.Close()
 	// Ask the daemon to quit
-	syscall.Kill(c.daemonPid, syscall.SIGTERM)
+	syscall.Kill(r.daemonPid, syscall.SIGTERM)
 
 	// Wait up to 15secs for it to stop
 	for i := time.Duration(0); i < containerdShutdownTimeout; i += time.Second {
-		if !utils.IsProcessAlive(c.daemonPid) {
+		if !utils.IsProcessAlive(r.daemonPid) {
 			break
 		}
 		time.Sleep(time.Second)
 	}
 
-	if utils.IsProcessAlive(c.daemonPid) {
-		logrus.Warnf("libcontainerd: containerd (%d) didn't stop within 15 secs, killing it\n", c.daemonPid)
-		syscall.Kill(c.daemonPid, syscall.SIGKILL)
+	if utils.IsProcessAlive(r.daemonPid) {
+		logrus.Warnf("libcontainerd: containerd (%d) didn't stop within 15 secs, killing it\n", r.daemonPid)
+		syscall.Kill(r.daemonPid, syscall.SIGKILL)
 	}
 
 	// cleanup some files
-	os.Remove(filepath.Join(c.stateDir, containerdPidFilename))
-	os.Remove(filepath.Join(c.stateDir, containerdSockFilename))
+	os.Remove(filepath.Join(r.stateDir, containerdPidFilename))
+	os.Remove(filepath.Join(r.stateDir, containerdSockFilename))
 }
 
 func (r *remote) Client(b Backend) (Client, error) {

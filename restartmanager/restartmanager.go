@@ -14,6 +14,7 @@ const (
 	defaultTimeout    = 100 * time.Millisecond
 )
 
+// RestartManager defines object that controls container restarting rules.
 type RestartManager interface {
 	Cancel() error
 	ShouldRestart(exitCode uint32) (bool, chan error, error)
@@ -29,6 +30,7 @@ type restartManager struct {
 	canceled     bool
 }
 
+// New returns a new restartmanager based on a policy.
 func New(policy container.RestartPolicy) RestartManager {
 	return &restartManager{policy: policy, cancel: make(chan struct{})}
 }

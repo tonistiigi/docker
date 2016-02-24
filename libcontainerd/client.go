@@ -16,7 +16,7 @@ import (
 
 // Client privides access to containerd features.
 type Client interface {
-	CreateClient
+	CreateContainer
 	Signal(id string, sig int) error
 	AddProcess(id, processID string, process specs.Process) error
 	Resize(id, processID string, width, height int) error
@@ -44,7 +44,7 @@ func (c *client) Signal(id string, sig int) error {
 	}
 	_, err := c.remote.apiClient.Signal(context.Background(), &containerd.SignalRequest{
 		Id:     id,
-		Pid:    initProcessId,
+		Pid:    initProcessID,
 		Signal: uint32(sig),
 	})
 	return err
@@ -191,7 +191,7 @@ func (c *client) setState(id, state string) error {
 	chstate := make(chan struct{})
 	_, err = c.remote.apiClient.UpdateContainer(context.Background(), &containerd.UpdateContainerRequest{
 		Id:     id,
-		Pid:    initProcessId,
+		Pid:    initProcessID,
 		Status: st,
 	})
 	if err != nil {
@@ -258,7 +258,7 @@ func (c *client) newContainer(dir string, options ...CreateOption) *container {
 			id:        filepath.Base(dir),
 			dir:       dir,
 			client:    c,
-			processID: initProcessId,
+			processID: initProcessID,
 		},
 		processes: make(map[string]*process),
 	}

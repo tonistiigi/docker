@@ -2,6 +2,7 @@ package oci
 
 import "github.com/opencontainers/specs"
 
+// DefaultSpec returns default oci spec used by docker.
 func DefaultSpec() specs.LinuxSpec {
 	s := defaultTemplate
 	s.Mounts = []specs.Mount{

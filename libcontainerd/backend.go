@@ -2,6 +2,7 @@ package libcontainerd
 
 import "io"
 
+// State constants used in state change reporting.
 const (
 	StateStart        = "start-container"
 	StatePause        = "pause"
@@ -19,6 +20,7 @@ type Backend interface {
 	AttachStreams(id string, io IOPipe) error
 }
 
+// IOPipe contains the stdio streams.
 type IOPipe struct {
 	Stdin    io.WriteCloser
 	Stdout   io.Reader

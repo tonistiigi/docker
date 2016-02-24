@@ -13,7 +13,7 @@ import (
 
 const (
 	configFilename = "config.json"
-	initProcessId  = "init"
+	initProcessID  = "init"
 )
 
 type container struct {
@@ -25,17 +25,18 @@ type container struct {
 	processes      map[string]*process
 }
 
+// RestartManager controls automatic restarting if container exits.
 type RestartManager interface {
 	ShouldRestart(exitCode uint32) (bool, chan error, error)
 	Cancel() error
 }
 
-// RemoteOption allows to configure paramters of remotes.
+// CreateOption allows to configure parameters of container creation.
 type CreateOption interface {
 	Apply(interface{}) error
 }
 
-// WithRemoteAddr sets the external containerd socket to connect to.
+// WithRestartManager sets the restartmanager to be used with the container.
 func WithRestartManager(rm RestartManager) CreateOption {
 	return restartManager{rm}
 }
@@ -121,7 +122,7 @@ func (c *container) handleEvent(e *containerd.Event) error {
 			ExitCode:  e.Status,
 			OOMKilled: e.Type == StateExit && c.oom,
 		}
-		if e.Type == StateExit && e.Pid != initProcessId {
+		if e.Type == StateExit && e.Pid != initProcessID {
 			st.ProcessID = e.Pid
 			st.State = StateExitProcess
 		}

@@ -78,6 +78,7 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 	return nil
 }
 
+// AttachStreams is called by libcontainerd to connect the stdio.
 func (daemon *Daemon) AttachStreams(id string, iop libcontainerd.IOPipe) error {
 	var s *runconfig.StreamConfig
 	if c := daemon.containers.Get(id); c == nil {
