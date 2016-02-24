@@ -81,10 +81,10 @@ func (daemon *Daemon) update(name string, hostConfig *container.HostConfig) erro
 	// If container is running (including paused), we need to update configs
 	// to the real world.
 	if container.IsRunning() && !container.IsRestarting() {
-		if err := daemon.execDriver.Update(container.Command); err != nil {
-			restoreConfig = true
-			return errCannotUpdate(container.ID, err)
-		}
+		// if err := daemon.execDriver.Update(container.Command); err != nil {
+		//  restoreConfig = true
+		// 	return errCannotUpdate(container.ID, err)
+		// }
 	}
 
 	daemon.LogContainerEvent(container, "update")

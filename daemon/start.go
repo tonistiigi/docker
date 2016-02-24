@@ -8,6 +8,8 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/errors"
+	"github.com/docker/docker/libcontainerd"
+	"github.com/docker/docker/restartmanager"
 	"github.com/docker/docker/runconfig"
 	containertypes "github.com/docker/engine-api/types/container"
 )
@@ -122,41 +124,20 @@ func (daemon *Daemon) containerStart(container *container.Container) (err error)
 	if err := daemon.initializeNetworking(container); err != nil {
 		return err
 	}
-	linkedEnv, err := daemon.setupLinkedContainers(container)
+
+	spec, err := daemon.createSpec(container)
 	if err != nil {
 		return err
 	}
-	if err := container.SetupWorkingDirectory(); err != nil {
-		return err
-	}
-	env := container.CreateDaemonEnvironment(linkedEnv)
-	if err := daemon.populateCommand(container, env); err != nil {
-		return err
-	}
 
-	if !container.HostConfig.IpcMode.IsContainer() && !container.HostConfig.IpcMode.IsHost() {
-		if err := daemon.setupIpcDirs(container); err != nil {
-			return err
-		}
-	}
-
-	mounts, err := daemon.setupMounts(container)
-	if err != nil {
+	container.RestartCount = 0
+	container.RestartManager = restartmanager.New(container.HostConfig.RestartPolicy)
+	if err := daemon.containerd.Create(container.ID, *spec, libcontainerd.WithRestartManager(container.RestartManager)); err != nil {
+		container.Reset(false)
 		return err
 	}
-	mounts = append(mounts, container.IpcMounts()...)
-	mounts = append(mounts, container.TmpfsMounts()...)
-
-	container.Command.Mounts = mounts
-	if err := daemon.waitForStart(container); err != nil {
-		return err
-	}
-	container.HasBeenStartedBefore = true
+	daemon.LogContainerEvent(container, "start")
 	return nil
-}
-
-func (daemon *Daemon) waitForStart(container *container.Container) error {
-	return container.StartMonitor(daemon)
 }
 
 // Cleanup releases any network resources allocated to the container along with any rules
