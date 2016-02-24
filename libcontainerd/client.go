@@ -123,9 +123,10 @@ func (c *client) AddProcess(id, processID string, specp specs.Process) error {
 	if specp.Env == nil {
 		specp.Env = initProcess.Env
 	}
-	specp.User.UID = initProcess.User.UID
-	specp.User.GID = initProcess.User.GID
-	specp.User.AdditionalGids = initProcess.User.AdditionalGids
+	// This currently can't be enabled because there is no good way to override it
+	// specp.User.UID = initProcess.User.UID
+	// specp.User.GID = initProcess.User.GID
+	// specp.User.AdditionalGids = initProcess.User.AdditionalGids
 	if specp.Cwd == "" {
 		specp.Cwd = initProcess.Cwd
 	}

@@ -588,3 +588,12 @@ func (container *Container) UpdateMonitor(restartPolicy containertypes.RestartPo
 	// }
 	// monitor.mux.Unlock()
 }
+
+// FullHostname returns hostname and optional domain appended to it.
+func (container *Container) FullHostname() string {
+	fullHostname := container.Config.Hostname
+	if container.Config.Domainname != "" {
+		fullHostname = fmt.Sprintf("%s.%s", fullHostname, container.Config.Domainname)
+	}
+	return fullHostname
+}

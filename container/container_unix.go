@@ -66,15 +66,10 @@ type ExitStatus struct {
 // Sets PATH, HOSTNAME and if container.Config.Tty is set: TERM.
 // The defaults set here do not override the values in container.Config.Env
 func (container *Container) CreateDaemonEnvironment(linkedEnv []string) []string {
-	// if a domain name was specified, append it to the hostname (see #7851)
-	fullHostname := container.Config.Hostname
-	if container.Config.Domainname != "" {
-		fullHostname = fmt.Sprintf("%s.%s", fullHostname, container.Config.Domainname)
-	}
 	// Setup environment
 	env := []string{
 		"PATH=" + system.DefaultPathEnv,
-		"HOSTNAME=" + fullHostname,
+		"HOSTNAME=" + container.FullHostname(),
 	}
 	if container.Config.Tty {
 		env = append(env, "TERM=xterm")
@@ -114,10 +109,7 @@ func (container *Container) BuildHostnameFile() error {
 	}
 	container.HostnamePath = hostnamePath
 
-	if container.Config.Domainname != "" {
-		return ioutil.WriteFile(container.HostnamePath, []byte(fmt.Sprintf("%s.%s\n", container.Config.Hostname, container.Config.Domainname)), 0644)
-	}
-	return ioutil.WriteFile(container.HostnamePath, []byte(container.Config.Hostname+"\n"), 0644)
+	return ioutil.WriteFile(container.HostnamePath, []byte(container.FullHostname()+"\n"), 0644)
 }
 
 // GetEndpointInNetwork returns the container's endpoint to the provided network.

@@ -77,6 +77,9 @@ func TweakCapabilities(basics, adds, drops []string) ([]string, error) {
 		allCaps = GetAllCapabilities()
 	)
 
+	// FIXME(tonistiigi): docker format is without CAP_ prefix, oci is with prefix
+	// Currently they are mixed in here. We should do conversion in one place.
+
 	// look for invalid cap in the drop list
 	for _, cap := range drops {
 		if strings.ToLower(cap) == "all" {
@@ -101,7 +104,7 @@ func TweakCapabilities(basics, adds, drops []string) ([]string, error) {
 			}
 
 			// if we don't drop `all`, add back all the non-dropped caps
-			if !stringutils.InSlice(drops, cap) {
+			if !stringutils.InSlice(drops, cap[4:]) {
 				newCaps = append(newCaps, strings.ToUpper(cap))
 			}
 		}

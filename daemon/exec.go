@@ -178,9 +178,22 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 		ec.NewNopInputPipe()
 	}
 
+	username := ec.User
+	if len(username) == 0 {
+		username = c.Config.User
+	}
+	uid, gid, additionalGids, err := getUser(c, username)
+	if err != nil {
+		return err
+	}
 	r := specs.Process{
 		Args:     append([]string{ec.Entrypoint}, ec.Args...),
 		Terminal: ec.Tty,
+		User: specs.User{
+			UID:            uid,
+			GID:            gid,
+			AdditionalGids: additionalGids,
+		},
 	}
 
 	attachErr := container.AttachStreams(ec.StreamConfig, ec.OpenStdin, true, ec.Tty, cStdin, cStdout, cStderr, ec.DetachKeys)

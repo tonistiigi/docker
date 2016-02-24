@@ -1,44 +1,33 @@
 package daemon
 
 import (
-	"path/filepath"
-	"runtime"
-
 	"github.com/docker/docker/container"
 	"github.com/opencontainers/specs"
 )
 
-func initSpec(c *container.Container, env []string) specs.LinuxSpec {
-	cspec := defaultTemplate
-	cspec.Version = specs.Version
-	cspec.Platform = specs.Platform{
-		OS:   runtime.GOOS,
-		Arch: runtime.GOARCH,
+func (daemon *Daemon) populateCommonSpec(s *specs.Spec, c *container.Container) error {
+	linkedEnv, err := daemon.setupLinkedContainers(c)
+	if err != nil {
+		return err
 	}
-	cspec.Root = specs.Root{
-		Path:     "rootfs",
+	s.Root = specs.Root{
+		Path:     c.BaseFS,
 		Readonly: c.HostConfig.ReadonlyRootfs,
+	}
+	if err := c.SetupWorkingDirectory(); err != nil {
+		return err
 	}
 	cwd := c.Config.WorkingDir
 	if len(cwd) == 0 {
 		cwd = "/"
 	}
-	cspec.Process = specs.Process{
+	s.Process = specs.Process{
 		Args:     append([]string{c.Path}, c.Args...),
 		Cwd:      cwd,
-		Env:      env,
+		Env:      c.CreateDaemonEnvironment(linkedEnv),
 		Terminal: c.Config.Tty,
 	}
-	cspec.Hostname = c.Config.Hostname
+	s.Hostname = c.FullHostname()
 
-	var cgroupsPath string
-	if c.HostConfig.CgroupParent != "" {
-		cgroupsPath = filepath.Join(c.HostConfig.CgroupParent, c.ID)
-	} else {
-		// TODO: Detect systemd?
-		cgroupsPath = filepath.Join("/docker", c.ID)
-	}
-	cspec.Linux.CgroupsPath = &cgroupsPath
-
-	return cspec
+	return nil
 }
