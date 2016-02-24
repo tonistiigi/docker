@@ -81,7 +81,6 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
 		NFd:                fileutils.GetTotalUsedFds(),
 		NGoroutines:        runtime.NumGoroutine(),
 		SystemTime:         time.Now().Format(time.RFC3339Nano),
-		ExecutionDriver:    daemon.ExecutionDriver().Name(),
 		LoggingDriver:      daemon.defaultLogConfig.Type,
 		CgroupDriver:       daemon.getCgroupDriver(),
 		NEventsListener:    daemon.EventsService.SubscribersCount(),

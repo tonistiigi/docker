@@ -33,7 +33,7 @@ const (
 	windowsMaxCPUShares  = 10000
 )
 
-func getBlkioWeightDevices(config *containertypes.HostConfig) ([]*blkiodev.WeightDevice, error) {
+func getBlkioWeightDevices(config *containertypes.HostConfig) ([]blkiodev.WeightDevice, error) {
 	return nil, nil
 }
 
@@ -41,19 +41,19 @@ func parseSecurityOpt(container *container.Container, config *containertypes.Hos
 	return nil
 }
 
-func getBlkioReadIOpsDevices(config *containertypes.HostConfig) ([]*blkiodev.ThrottleDevice, error) {
+func getBlkioReadIOpsDevices(config *containertypes.HostConfig) ([]blkiodev.ThrottleDevice, error) {
 	return nil, nil
 }
 
-func getBlkioWriteIOpsDevices(config *containertypes.HostConfig) ([]*blkiodev.ThrottleDevice, error) {
+func getBlkioWriteIOpsDevices(config *containertypes.HostConfig) ([]blkiodev.ThrottleDevice, error) {
 	return nil, nil
 }
 
-func getBlkioReadBpsDevices(config *containertypes.HostConfig) ([]*blkiodev.ThrottleDevice, error) {
+func getBlkioReadBpsDevices(config *containertypes.HostConfig) ([]blkiodev.ThrottleDevice, error) {
 	return nil, nil
 }
 
-func getBlkioWriteBpsDevices(config *containertypes.HostConfig) ([]*blkiodev.ThrottleDevice, error) {
+func getBlkioWriteBpsDevices(config *containertypes.HostConfig) ([]blkiodev.ThrottleDevice, error) {
 	return nil, nil
 }
 

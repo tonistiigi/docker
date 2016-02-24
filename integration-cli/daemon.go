@@ -142,6 +142,7 @@ func (d *Daemon) StartWithLogFile(out *os.File, providedArgs ...string) error {
 
 	args := append(d.GlobalFlags,
 		d.Command,
+		"--containerd", "/var/run/docker/libcontainerd/containerd.sock",
 		"--graph", d.root,
 		"--pidfile", fmt.Sprintf("%s/docker.pid", d.folder),
 		fmt.Sprintf("--userland-proxy=%t", d.userlandProxy),

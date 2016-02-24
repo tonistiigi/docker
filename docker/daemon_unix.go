@@ -13,8 +13,6 @@ import (
 	"github.com/docker/docker/daemon"
 	"github.com/docker/docker/pkg/mflag"
 	"github.com/docker/docker/pkg/system"
-
-	_ "github.com/docker/docker/daemon/execdriver/native"
 )
 
 const defaultDaemonConfigFile = "/etc/docker/daemon.json"
