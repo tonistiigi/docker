@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +13,8 @@ import (
 	"github.com/docker/docker/oci"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/mount"
+	"github.com/docker/docker/pkg/symlink"
+	"github.com/docker/docker/volume"
 	containertypes "github.com/docker/engine-api/types/container"
 	"github.com/opencontainers/runc/libcontainer/devices"
 	"github.com/opencontainers/runc/libcontainer/user"
@@ -114,7 +117,7 @@ func setRlimits(s *specs.LinuxSpec, c *container.Container) error {
 }
 
 func setUser(s *specs.LinuxSpec, c *container.Container) error {
-	uid, gid, additionalGids, err := getUser(c)
+	uid, gid, additionalGids, err := getUser(c, c.Config.User)
 	if err != nil {
 		return err
 	}
@@ -124,7 +127,15 @@ func setUser(s *specs.LinuxSpec, c *container.Container) error {
 	return nil
 }
 
-func getUser(c *container.Container) (uint32, uint32, []uint32, error) {
+func readUserFile(c *container.Container, p string) (io.ReadCloser, error) {
+	fp, err := symlink.FollowSymlinkInScope(filepath.Join(c.BaseFS, p), c.BaseFS)
+	if err != nil {
+		return nil, err
+	}
+	return os.Open(fp)
+}
+
+func getUser(c *container.Container, username string) (uint32, uint32, []uint32, error) {
 	passwdPath, err := user.GetPasswdPath()
 	if err != nil {
 		return 0, 0, nil, err
@@ -133,14 +144,28 @@ func getUser(c *container.Container) (uint32, uint32, []uint32, error) {
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	execUser, err := user.GetExecUserPath(c.Config.User, nil, passwdPath, groupPath)
+	passwdFile, err := readUserFile(c, passwdPath)
+	if err == nil {
+		defer passwdFile.Close()
+	}
+	groupFile, err := readUserFile(c, groupPath)
+	if err == nil {
+		defer groupFile.Close()
+	}
+
+	execUser, err := user.GetExecUser(username, nil, passwdFile, groupFile)
 	if err != nil {
 		return 0, 0, nil, err
 	}
 
+	// todo: fix this double read by a change to libcontainer/user pkg
+	groupFile, err = readUserFile(c, groupPath)
+	if err == nil {
+		defer groupFile.Close()
+	}
 	var addGroups []int
 	if len(c.HostConfig.GroupAdd) > 0 {
-		addGroups, err = user.GetAdditionalGroupsPath(c.HostConfig.GroupAdd, groupPath)
+		addGroups, err = user.GetAdditionalGroups(c.HostConfig.GroupAdd, groupFile)
 		if err != nil {
 			return 0, 0, nil, err
 		}
@@ -392,6 +417,24 @@ func setMounts(daemon *Daemon, s *specs.LinuxSpec, c *container.Container, mount
 
 	s.Mounts = defaultMounts
 	for _, m := range mounts {
+		for _, cm := range s.Mounts {
+			if cm.Destination == m.Destination {
+				return fmt.Errorf("Duplicate mount point '%s'", m.Destination)
+			}
+		}
+
+		if m.Source == "tmpfs" {
+			opt := []string{"noexec", "nosuid", "nodev", volume.DefaultPropagationMode}
+			if m.Data != "" {
+				opt = append(opt, strings.Split(m.Data, ",")...)
+			} else {
+				opt = append(opt, "size=65536k")
+			}
+
+			s.Mounts = append(s.Mounts, specs.Mount{Destination: m.Destination, Source: m.Source, Type: "tmpfs", Options: opt})
+			continue
+		}
+
 		mt := specs.Mount{Destination: m.Destination, Source: m.Source, Type: "bind"}
 
 		// Determine property of RootPropagation based on volume
@@ -447,33 +490,6 @@ func setMounts(daemon *Daemon, s *specs.LinuxSpec, c *container.Container, mount
 	return nil
 }
 
-func (daemon *Daemon) populateCommonSpec(s *specs.Spec, c *container.Container) error {
-	linkedEnv, err := daemon.setupLinkedContainers(c)
-	if err != nil {
-		return err
-	}
-	s.Root = specs.Root{
-		Path:     c.BaseFS,
-		Readonly: c.HostConfig.ReadonlyRootfs,
-	}
-	if err := c.SetupWorkingDirectory(); err != nil {
-		return err
-	}
-	cwd := c.Config.WorkingDir
-	if len(cwd) == 0 {
-		cwd = "/"
-	}
-	s.Process = specs.Process{
-		Args:     append([]string{c.Path}, c.Args...),
-		Cwd:      cwd,
-		Env:      c.CreateDaemonEnvironment(linkedEnv),
-		Terminal: c.Config.Tty,
-	}
-	s.Hostname = c.Config.Hostname
-
-	return nil
-}
-
 func (daemon *Daemon) createSpec(c *container.Container) (*specs.LinuxSpec, error) {
 	s := oci.DefaultSpec()
 	if err := daemon.populateCommonSpec(&s.Spec, c); err != nil {
@@ -484,8 +500,13 @@ func (daemon *Daemon) createSpec(c *container.Container) (*specs.LinuxSpec, erro
 	if c.HostConfig.CgroupParent != "" {
 		cgroupsPath = filepath.Join(c.HostConfig.CgroupParent, c.ID)
 	} else {
-		// TODO: Detect systemd?
-		cgroupsPath = filepath.Join("/docker", c.ID)
+		defaultCgroupParent := "/docker"
+		if daemon.configStore.CgroupParent != "" {
+			defaultCgroupParent = daemon.configStore.CgroupParent
+		} else if daemon.usingSystemd() {
+			defaultCgroupParent = "system.slice"
+		}
+		cgroupsPath = filepath.Join(defaultCgroupParent, c.ID)
 	}
 	s.Linux.CgroupsPath = &cgroupsPath
 

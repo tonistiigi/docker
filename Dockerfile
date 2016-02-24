@@ -250,7 +250,7 @@ RUN set -x \
 	&& rm -rf "$GOPATH"
 
 # Install runc
-ENV RUNC_COMMIT 1a124e9c2da68c867ed2c4f4ff19f0cd95cda0cd
+ENV RUNC_COMMIT 2c3115481ee1782ad687a9e0b4834f89533c2acf
 RUN set -x \
 	&& export GOPATH="$(mktemp -d)" \
   && git clone git://github.com/opencontainers/runc.git "$GOPATH/src/github.com/opencontainers/runc" \
