@@ -8,6 +8,7 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	containerd "github.com/docker/containerd/api/grpc/types"
+	"github.com/docker/docker/restartmanager"
 	"golang.org/x/net/context"
 )
 
@@ -19,16 +20,10 @@ const (
 type container struct {
 	process
 	pauseMonitor
-	restartManager RestartManager
+	restartManager restartmanager.RestartManager
 	restarting     bool
 	oom            bool
 	processes      map[string]*process
-}
-
-// RestartManager controls automatic restarting if container exits.
-type RestartManager interface {
-	ShouldRestart(exitCode uint32) (bool, chan error, error)
-	Cancel() error
 }
 
 // CreateOption allows to configure parameters of container creation.
@@ -37,12 +32,12 @@ type CreateOption interface {
 }
 
 // WithRestartManager sets the restartmanager to be used with the container.
-func WithRestartManager(rm RestartManager) CreateOption {
+func WithRestartManager(rm restartmanager.RestartManager) CreateOption {
 	return restartManager{rm}
 }
 
 type restartManager struct {
-	rm RestartManager
+	rm restartmanager.RestartManager
 }
 
 func (rm restartManager) Apply(p interface{}) error {

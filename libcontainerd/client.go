@@ -16,7 +16,7 @@ import (
 
 // Client privides access to containerd features.
 type Client interface {
-	CreateContainer
+	ContainerCreator
 	Signal(id string, sig int) error
 	AddProcess(id, processID string, process specs.Process) error
 	Resize(id, processID string, width, height int) error
@@ -28,12 +28,12 @@ type Client interface {
 }
 
 type client struct {
-	sync.Mutex
-	arrayLock  sync.RWMutex
-	locks      map[string]*sync.Mutex
-	backend    Backend
-	remote     *remote
-	containers map[string]*container
+	sync.Mutex                              // lock for containerMutexes map access
+	mapMutex         sync.RWMutex           // protects read/write oprations from containers map
+	containerMutexes map[string]*sync.Mutex // lock by container ID
+	backend          Backend
+	remote           *remote
+	containers       map[string]*container
 }
 
 func (c *client) Signal(id string, sig int) error {
@@ -272,9 +272,9 @@ func (c *client) newContainer(dir string, options ...CreateOption) *container {
 }
 
 func (c *client) getContainer(id string) (*container, error) {
-	c.arrayLock.RLock()
+	c.mapMutex.RLock()
 	container, ok := c.containers[id]
-	defer c.arrayLock.RUnlock()
+	defer c.mapMutex.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("invalid container: %s", id) // fixme: typed error
 	}
@@ -283,29 +283,31 @@ func (c *client) getContainer(id string) (*container, error) {
 
 func (c *client) lock(id string) {
 	c.Lock()
-	if _, ok := c.locks[id]; !ok {
-		c.locks[id] = &sync.Mutex{}
+	if _, ok := c.containerMutexes[id]; !ok {
+		c.containerMutexes[id] = &sync.Mutex{}
 	}
 	c.Unlock()
-	c.locks[id].Lock()
+	c.containerMutexes[id].Lock()
 }
 
 func (c *client) unlock(id string) {
 	c.Lock()
-	if l, ok := c.locks[id]; ok {
+	if l, ok := c.containerMutexes[id]; ok {
 		l.Unlock()
+	} else {
+		logrus.Warnf("unlock of non-existing mutex: %s", id)
 	}
 	c.Unlock()
 }
 
 // must hold a lock for c.ID
 func (c *client) appendContainer(cont *container) {
-	c.arrayLock.Lock()
+	c.mapMutex.Lock()
 	c.containers[cont.id] = cont
-	c.arrayLock.Unlock()
+	c.mapMutex.Unlock()
 }
 func (c *client) deleteContainer(id string) {
-	c.arrayLock.Lock()
+	c.mapMutex.Lock()
 	delete(c.containers, id)
-	c.arrayLock.Unlock()
+	c.mapMutex.Unlock()
 }
