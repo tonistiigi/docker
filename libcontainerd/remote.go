@@ -166,10 +166,10 @@ func (r *remote) Cleanup() {
 
 func (r *remote) Client(b Backend) (Client, error) {
 	c := &client{
-		backend:    b,
-		remote:     r,
-		containers: make(map[string]*container),
-		locks:      make(map[string]*sync.Mutex),
+		backend:          b,
+		remote:           r,
+		containers:       make(map[string]*container),
+		containerMutexes: make(map[string]*sync.Mutex),
 	}
 
 	r.Lock()

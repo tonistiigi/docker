@@ -12,8 +12,8 @@ import (
 	"github.com/opencontainers/specs"
 )
 
-// CreateContainer defines methods for container creation.
-type CreateContainer interface {
+// ContainerCreator defines methods for container creation.
+type ContainerCreator interface {
 	Create(id string, spec specs.LinuxSpec, options ...CreateOption) error
 }
 

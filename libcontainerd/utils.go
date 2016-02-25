@@ -23,8 +23,8 @@ func getRootIDs(s specs.LinuxSpec) (int, int, error) {
 
 func hostIDFromMap(id uint32, mp []specs.IDMapping) int {
 	for _, m := range mp {
-		if (id >= m.ContainerID) && (id <= (m.ContainerID + m.Size - 1)) {
-			return int(m.HostID + (id - m.ContainerID))
+		if id >= m.ContainerID && id <= m.ContainerID+m.Size-1 {
+			return int(m.HostID + id - m.ContainerID)
 		}
 	}
 	return 0

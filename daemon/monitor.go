@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -27,7 +28,7 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 			OOMKilled: e.OOMKilled,
 		})
 		attributes := map[string]string{
-			"exitCode": fmt.Sprintf("%d", e.ExitCode),
+			"exitCode": strconv.Itoa(int(e.ExitCode)),
 		}
 		daemon.LogContainerEventWithAttributes(c, "die", attributes)
 
@@ -43,7 +44,7 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 			OOMKilled: e.OOMKilled,
 		})
 		attributes := map[string]string{
-			"exitCode": fmt.Sprintf("%d", e.ExitCode),
+			"exitCode": strconv.Itoa(int(e.ExitCode)),
 		}
 		daemon.LogContainerEventWithAttributes(c, "die", attributes)
 		return c.ToDisk()
