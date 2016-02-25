@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/oci"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/mount"
+	"github.com/docker/docker/pkg/stringutils"
 	"github.com/docker/docker/pkg/symlink"
 	"github.com/docker/docker/volume"
 	containertypes "github.com/docker/engine-api/types/container"
@@ -96,20 +97,27 @@ func setDevices(s *specs.LinuxSpec, c *container.Container) error {
 	return nil
 }
 
-func setRlimits(s *specs.LinuxSpec, c *container.Container) error {
+func setRlimits(daemon *Daemon, s *specs.LinuxSpec, c *container.Container) error {
 	var rlimits []specs.Rlimit
 
+	ulimits := c.HostConfig.Ulimits
 	// Merge ulimits with daemon defaults
 	ulIdx := make(map[string]struct{})
-	for _, ul := range c.HostConfig.Ulimits {
-		if _, exists := ulIdx[ul.Name]; !exists {
-			rlimits = append(rlimits, specs.Rlimit{
-				Type: "RLIMIT_" + strings.ToUpper(ul.Name),
-				Soft: uint64(ul.Soft),
-				Hard: uint64(ul.Hard),
-			})
-			ulIdx[ul.Name] = struct{}{}
+	for _, ul := range ulimits {
+		ulIdx[ul.Name] = struct{}{}
+	}
+	for name, ul := range daemon.configStore.Ulimits {
+		if _, exists := ulIdx[name]; !exists {
+			ulimits = append(ulimits, ul)
 		}
+	}
+
+	for _, ul := range ulimits {
+		rlimits = append(rlimits, specs.Rlimit{
+			Type: "RLIMIT_" + strings.ToUpper(ul.Name),
+			Soft: uint64(ul.Soft),
+			Hard: uint64(ul.Hard),
+		})
 	}
 
 	s.Linux.Rlimits = rlimits
@@ -475,17 +483,33 @@ func setMounts(daemon *Daemon, s *specs.LinuxSpec, c *container.Container, mount
 		s.Mounts = append(s.Mounts, mt)
 	}
 
-	// FIXME(tonistiigi) doen't work for current runc
 	// FIXME(tonistiigi) mqueue never readonly
-	// if s.Spec.Root.Readonly {
-	// 	for i, m := range s.Mounts {
-	// 		if _, ok := userMounts[m.Destination]; !ok {
-	// 			if !stringutils.InSlice(m.Options, "ro") {
-	// 				s.Mounts[i].Options = append(s.Mounts[i].Options, "ro")
-	// 			}
-	// 		}
-	// 	}
-	// }
+	if s.Spec.Root.Readonly {
+		for i, m := range s.Mounts {
+			if _, ok := userMounts[m.Destination]; !ok {
+				if !stringutils.InSlice(m.Options, "ro") {
+					s.Mounts[i].Options = append(s.Mounts[i].Options, "ro")
+				}
+			}
+		}
+	}
+
+	if c.HostConfig.Privileged {
+		if !s.Spec.Root.Readonly {
+			// clear readonly for /sys
+			for i := range s.Mounts {
+				if s.Mounts[i].Destination == "/sys" {
+					var opt []string
+					for _, o := range s.Mounts[i].Options {
+						if o != "ro" {
+							opt = append(opt, o)
+						}
+					}
+					s.Mounts[i].Options = opt
+				}
+			}
+		}
+	}
 
 	return nil
 }
@@ -513,10 +537,11 @@ func (daemon *Daemon) createSpec(c *container.Container) (*specs.LinuxSpec, erro
 	if err := setResources(&s, c.HostConfig.Resources); err != nil {
 		return nil, fmt.Errorf("linux runtime spec resources: %v", err)
 	}
+	s.Linux.Resources.OOMScoreAdj = &c.HostConfig.OomScoreAdj
 	if err := setDevices(&s, c); err != nil {
 		return nil, fmt.Errorf("linux runtime spec devices: %v", err)
 	}
-	if err := setRlimits(&s, c); err != nil {
+	if err := setRlimits(daemon, &s, c); err != nil {
 		return nil, fmt.Errorf("linux runtime spec rlimits: %v", err)
 	}
 	if err := setUser(&s, c); err != nil {
