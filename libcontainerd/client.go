@@ -82,10 +82,28 @@ func (c *client) restore(cont *containerd.Container, options ...CreateOption) (e
 
 	c.appendContainer(container)
 
-	return c.backend.StateChanged(id, StateInfo{
+	err = c.backend.StateChanged(id, StateInfo{
 		State: StateRestore,
 		Pid:   container.systemPid,
 	})
+
+	if err != nil {
+		return err
+	}
+
+	if event, ok := c.remote.pastEvents[id]; ok {
+		// This should only be a pause or resume event
+		if event.Type == StatePause || event.Type == StateResume {
+			return c.backend.StateChanged(id, StateInfo{
+				State: event.Type,
+				Pid:   container.systemPid,
+			})
+		}
+
+		logrus.Warnf("unexpected backlog event: %#v", event)
+	}
+
+	return nil
 }
 
 func (c *client) Resize(id, processID string, width, height int) error {
@@ -224,8 +242,16 @@ func (c *client) Restore(id string, options ...CreateOption) error {
 	}
 	c.lock(id)
 	defer c.unlock(id)
+
+	var exitCode uint32
+	if event, ok := c.remote.pastEvents[id]; ok {
+		exitCode = event.Status
+		delete(c.remote.pastEvents, id)
+	}
+
 	return c.backend.StateChanged(id, StateInfo{
-		State: StateExit, // FIXME: properties from event log
+		State:    StateExit,
+		ExitCode: exitCode,
 	})
 }
 

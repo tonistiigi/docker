@@ -27,6 +27,7 @@ const (
 	containerdBinary          = "containerd"
 	containerdPidFilename     = "containerd.pid"
 	containerdSockFilename    = "containerd.sock"
+	eventTimestampFilename    = "event.ts"
 )
 
 // Remote defines accesspoint to containerd grpc API.
@@ -52,13 +53,17 @@ type remote struct {
 	debugLog    bool
 	rpcConn     *grpc.ClientConn
 	clients     []*client
+	eventTsPath string
+	pastEvents  map[string]*containerd.Event
 }
 
 // New creates a fresh instance of libcontainerd remote.
 func New(stateDir string, options ...RemoteOption) (Remote, error) {
 	r := &remote{
-		stateDir:  stateDir,
-		daemonPid: -1,
+		stateDir:    stateDir,
+		daemonPid:   -1,
+		eventTsPath: filepath.Join(stateDir, eventTimestampFilename),
+		pastEvents:  make(map[string]*containerd.Event),
 	}
 	for _, option := range options {
 		if err := option.Apply(r); err != nil {
@@ -178,8 +183,62 @@ func (r *remote) Client(b Backend) (Client, error) {
 	return c, nil
 }
 
+func (r *remote) updateEventTimestamp(t time.Time) {
+	f, err := os.OpenFile(r.eventTsPath, syscall.O_CREAT|syscall.O_WRONLY|syscall.O_TRUNC, 0600)
+	defer f.Close()
+	if err != nil {
+		logrus.Warnf("libcontainerd: failed to open event timestamp file: %v", err)
+		return
+	}
+
+	b, err := t.MarshalText()
+	if err != nil {
+		logrus.Warnf("libcontainerd: failed to encode timestamp: %v", err)
+		return
+	}
+
+	n, err := f.Write(b)
+	if err != nil || n != len(b) {
+		logrus.Warnf("libcontainerd: failed to update event timestamp file: %v", err)
+		f.Truncate(0)
+		return
+	}
+
+}
+
+func (r *remote) getLastEventTimestamp() int64 {
+	t := time.Now()
+
+	fi, err := os.Stat(r.eventTsPath)
+	if os.IsNotExist(err) {
+		return t.Unix()
+	}
+
+	f, err := os.Open(r.eventTsPath)
+	defer f.Close()
+	if err != nil {
+		logrus.Warn("libcontainerd: Unable to access last event ts: %v", err)
+		return t.Unix()
+	}
+
+	b := make([]byte, fi.Size())
+	n, err := f.Read(b)
+	if err != nil || n != len(b) {
+		logrus.Warn("libcontainerd: Unable to read last event ts: %v", err)
+		return t.Unix()
+	}
+
+	t.UnmarshalText(b)
+
+	return t.Unix()
+}
+
 func (r *remote) startEventsMonitor() error {
-	events, err := r.apiClient.Events(context.Background(), &containerd.EventsRequest{})
+	// First, get past events
+	er := &containerd.EventsRequest{
+		Timestamp: uint64(r.getLastEventTimestamp()),
+	}
+	events, err := r.apiClient.Events(context.Background(), er)
 	if err != nil {
 		return err
 	}
@@ -188,6 +247,7 @@ func (r *remote) startEventsMonitor() error {
 }
 
 func (r *remote) handleEventStream(events containerd.API_EventsClient) {
+	live := false
 	for {
 		e, err := events.Recv()
 		if err != nil {
@@ -195,27 +255,46 @@ func (r *remote) handleEventStream(events containerd.API_EventsClient) {
 			go r.startEventsMonitor()
 			return
 		}
-		logrus.Debugf("received containerd event: %#v", e)
 
-		var container *container
-		var c *client
-		r.RLock()
-		for _, c = range r.clients {
-			container, err = c.getContainer(e.Id)
-			if err == nil {
-				break
+		if live == false {
+			logrus.Debugf("received past containerd event: %#v", e)
+
+			// Pause/Resume events should never happens after exit one
+			switch e.Type {
+			case StateExit:
+				r.pastEvents[e.Id] = e
+			case StatePause:
+				r.pastEvents[e.Id] = e
+			case StateResume:
+				r.pastEvents[e.Id] = e
+			case stateLive:
+				live = true
+				r.updateEventTimestamp(time.Unix(int64(e.Timestamp), 0))
 			}
-		}
-		r.RUnlock()
-		if container == nil {
-			logrus.Errorf("no state for container: %q", err)
-			continue
-		}
+		} else {
+			logrus.Debugf("received containerd event: %#v", e)
 
-		if err := container.handleEvent(e); err != nil {
-			logrus.Errorf("error processing state change for %s: %v", e.Id, err)
-		}
+			var container *container
+			var c *client
+			r.RLock()
+			for _, c = range r.clients {
+				container, err = c.getContainer(e.Id)
+				if err == nil {
+					break
+				}
+			}
+			r.RUnlock()
+			if container == nil {
+				logrus.Errorf("no state for container: %q", err)
+				continue
+			}
 
+			if err := container.handleEvent(e); err != nil {
+				logrus.Errorf("error processing state change for %s: %v", e.Id, err)
+			}
+
+			r.updateEventTimestamp(time.Unix(int64(e.Timestamp), 0))
+		}
 	}
 }
 
