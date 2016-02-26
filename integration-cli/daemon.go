@@ -246,6 +246,25 @@ func (d *Daemon) StartWithBusybox(arg ...string) error {
 	return d.LoadBusybox()
 }
 
+// Kill will send a SIGKILL to the daemon
+func (d *Daemon) Kill() error {
+	if d.cmd == nil || d.wait == nil {
+		return errors.New("daemon not started")
+	}
+
+	defer func() {
+		d.logFile.Close()
+		d.cmd = nil
+	}()
+
+	if err := d.cmd.Process.Kill(); err != nil {
+		d.c.Logf("Could not kill daemon: %v", err)
+		return err
+	}
+
+	return nil
+}
+
 // Stop will send a SIGINT every second and wait for the daemon to stop.
 // If it timeouts, a SIGKILL is sent.
 // Stop will not delete the daemon directory. If a purged daemon is needed,
