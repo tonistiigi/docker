@@ -108,14 +108,14 @@ func (c *container) handleEvent(e *containerd.Event) error {
 	c.client.lock(c.id)
 	defer c.client.unlock(c.id)
 	switch e.Type {
-	case "oom":
-		c.oom = true
-
-	case StateExit, StatePause, StateResume:
+	case StateExit, StatePause, StateResume, StateOOM:
 		st := StateInfo{
 			State:     e.Type,
 			ExitCode:  e.Status,
 			OOMKilled: e.Type == StateExit && c.oom,
+		}
+		if e.Type == StateOOM {
+			c.oom = true
 		}
 		if e.Type == StateExit && e.Pid != initProcessID {
 			st.ProcessID = e.Pid
@@ -148,27 +148,15 @@ func (c *container) handleEvent(e *containerd.Event) error {
 			}
 			c.client.deleteContainer(e.Id)
 		}
-		// 		todo: update this to callback queue. smth like:
-		// 		queue(e.Id, func() {
-		// 			if err := c.client.backend.StateChanged(e.Id, st); err != nil {
-		// 				return err
-		// 			}
-		// 			if e.Type == StatePause || e.Type == StateResume {
-		// 				c.client.lock(c.id)
-		// 				c.pauseMonitor.handle(e.Type)
-		// 				c.client.unlock(c.id)
-		// 			}
-		// 		})
+		c.client.q.append(e.Id, func() {
+			if err := c.client.backend.StateChanged(e.Id, st); err != nil {
+				logrus.Error(err)
+			}
+			if e.Type == StatePause || e.Type == StateResume {
+				c.pauseMonitor.handle(e.Type)
+			}
+		})
 
-		c.client.unlock(c.id)
-		if err := c.client.backend.StateChanged(e.Id, st); err != nil {
-			c.client.lock(c.id)
-			return err
-		}
-		c.client.lock(c.id)
-		if e.Type == StatePause || e.Type == StateResume {
-			c.pauseMonitor.handle(e.Type)
-		}
 	default:
 		logrus.Debugf("event unhandled: %+v", e)
 	}

@@ -256,14 +256,14 @@ RUN set -x \
   && git clone git://github.com/tonistiigi/runc.git "$GOPATH/src/github.com/opencontainers/runc" \
 	&& cd "$GOPATH/src/github.com/opencontainers/runc" \
 	&& git checkout -q "$RUNC_COMMIT" \
-	&& make && make install
+	&& make BUILDTAGS="seccomp apparmor selinux" && make install
 
 
 # Install containerd
-ENV CONTAINERD_COMMIT d19c818cdc23e52e954878eb3571d06993475f42
+ENV CONTAINERD_COMMIT docker-containerd-integration
 RUN set -x \
 	&& export GOPATH="$(mktemp -d)" \
-  && git clone git://github.com/docker/containerd.git "$GOPATH/src/github.com/docker/containerd" \
+  && git clone git://github.com/tonistiigi/containerd.git "$GOPATH/src/github.com/docker/containerd" \
 	&& cd "$GOPATH/src/github.com/docker/containerd" \
 	&& git checkout -q "$CONTAINERD_COMMIT" \
 	&& make && make install

@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker/pkg/symlink"
 	"github.com/docker/docker/volume"
 	containertypes "github.com/docker/engine-api/types/container"
+	"github.com/opencontainers/runc/libcontainer/apparmor"
 	"github.com/opencontainers/runc/libcontainer/devices"
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/opencontainers/specs"
@@ -486,6 +487,10 @@ func setMounts(daemon *Daemon, s *specs.LinuxSpec, c *container.Container, mount
 	// FIXME(tonistiigi) mqueue never readonly
 	if s.Spec.Root.Readonly {
 		for i, m := range s.Mounts {
+			switch m.Destination {
+			case "/proc", "/dev/pts", "/dev/mqueue": // /dev is remounted by runc
+				continue
+			}
 			if _, ok := userMounts[m.Destination]; !ok {
 				if !stringutils.InSlice(m.Options, "ro") {
 					s.Mounts[i].Options = append(s.Mounts[i].Options, "ro")
@@ -586,5 +591,15 @@ func (daemon *Daemon) createSpec(c *container.Container) (*specs.LinuxSpec, erro
 			}
 		}
 	}
+
+	if apparmor.IsEnabled() {
+		if len(c.AppArmorProfile) > 0 {
+			s.Linux.ApparmorProfile = c.AppArmorProfile
+		} else {
+			s.Linux.ApparmorProfile = "docker-default"
+		}
+	}
+	s.Linux.SelinuxProcessLabel = c.GetProcessLabel()
+
 	return &s, nil
 }

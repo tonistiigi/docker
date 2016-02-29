@@ -20,6 +20,8 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 	}
 
 	switch e.State {
+	case libcontainerd.StateOOM:
+		daemon.LogContainerEvent(c, "oom")
 	case libcontainerd.StateExit:
 		c.Reset(true)
 		daemon.Cleanup(c)

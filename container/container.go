@@ -60,9 +60,9 @@ type CommonContainer struct {
 	HostConfig             *containertypes.HostConfig `json:"-"` // do not serialize the host config in the json, otherwise we'll make the container unportable
 	ExecCommands           *exec.Store                `json:"-"`
 	// logDriver for closing
-	LogDriver      logger.Logger                 `json:"-"`
-	LogCopier      *logger.Copier                `json:"-"`
-	RestartManager restartmanager.RestartManager `json:"-"`
+	LogDriver      logger.Logger  `json:"-"`
+	LogCopier      *logger.Copier `json:"-"`
+	restartManager restartmanager.RestartManager
 }
 
 // NewBaseContainer creates a new container with its
@@ -257,9 +257,10 @@ func (container *Container) GetRootResourcePath(path string) (string, error) {
 // ExitOnNext signals to the monitor that it should not restart the container
 // after we send the kill signal.
 func (container *Container) ExitOnNext() {
-	if container.RestartManager != nil {
-		container.RestartManager.Cancel()
+	if container.restartManager != nil {
+		container.restartManager.Cancel()
 	}
+	logrus.Debugf("exitonnext")
 	container.HasBeenManuallyStopped = true
 }
 
@@ -573,20 +574,13 @@ func (container *Container) InitDNSHostConfig() {
 
 // UpdateMonitor updates monitor configure for running container
 func (container *Container) UpdateMonitor(restartPolicy containertypes.RestartPolicy) {
-	// FIXME:(tonistiigi)
-	// monitor := container.monitor
-	// // No need to update monitor if container hasn't got one
-	// // monitor will be generated correctly according to container
-	// if monitor == nil {
-	// 	return
-	// }
-	//
-	// monitor.mux.Lock()
-	// // to check whether restart policy has changed.
-	// if restartPolicy.Name != "" && !monitor.restartPolicy.IsSame(&restartPolicy) {
-	// 	monitor.restartPolicy = restartPolicy
-	// }
-	// monitor.mux.Unlock()
+	type policySetter interface {
+		SetPolicy(containertypes.RestartPolicy)
+	}
+
+	if rm, ok := container.RestartManager(false).(policySetter); ok {
+		rm.SetPolicy(restartPolicy)
+	}
 }
 
 // FullHostname returns hostname and optional domain appended to it.
@@ -596,4 +590,16 @@ func (container *Container) FullHostname() string {
 		fullHostname = fmt.Sprintf("%s.%s", fullHostname, container.Config.Domainname)
 	}
 	return fullHostname
+}
+
+// RestartManager returns the current restartmanager instace connected to container.
+func (container *Container) RestartManager(reset bool) restartmanager.RestartManager {
+	if reset {
+		container.RestartCount = 0
+	}
+	if container.restartManager == nil {
+		container.HasBeenManuallyStopped = false
+		container.restartManager = restartmanager.New(container.HostConfig.RestartPolicy)
+	}
+	return container.restartManager
 }
