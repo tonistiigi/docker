@@ -35,6 +35,10 @@ func New(policy container.RestartPolicy) RestartManager {
 	return &restartManager{policy: policy, cancel: make(chan struct{})}
 }
 
+func (rm *restartManager) SetPolicy(policy container.RestartPolicy) {
+	rm.policy = policy // FIMXE(tonistiigi) fix cancel and reset race
+}
+
 func (rm *restartManager) ShouldRestart(exitCode uint32) (bool, chan error, error) {
 	if !atomic.CompareAndSwapInt32(&rm.active, 0, 1) {
 		return false, nil, fmt.Errorf("invalid call on active restartmanager")

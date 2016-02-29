@@ -613,10 +613,9 @@ func (container *Container) UpdateContainer(hostConfig *containertypes.HostConfi
 	// If container is running (including paused), we need to update
 	// the command so we can update configs to the real world.
 	if container.IsRunning() {
-		return fmt.Errorf("docker update is not supported atm")
-		// container.Lock()
+		container.Lock()
 		// updateCommand(container.Command, *cResources)
-		// container.Unlock()
+		container.Unlock()
 	}
 
 	if err := container.ToDiskLocking(); err != nil {

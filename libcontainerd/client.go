@@ -22,7 +22,7 @@ type Client interface {
 	Resize(id, processID string, width, height int) error
 	Pause(id string) error
 	Resume(id string) error
-	Restore(id string) error
+	Restore(id string, options ...CreateOption) error
 	Stats(id string) (*containerd.StatsResponse, error)
 	GetPidsForContainer(id string) ([]int, error)
 }
@@ -34,6 +34,7 @@ type client struct {
 	backend          Backend
 	remote           *remote
 	containers       map[string]*container
+	q                queue
 }
 
 func (c *client) Signal(id string, sig int) error {
@@ -213,10 +214,10 @@ func (c *client) Stats(id string) (*containerd.StatsResponse, error) {
 	return c.remote.apiClient.Stats(context.Background(), &containerd.StatsRequest{id})
 }
 
-func (c *client) Restore(id string) error {
+func (c *client) Restore(id string, options ...CreateOption) error {
 	cont, err := c.getContainerdContainer(id)
 	if err == nil {
-		if err := c.restore(cont); err != nil {
+		if err := c.restore(cont, options...); err != nil {
 			logrus.Errorf("error restoring %s: %v", id, err)
 		}
 		return nil

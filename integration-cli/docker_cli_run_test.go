@@ -2346,19 +2346,10 @@ func (s *DockerSuite) TestRunUnknownCommand(c *check.C) {
 	out, _, _ := dockerCmdWithStdoutStderr(c, "create", "busybox", "/bin/nada")
 
 	cID := strings.TrimSpace(out)
+	// this behavior changed in v1.11, previously this would have errored in start
 	_, _, err := dockerCmdWithError("start", cID)
-
-	// Windows and Linux are different here by architectural design. Linux will
-	// fail to start the container, so an error is expected. Windows will
-	// successfully start the container, and once started attempt to execute
-	// the command which will fail.
-	if daemonPlatform == "windows" {
-		// Wait for it to exit.
-		waitExited(cID, 30*time.Second)
-		c.Assert(err, check.IsNil)
-	} else {
-		c.Assert(err, check.NotNil)
-	}
+	c.Assert(err, check.IsNil)
+	waitExited(cID, 30*time.Second)
 
 	rc := inspectField(c, cID, "State.ExitCode")
 	if rc == "0" {
@@ -3014,7 +3005,8 @@ func (s *DockerSuite) TestRunUnshareProc(c *check.C) {
 	out, _, err = dockerCmdWithError("run", "--name", name, "--security-opt", "seccomp:unconfined", "debian:jessie", "unshare", "-p", "-m", "-f", "-r", "mount", "-t", "proc", "none", "/proc")
 	if err == nil ||
 		!(strings.Contains(strings.ToLower(out), "mount: cannot mount none") ||
-			strings.Contains(strings.ToLower(out), "permission denied")) {
+			strings.Contains(strings.ToLower(out), "permission denied") ||
+			strings.Contains(strings.ToLower(out), "operation not permitted")) {
 		c.Fatalf("unshare and mount of /proc should have failed with 'mount: cannot mount none' or 'permission denied', got: %s, %v", out, err)
 	}
 
@@ -3023,7 +3015,8 @@ func (s *DockerSuite) TestRunUnshareProc(c *check.C) {
 	out, _, err = dockerCmdWithError("run", "--privileged", "--security-opt", "seccomp:unconfined", "--security-opt", "apparmor:docker-default", "--name", name, "debian:jessie", "unshare", "-p", "-m", "-f", "-r", "mount", "-t", "proc", "none", "/proc")
 	if err == nil ||
 		!(strings.Contains(strings.ToLower(out), "mount: cannot mount none") ||
-			strings.Contains(strings.ToLower(out), "permission denied")) {
+			strings.Contains(strings.ToLower(out), "permission denied") ||
+			strings.Contains(strings.ToLower(out), "operation not permitted")) {
 		c.Fatalf("privileged unshare with apparmor should have failed with 'mount: cannot mount none' or 'permission denied', got: %s, %v", out, err)
 	}
 }

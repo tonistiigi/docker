@@ -1,6 +1,8 @@
 package libcontainerd
 
 import (
+	"sync"
+
 	containerd "github.com/docker/containerd/api/grpc/types"
 	"github.com/opencontainers/specs"
 )
@@ -38,4 +40,30 @@ func systemPid(c *containerd.Container) uint32 {
 		}
 	}
 	return pid
+}
+
+type queue struct {
+	sync.Mutex
+	fns map[string]chan struct{}
+}
+
+func (q *queue) append(id string, f func()) {
+	q.Lock()
+	defer q.Unlock()
+
+	if q.fns == nil {
+		q.fns = make(map[string]chan struct{})
+	}
+
+	done := make(chan struct{})
+
+	fn, ok := q.fns[id]
+	q.fns[id] = done
+	go func() {
+		if ok {
+			<-fn
+		}
+		f()
+		close(done)
+	}()
 }

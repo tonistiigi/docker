@@ -9,7 +9,6 @@ import (
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/errors"
 	"github.com/docker/docker/libcontainerd"
-	"github.com/docker/docker/restartmanager"
 	"github.com/docker/docker/runconfig"
 	containertypes "github.com/docker/engine-api/types/container"
 )
@@ -130,9 +129,7 @@ func (daemon *Daemon) containerStart(container *container.Container) (err error)
 		return err
 	}
 
-	container.RestartCount = 0
-	container.RestartManager = restartmanager.New(container.HostConfig.RestartPolicy)
-	if err := daemon.containerd.Create(container.ID, *spec, libcontainerd.WithRestartManager(container.RestartManager)); err != nil {
+	if err := daemon.containerd.Create(container.ID, *spec, libcontainerd.WithRestartManager(container.RestartManager(true))); err != nil {
 		container.Reset(false)
 		return err
 	}

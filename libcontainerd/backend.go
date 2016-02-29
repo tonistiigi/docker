@@ -12,6 +12,7 @@ const (
 	StateRestore      = "restore"
 	StateStartProcess = "start-process"
 	StateExitProcess  = "exit-process"
+	StateOOM          = "oom" // fake state
 )
 
 // Backend defines callbacks that the client of the library needs to implement.

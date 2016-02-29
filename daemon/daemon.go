@@ -286,7 +286,7 @@ func (daemon *Daemon) restore() error {
 			logrus.Errorf("Failed to register container %s: %s", c.ID, err)
 			continue
 		}
-		if err := daemon.containerd.Restore(c.ID); err != nil {
+		if err := daemon.containerd.Restore(c.ID, libcontainerd.WithRestartManager(c.RestartManager(true))); err != nil {
 			logrus.Errorf("Failed to restore with containerd: %q", err)
 			continue
 		}
@@ -665,6 +665,7 @@ func NewDaemon(config *Config, registryService *registry.Service, containerdRemo
 		logrus.Warnf("Failed to configure golang's threads limit: %v", err)
 	}
 
+	installDefaultAppArmorProfile()
 	daemonRepo := filepath.Join(config.Root, "containers")
 	if err := idtools.MkdirAllAs(daemonRepo, 0700, rootUID, rootGID); err != nil && !os.IsExist(err) {
 		return nil, err
