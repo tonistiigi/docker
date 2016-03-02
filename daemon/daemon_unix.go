@@ -69,9 +69,9 @@ func getMemoryResources(config containertypes.Resources) *specs.Memory {
 		memory.Swap = &swap
 	}
 
-	if config.KernelMemory != 0 {
-		kmem := uint64(config.KernelMemory)
-		memory.Kernel = &kmem
+	if config.MemorySwappiness != nil {
+		swappiness := uint64(*config.MemorySwappiness)
+		memory.Swappiness = &swappiness
 	}
 
 	return &memory

@@ -34,7 +34,7 @@ func DefaultSpec() specs.LinuxSpec {
 			Destination: "/sys/fs/cgroup",
 			Type:        "cgroup",
 			Source:      "cgroup",
-			Options:     []string{"nosuid", "noexec", "nodev"},
+			Options:     []string{"ro", "nosuid", "noexec", "nodev"},
 		},
 		{
 			Destination: "/dev/mqueue",

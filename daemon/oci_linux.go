@@ -504,14 +504,18 @@ func setMounts(daemon *Daemon, s *specs.LinuxSpec, c *container.Container, mount
 			// clear readonly for /sys
 			for i := range s.Mounts {
 				if s.Mounts[i].Destination == "/sys" {
-					var opt []string
-					for _, o := range s.Mounts[i].Options {
-						if o != "ro" {
-							opt = append(opt, o)
-						}
-					}
-					s.Mounts[i].Options = opt
+					clearReadOnly(&s.Mounts[i])
 				}
+			}
+		}
+	}
+
+	// TODO: until a kernel/mount solution exists for handling remount in a user namespace,
+	// we must clear the readonly flag for the cgroups mount (@mrunalp concurs)
+	if uidMap, _ := daemon.GetUIDGIDMaps(); uidMap != nil {
+		for i, m := range s.Mounts {
+			if m.Type == "cgroup" {
+				clearReadOnly(&s.Mounts[i])
 			}
 		}
 	}
@@ -602,4 +606,14 @@ func (daemon *Daemon) createSpec(c *container.Container) (*specs.LinuxSpec, erro
 	s.Linux.SelinuxProcessLabel = c.GetProcessLabel()
 
 	return &s, nil
+}
+
+func clearReadOnly(m *specs.Mount) {
+	var opt []string
+	for _, o := range m.Options {
+		if o != "ro" {
+			opt = append(opt, o)
+		}
+	}
+	m.Options = opt
 }

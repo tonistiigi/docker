@@ -9,7 +9,6 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
 	"github.com/docker/engine-api/types"
-	"github.com/opencontainers/runc/libcontainer/seccomp"
 	"github.com/opencontainers/specs"
 )
 
@@ -69,11 +68,7 @@ func setupSeccomp(config *types.Seccomp) (newConfig *specs.Seccomp, err error) {
 	if len(config.Architectures) > 0 {
 		// newConfig.Architectures = []string{}
 		for _, arch := range config.Architectures {
-			newArch, err := seccomp.ConvertStringToArch(string(arch))
-			if err != nil {
-				return nil, err
-			}
-			newConfig.Architectures = append(newConfig.Architectures, specs.Arch(newArch))
+			newConfig.Architectures = append(newConfig.Architectures, specs.Arch(arch))
 		}
 	}
 
