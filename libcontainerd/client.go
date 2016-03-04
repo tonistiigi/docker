@@ -1,29 +1,25 @@
 package libcontainerd
 
 import (
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"path/filepath"
 	"sync"
-	"syscall"
 
 	"github.com/Sirupsen/logrus"
 	containerd "github.com/docker/containerd/api/grpc/types"
-	"github.com/opencontainers/specs"
 	"golang.org/x/net/context"
 )
 
 // Client privides access to containerd features.
 type Client interface {
-	ContainerCreator
+	Create(id string, spec Spec, options ...CreateOption) error
 	Signal(id string, sig int) error
-	AddProcess(id, processID string, process specs.Process) error
+	AddProcess(id, processID string, process Process) error
 	Resize(id, processID string, width, height int) error
 	Pause(id string) error
 	Resume(id string) error
 	Restore(id string, options ...CreateOption) error
-	Stats(id string) (*containerd.StatsResponse, error)
+	Stats(id string) (*Stats, error)
 	GetPidsForContainer(id string) ([]int, error)
 }
 
@@ -121,74 +117,6 @@ func (c *client) Resize(id, processID string, width, height int) error {
 	return err
 }
 
-func (c *client) AddProcess(id, processID string, specp specs.Process) error {
-	c.lock(id)
-	defer c.unlock(id)
-	container, err := c.getContainer(id)
-	if err != nil {
-		return err
-	}
-
-	var spec specs.Spec
-	dt, err := ioutil.ReadFile(filepath.Join(container.dir, configFilename))
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal(dt, &spec); err != nil {
-		return err
-	}
-
-	initProcess := spec.Process
-	if specp.Env == nil {
-		specp.Env = initProcess.Env
-	}
-	// This currently can't be enabled because there is no good way to override it
-	// specp.User.UID = initProcess.User.UID
-	// specp.User.GID = initProcess.User.GID
-	// specp.User.AdditionalGids = initProcess.User.AdditionalGids
-	if specp.Cwd == "" {
-		specp.Cwd = initProcess.Cwd
-	}
-	p := container.newProcess(processID)
-
-	r := &containerd.AddProcessRequest{
-		Args:     specp.Args,
-		Cwd:      specp.Cwd,
-		Terminal: specp.Terminal,
-		Id:       id,
-		Env:      specp.Env,
-		User: &containerd.User{
-			Uid:            specp.User.UID,
-			Gid:            specp.User.GID,
-			AdditionalGids: specp.User.AdditionalGids,
-		},
-		Pid:    processID,
-		Stdin:  p.fifo(syscall.Stdin),
-		Stdout: p.fifo(syscall.Stdout),
-		Stderr: p.fifo(syscall.Stderr),
-	}
-
-	iopipe, err := p.openFifos()
-	if err != nil {
-		return err
-	}
-
-	if _, err := c.remote.apiClient.AddProcess(context.Background(), r); err != nil {
-		return err
-	}
-
-	container.processes[processID] = p
-
-	c.unlock(id)
-
-	if err := c.backend.AttachStreams(processID, *iopipe); err != nil {
-		return err
-	}
-	c.lock(id)
-
-	return nil
-}
-
 func (c *client) Pause(id string) error {
 	return c.setState(id, StatePause)
 }
@@ -228,8 +156,12 @@ func (c *client) Resume(id string) error {
 	return c.setState(id, StateResume)
 }
 
-func (c *client) Stats(id string) (*containerd.StatsResponse, error) {
-	return c.remote.apiClient.Stats(context.Background(), &containerd.StatsRequest{id})
+func (c *client) Stats(id string) (*Stats, error) {
+	resp, err := c.remote.apiClient.Stats(context.Background(), &containerd.StatsRequest{id})
+	if err != nil {
+		return nil, err
+	}
+	return (*Stats)(resp), nil
 }
 
 func (c *client) Restore(id string, options ...CreateOption) error {

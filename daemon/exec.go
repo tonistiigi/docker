@@ -10,11 +10,11 @@ import (
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/docker/errors"
+	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/pkg/pools"
 	"github.com/docker/docker/pkg/term"
 	"github.com/docker/engine-api/types"
 	"github.com/docker/engine-api/types/strslice"
-	"github.com/opencontainers/specs"
 )
 
 func (d *Daemon) registerExecCommand(container *container.Container, config *exec.Config) {
@@ -178,22 +178,21 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 		ec.NewNopInputPipe()
 	}
 
-	username := ec.User
-	if len(username) == 0 {
-		username = c.Config.User
-	}
-	uid, gid, additionalGids, err := getUser(c, username)
-	if err != nil {
-		return err
-	}
-	r := specs.Process{
+	r := libcontainerd.Process{
 		Args:     append([]string{ec.Entrypoint}, ec.Args...),
 		Terminal: ec.Tty,
-		User: specs.User{
+	}
+
+	if len(ec.User) > 0 {
+		uid, gid, additionalGids, err := getUser(c, ec.User)
+		if err != nil {
+			return err
+		}
+		r.User = &libcontainerd.User{
 			UID:            uid,
 			GID:            gid,
 			AdditionalGids: additionalGids,
-		},
+		}
 	}
 
 	attachErr := container.AttachStreams(ec.StreamConfig, ec.OpenStdin, true, ec.Tty, cStdin, cStdout, cStderr, ec.DetachKeys)

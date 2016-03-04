@@ -1,10 +1,20 @@
 package oci
 
-import "github.com/opencontainers/specs"
+import (
+	"runtime"
+
+	"github.com/opencontainers/specs"
+)
 
 // DefaultSpec returns default oci spec used by docker.
 func DefaultSpec() specs.LinuxSpec {
-	s := defaultTemplate
+	s := specs.Spec{
+		Version: specs.Version,
+		Platform: specs.Platform{
+			OS:   runtime.GOOS,
+			Arch: runtime.GOARCH,
+		},
+	}
 	s.Mounts = []specs.Mount{
 		{
 			Destination: "/proc",
