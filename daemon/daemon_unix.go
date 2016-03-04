@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
@@ -25,6 +26,7 @@ import (
 	"github.com/docker/docker/reference"
 	"github.com/docker/docker/runconfig"
 	runconfigopts "github.com/docker/docker/runconfig/opts"
+	"github.com/docker/engine-api/types"
 	pblkiodev "github.com/docker/engine-api/types/blkiodev"
 	containertypes "github.com/docker/engine-api/types/container"
 	"github.com/docker/libnetwork"
@@ -33,7 +35,7 @@ import (
 	"github.com/docker/libnetwork/ipamutils"
 	"github.com/docker/libnetwork/netlabel"
 	"github.com/docker/libnetwork/options"
-	"github.com/docker/libnetwork/types"
+	lntypes "github.com/docker/libnetwork/types"
 	"github.com/opencontainers/runc/libcontainer/label"
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/opencontainers/specs"
@@ -713,8 +715,8 @@ func initBridgeDriver(controller libnetwork.NetworkController, config *Config) e
 
 	nw, nw6List, err := ipamutils.ElectInterfaceAddresses(bridgeName)
 	if err == nil {
-		ipamV4Conf.PreferredPool = types.GetIPNetCanonical(nw).String()
-		hip, _ := types.GetHostPartIP(nw.IP, nw.Mask)
+		ipamV4Conf.PreferredPool = lntypes.GetIPNetCanonical(nw).String()
+		hip, _ := lntypes.GetHostPartIP(nw.IP, nw.Mask)
 		if hip.IsGlobalUnicast() {
 			ipamV4Conf.Gateway = nw.IP.String()
 		}
@@ -1073,4 +1075,52 @@ func (daemon *Daemon) conditionalUnmountOnCleanup(container *container.Container
 func restoreCustomImage(is image.Store, ls layer.Store, rs reference.Store) error {
 	// Unix has no custom images to register
 	return nil
+}
+
+func (daemon *Daemon) stats(c *container.Container) (*types.StatsJSON, error) {
+	if !c.IsRunning() {
+		return nil, errNotRunning{c.ID}
+	}
+	stats, err := daemon.containerd.Stats(c.ID)
+	if err != nil {
+		return nil, err
+	}
+	s := &types.StatsJSON{}
+	cgs := stats.CgroupStats
+	if cgs != nil {
+		s.BlkioStats = types.BlkioStats{
+			IoServiceBytesRecursive: copyBlkioEntry(cgs.BlkioStats.IoServiceBytesRecursive),
+			IoServicedRecursive:     copyBlkioEntry(cgs.BlkioStats.IoServicedRecursive),
+			IoQueuedRecursive:       copyBlkioEntry(cgs.BlkioStats.IoQueuedRecursive),
+			IoServiceTimeRecursive:  copyBlkioEntry(cgs.BlkioStats.IoServiceTimeRecursive),
+			IoWaitTimeRecursive:     copyBlkioEntry(cgs.BlkioStats.IoWaitTimeRecursive),
+			IoMergedRecursive:       copyBlkioEntry(cgs.BlkioStats.IoMergedRecursive),
+			IoTimeRecursive:         copyBlkioEntry(cgs.BlkioStats.IoTimeRecursive),
+			SectorsRecursive:        copyBlkioEntry(cgs.BlkioStats.SectorsRecursive),
+		}
+		cpu := cgs.CpuStats
+		s.CPUStats = types.CPUStats{
+			CPUUsage: types.CPUUsage{
+				TotalUsage:        cpu.CpuUsage.TotalUsage,
+				PercpuUsage:       cpu.CpuUsage.PercpuUsage,
+				UsageInKernelmode: cpu.CpuUsage.UsageInKernelmode,
+				UsageInUsermode:   cpu.CpuUsage.UsageInUsermode,
+			},
+			ThrottlingData: types.ThrottlingData{
+				Periods:          cpu.ThrottlingData.Periods,
+				ThrottledPeriods: cpu.ThrottlingData.ThrottledPeriods,
+				ThrottledTime:    cpu.ThrottlingData.ThrottledTime,
+			},
+		}
+		mem := cgs.MemoryStats.Usage
+		s.MemoryStats = types.MemoryStats{
+			Usage:    mem.Usage,
+			MaxUsage: mem.MaxUsage,
+			Stats:    cgs.MemoryStats.Stats,
+			Failcnt:  mem.Failcnt,
+		}
+	}
+	s.Read = time.Unix(int64(stats.Timestamp), 0)
+
+	return s, nil
 }

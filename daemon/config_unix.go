@@ -31,6 +31,7 @@ type Config struct {
 	RemappedRoot         string                   `json:"userns-remap,omitempty"`
 	CgroupParent         string                   `json:"cgroup-parent,omitempty"`
 	Ulimits              map[string]*units.Ulimit `json:"default-ulimits,omitempty"`
+	ContainerdAddr       string                   `json:"containerd,omitempty"`
 }
 
 // bridgeConfig stores all the bridge driver specific
@@ -81,6 +82,7 @@ func (config *Config) InstallFlags(cmd *flag.FlagSet, usageFn func(string) strin
 	cmd.StringVar(&config.CorsHeaders, []string{"-api-cors-header"}, "", usageFn("Set CORS headers in the remote API"))
 	cmd.StringVar(&config.CgroupParent, []string{"-cgroup-parent"}, "", usageFn("Set parent cgroup for all containers"))
 	cmd.StringVar(&config.RemappedRoot, []string{"-userns-remap"}, "", usageFn("User/Group setting for user namespaces"))
+	cmd.StringVar(&config.ContainerdAddr, []string{"-containerd"}, "", usageFn("Path to containerD socket"))
 
 	config.attachExperimentalFlags(cmd, usageFn)
 }

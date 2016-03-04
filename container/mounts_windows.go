@@ -1,5 +1,3 @@
-// +build windows
-
 package container
 
 // Mount contains information for a mount operation.

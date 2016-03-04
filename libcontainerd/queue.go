@@ -1,20 +1,6 @@
 package libcontainerd
 
-import (
-	"sync"
-
-	containerd "github.com/docker/containerd/api/grpc/types"
-)
-
-func systemPid(c *containerd.Container) uint32 {
-	var pid uint32
-	for _, p := range c.Processes {
-		if p.Pid == initProcessID {
-			pid = p.SystemPid
-		}
-	}
-	return pid
-}
+import "sync"
 
 type queue struct {
 	sync.Mutex

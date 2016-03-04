@@ -178,26 +178,18 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 		ec.NewNopInputPipe()
 	}
 
-	r := libcontainerd.Process{
+	p := libcontainerd.Process{
 		Args:     append([]string{ec.Entrypoint}, ec.Args...),
 		Terminal: ec.Tty,
 	}
 
-	if len(ec.User) > 0 {
-		uid, gid, additionalGids, err := getUser(c, ec.User)
-		if err != nil {
-			return err
-		}
-		r.User = &libcontainerd.User{
-			UID:            uid,
-			GID:            gid,
-			AdditionalGids: additionalGids,
-		}
+	if err := execSetUser(c, ec, &p); err != nil {
+		return nil
 	}
 
 	attachErr := container.AttachStreams(ec.StreamConfig, ec.OpenStdin, true, ec.Tty, cStdin, cStdout, cStderr, ec.DetachKeys)
 
-	if err := d.containerd.AddProcess(c.ID, name, r); err != nil {
+	if err := d.containerd.AddProcess(c.ID, name, p); err != nil {
 		return err
 	}
 

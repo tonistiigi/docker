@@ -30,19 +30,6 @@ const (
 	eventTimestampFilename    = "event.ts"
 )
 
-// Remote defines accesspoint to containerd grpc API.
-type Remote interface {
-	// Client returns a new Client instance connected with given Backend.
-	Client(Backend) (Client, error)
-	// Cleanup stops containerd if it was started by libcontainerd.
-	Cleanup()
-}
-
-// RemoteOption allows to configure paramters of remotes.
-type RemoteOption interface {
-	Apply(Remote) error
-}
-
 type remote struct {
 	sync.RWMutex
 	apiClient   containerd.APIClient

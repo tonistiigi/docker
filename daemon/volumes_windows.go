@@ -14,10 +14,10 @@ import (
 // of the configured mounts on the container to the oci mount structure
 // which will ultimately be passed into the exec driver during container creation.
 // It also ensures each of the mounts are lexographically sorted.
-func (daemon *Daemon) setupMounts(container *container.Container) ([]Mount, error) {
-	var mnts []Mount
-	for _, mount := range container.MountPoints { // type is volume.MountPoint
-		if err := daemon.lazyInitializeVolume(container.ID, mount); err != nil {
+func (daemon *Daemon) setupMounts(c *container.Container) ([]container.Mount, error) {
+	var mnts []container.Mount
+	for _, mount := range c.MountPoints { // type is volume.MountPoint
+		if err := daemon.lazyInitializeVolume(c.ID, mount); err != nil {
 			return nil, err
 		}
 		// If there is no source, take it from the volume path
@@ -28,7 +28,7 @@ func (daemon *Daemon) setupMounts(container *container.Container) ([]Mount, erro
 		if s == "" {
 			return nil, fmt.Errorf("No source for mount name '%s' driver %q destination '%s'", mount.Name, mount.Driver, mount.Destination)
 		}
-		mnts = append(mnts, Mount{
+		mnts = append(mnts, container.Mount{
 			Source:      s,
 			Destination: mount.Destination,
 			Writable:    mount.RW,

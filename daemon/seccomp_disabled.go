@@ -1,4 +1,4 @@
-// +build !seccomp
+// +build !seccomp,!windows
 
 package daemon
 

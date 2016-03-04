@@ -266,15 +266,7 @@ func (cli *DaemonCli) CmdDaemon(args ...string) error {
 
 	registryService := registry.NewService(cli.registryOptions)
 
-	remoteOpt := []libcontainerd.RemoteOption{
-		libcontainerd.WithDebugLog(cli.Config.Debug),
-	}
-	if cli.Config.ContainerdAddr != "" {
-		remoteOpt = append(remoteOpt, libcontainerd.WithRemoteAddr(cli.Config.ContainerdAddr))
-	} else {
-		remoteOpt = append(remoteOpt, libcontainerd.WithStartDaemon(true))
-	}
-	containerdRemote, err := libcontainerd.New(filepath.Join(cli.Config.ExecRoot, "libcontainerd"), remoteOpt...)
+	containerdRemote, err := libcontainerd.New(filepath.Join(cli.Config.ExecRoot, "libcontainerd"), cli.getLibcontainerdRemoteOptions()...)
 	if err != nil {
 		logrus.Error(err)
 	}

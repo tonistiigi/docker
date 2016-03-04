@@ -12,15 +12,15 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/graphdriver"
+	"github.com/docker/docker/daemon/graphdriver/windows"
 	"github.com/docker/docker/dockerversion"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
-	"github.com/docker/docker/reference"
-	containertypes "github.com/docker/engine-api/types/container"
-	// register the windows graph driver
-	"github.com/docker/docker/daemon/graphdriver/windows"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/system"
+	"github.com/docker/docker/reference"
+	"github.com/docker/engine-api/types"
+	containertypes "github.com/docker/engine-api/types/container"
 	"github.com/docker/libnetwork"
 	nwconfig "github.com/docker/libnetwork/config"
 	blkiodev "github.com/opencontainers/runc/libcontainer/configs"
@@ -259,4 +259,8 @@ func restoreCustomImage(is image.Store, ls layer.Store, rs reference.Store) erro
 
 func (daemon *Daemon) networkOptions(dconfig *Config) ([]nwconfig.Option, error) {
 	return nil, fmt.Errorf("Network controller config reload not aavailable on Windows yet")
+}
+
+func (daemon *Daemon) stats(c *container.Container) (*types.StatsJSON, error) {
+	return nil, nil
 }
