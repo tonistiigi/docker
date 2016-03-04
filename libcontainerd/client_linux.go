@@ -3,18 +3,90 @@ package libcontainerd
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 
+	containerd "github.com/docker/containerd/api/grpc/types"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/opencontainers/specs"
+	"golang.org/x/net/context"
 )
 
-// ContainerCreator defines methods for container creation.
-type ContainerCreator interface {
-	Create(id string, spec specs.LinuxSpec, options ...CreateOption) error
+func (c *client) AddProcess(id, processID string, specp Process) error {
+	c.lock(id)
+	defer c.unlock(id)
+	container, err := c.getContainer(id)
+	if err != nil {
+		return err
+	}
+
+	var spec specs.Spec
+	dt, err := ioutil.ReadFile(filepath.Join(container.dir, configFilename))
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(dt, &spec); err != nil {
+		return err
+	}
+
+	sp := spec.Process
+	sp.Args = specp.Args
+	sp.Terminal = specp.Terminal
+	if specp.Env != nil {
+		sp.Env = specp.Env
+	}
+	if specp.Cwd != nil {
+		sp.Cwd = *specp.Cwd
+	}
+	if specp.User != nil {
+		sp.User = specs.User{
+			UID:            specp.User.UID,
+			GID:            specp.User.GID,
+			AdditionalGids: specp.User.AdditionalGids,
+		}
+	}
+
+	p := container.newProcess(processID)
+
+	r := &containerd.AddProcessRequest{
+		Args:     sp.Args,
+		Cwd:      sp.Cwd,
+		Terminal: sp.Terminal,
+		Id:       id,
+		Env:      sp.Env,
+		User: &containerd.User{
+			Uid:            sp.User.UID,
+			Gid:            sp.User.GID,
+			AdditionalGids: sp.User.AdditionalGids,
+		},
+		Pid:    processID,
+		Stdin:  p.fifo(syscall.Stdin),
+		Stdout: p.fifo(syscall.Stdout),
+		Stderr: p.fifo(syscall.Stderr),
+	}
+
+	iopipe, err := p.openFifos()
+	if err != nil {
+		return err
+	}
+
+	if _, err := c.remote.apiClient.AddProcess(context.Background(), r); err != nil {
+		return err
+	}
+
+	container.processes[processID] = p
+
+	c.unlock(id)
+
+	if err := c.backend.AttachStreams(processID, *iopipe); err != nil {
+		return err
+	}
+	c.lock(id)
+
+	return nil
 }
 
 func (c *client) prepareBundleDir(uid, gid int) (string, error) {
@@ -42,7 +114,7 @@ func (c *client) prepareBundleDir(uid, gid int) (string, error) {
 	return p, nil
 }
 
-func (c *client) Create(id string, spec specs.LinuxSpec, options ...CreateOption) (err error) {
+func (c *client) Create(id string, spec Spec, options ...CreateOption) (err error) {
 	c.lock(id)
 	defer c.unlock(id)
 
@@ -55,7 +127,7 @@ func (c *client) Create(id string, spec specs.LinuxSpec, options ...CreateOption
 		}
 	}
 
-	uid, gid, err := getRootIDs(spec)
+	uid, gid, err := getRootIDs(specs.LinuxSpec(spec))
 	if err != nil {
 		return err
 	}
