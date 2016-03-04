@@ -260,7 +260,6 @@ func (container *Container) ExitOnNext() {
 	if container.restartManager != nil {
 		container.restartManager.Cancel()
 	}
-	container.HasBeenManuallyStopped = true
 }
 
 // HostConfigPath returns the path to the container's JSON hostconfig
@@ -597,7 +596,6 @@ func (container *Container) RestartManager(reset bool) restartmanager.RestartMan
 		container.RestartCount = 0
 	}
 	if container.restartManager == nil {
-		container.HasBeenManuallyStopped = false
 		container.restartManager = restartmanager.New(container.HostConfig.RestartPolicy)
 	}
 	return container.restartManager

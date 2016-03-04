@@ -71,6 +71,7 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 		}
 	case libcontainerd.StateStart, libcontainerd.StateRestore:
 		c.SetRunning(int(e.Pid), e.State == libcontainerd.StateStart)
+		c.HasBeenManuallyStopped = false
 		if err := c.ToDisk(); err != nil {
 			c.Reset(false)
 			return err
