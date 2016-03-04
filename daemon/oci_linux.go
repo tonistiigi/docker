@@ -581,7 +581,7 @@ func (daemon *Daemon) createSpec(c *container.Container) (*specs.LinuxSpec, erro
 	}
 
 	for _, ns := range s.Linux.Namespaces {
-		if ns.Type == "network" && ns.Path == "" {
+		if ns.Type == "network" && ns.Path == "" && !c.Config.NetworkDisabled {
 			target, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(os.Getpid()), "exe"))
 			if err != nil {
 				return nil, err
