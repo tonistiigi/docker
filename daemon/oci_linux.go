@@ -625,7 +625,9 @@ func (daemon *Daemon) createSpec(c *container.Container) (*libcontainerd.Spec, e
 	}
 
 	if apparmor.IsEnabled() {
-		if len(c.AppArmorProfile) > 0 {
+		if c.HostConfig.Privileged {
+			s.Linux.ApparmorProfile = "unconfined"
+		} else if len(c.AppArmorProfile) > 0 {
 			s.Linux.ApparmorProfile = c.AppArmorProfile
 		} else {
 			s.Linux.ApparmorProfile = "docker-default"

@@ -23,8 +23,9 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 	case libcontainerd.StateOOM:
 		daemon.LogContainerEvent(c, "oom")
 	case libcontainerd.StateExit:
-		c.Reset(true)
-		daemon.Cleanup(c)
+		c.Lock()
+		defer c.Unlock()
+		c.Reset(false)
 		c.SetStopped(&container.ExitStatus{
 			ExitCode:  int(e.ExitCode),
 			OOMKilled: e.OOMKilled,
@@ -33,13 +34,15 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 			"exitCode": strconv.Itoa(int(e.ExitCode)),
 		}
 		daemon.LogContainerEventWithAttributes(c, "die", attributes)
-
+		daemon.Cleanup(c)
 		// FIXME: here is race condition between two RUN instructions in Dockerfile
 		// because they share same runconfig and change image. Must be fixed
 		// in builder/builder.go
 		return c.ToDisk()
 	case libcontainerd.StateRestart:
-		c.Reset(true)
+		c.Lock()
+		defer c.Unlock()
+		c.Reset(false)
 		c.RestartCount++
 		c.SetRestarting(&container.ExitStatus{
 			ExitCode:  int(e.ExitCode),
@@ -51,6 +54,8 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 		daemon.LogContainerEventWithAttributes(c, "die", attributes)
 		return c.ToDisk()
 	case libcontainerd.StateExitProcess:
+		c.Lock()
+		defer c.Unlock()
 		if execConfig := c.ExecCommands.Get(e.ProcessID); execConfig != nil {
 			ec := int(e.ExitCode)
 			execConfig.ExitCode = &ec
@@ -67,7 +72,7 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 	case libcontainerd.StateStart, libcontainerd.StateRestore:
 		c.SetRunning(int(e.Pid), e.State == libcontainerd.StateStart)
 		if err := c.ToDisk(); err != nil {
-			c.Reset(true)
+			c.Reset(false)
 			return err
 		}
 	case libcontainerd.StatePause:
