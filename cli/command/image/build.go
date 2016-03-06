@@ -58,6 +58,7 @@ type buildOptions struct {
 	cacheFrom      []string
 	compress       bool
 	securityOpt    []string
+	netMode        string
 }
 
 // NewBuildCommand creates a new `docker build` command
@@ -105,6 +106,7 @@ func NewBuildCommand(dockerCli *command.DockerCli) *cobra.Command {
 	flags.StringSliceVar(&options.cacheFrom, "cache-from", []string{}, "Images to consider as cache sources")
 	flags.BoolVar(&options.compress, "compress", false, "Compress the build context using gzip")
 	flags.StringSliceVar(&options.securityOpt, "security-opt", []string{}, "Security options")
+	flags.StringVar(&options.netMode, "net", "default", "Connect a container to a network")
 
 	command.AddTrustedFlags(flags, true)
 
@@ -302,6 +304,7 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		Labels:         runconfigopts.ConvertKVStringsToMap(options.labels.GetAll()),
 		CacheFrom:      options.cacheFrom,
 		SecurityOpt:    options.securityOpt,
+		NetMode:        options.netMode,
 	}
 
 	response, err := dockerCli.Client().ImageBuild(ctx, body, buildOptions)
