@@ -90,7 +90,9 @@ func (daemon *Daemon) update(name string, hostConfig *container.HostConfig) erro
 		r.CpusetCpus = hostConfig.CpusetCpus
 		r.CpusetMems = hostConfig.CpusetMems
 		r.MemoryLimit = uint32(hostConfig.Memory)
-		r.MemorySwap = uint32(hostConfig.MemorySwap)
+		if hostConfig.MemorySwap > 0 {
+			r.MemorySwap = uint32(hostConfig.MemorySwap)
+		}
 		r.MemoryReservation = uint32(hostConfig.MemoryReservation)
 		r.KernelMemoryLimit = uint32(hostConfig.KernelMemory)
 		if err := daemon.containerd.UpdateResources(container.ID, r); err != nil {
