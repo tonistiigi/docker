@@ -7,6 +7,6 @@ import (
 )
 
 // No-op on Windows
-func execSetUser(c *container.Container, ec *exec.Config, p *libcontainerd.Process) error {
+func execSetPlatformOpt(c *container.Container, ec *exec.Config, p *libcontainerd.Process) error {
 	return nil
 }

@@ -8,7 +8,6 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
-	"github.com/docker/docker/daemon/caps"
 	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/docker/errors"
 	"github.com/docker/docker/libcontainerd"
@@ -184,12 +183,8 @@ func (d *Daemon) ContainerExecStart(name string, stdin io.ReadCloser, stdout io.
 		Terminal: ec.Tty,
 	}
 
-	if err := execSetUser(c, ec, &p); err != nil {
+	if err := execSetPlatformOpt(c, ec, &p); err != nil {
 		return nil
-	}
-
-	if ec.Privileged { // TODO(tonistiigi): combine execSetUser
-		p.Capabilities = caps.GetAllCapabilities()
 	}
 
 	attachErr := container.AttachStreams(ec.StreamConfig, ec.OpenStdin, true, ec.Tty, cStdin, cStdout, cStderr, ec.DetachKeys)

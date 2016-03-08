@@ -22,3 +22,6 @@ type Process struct {
 
 // Stats contains a stats properties from containerd.
 type Stats struct{} // TODO Windows - what to do with this? containerd.StatsResponse
+
+// Resources defines updatable container resource values.
+type Resources struct{}
