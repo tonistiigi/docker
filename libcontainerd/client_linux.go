@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,8 +73,8 @@ func (c *client) AddProcess(id, processID string, specp Process) error {
 		Capabilities:    sp.Capabilities,
 		ApparmorProfile: sp.ApparmorProfile,
 		SelinuxLabel:    sp.SelinuxLabel,
+		NoNewPrivileges: sp.NoNewPrivileges,
 	}
-	log.Printf("addprocess %#v", r)
 
 	iopipe, err := p.openFifos()
 	if err != nil {

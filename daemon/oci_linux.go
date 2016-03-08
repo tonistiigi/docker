@@ -632,6 +632,7 @@ func (daemon *Daemon) createSpec(c *container.Container) (*libcontainerd.Spec, e
 		s.Process.ApparmorProfile = appArmorProfile
 	}
 	s.Process.SelinuxLabel = c.GetProcessLabel()
+	s.Process.NoNewPrivileges = c.NoNewPrivileges
 
 	return (*libcontainerd.Spec)(&s), nil
 }
