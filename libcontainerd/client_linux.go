@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,9 @@ func (c *client) AddProcess(id, processID string, specp Process) error {
 			AdditionalGids: specp.User.AdditionalGids,
 		}
 	}
+	if specp.Capabilities != nil {
+		sp.Capabilities = specp.Capabilities
+	}
 
 	p := container.newProcess(processID)
 
@@ -63,11 +67,15 @@ func (c *client) AddProcess(id, processID string, specp Process) error {
 			Gid:            sp.User.GID,
 			AdditionalGids: sp.User.AdditionalGids,
 		},
-		Pid:    processID,
-		Stdin:  p.fifo(syscall.Stdin),
-		Stdout: p.fifo(syscall.Stdout),
-		Stderr: p.fifo(syscall.Stderr),
+		Pid:             processID,
+		Stdin:           p.fifo(syscall.Stdin),
+		Stdout:          p.fifo(syscall.Stdout),
+		Stderr:          p.fifo(syscall.Stderr),
+		Capabilities:    sp.Capabilities,
+		ApparmorProfile: sp.ApparmorProfile,
+		SelinuxLabel:    sp.SelinuxLabel,
 	}
+	log.Printf("addprocess %#v", r)
 
 	iopipe, err := p.openFifos()
 	if err != nil {
@@ -375,4 +383,25 @@ func (c *client) getContainer(id string) (*container, error) {
 		return nil, fmt.Errorf("invalid container: %s", id) // fixme: typed error
 	}
 	return container, nil
+}
+
+func (c *client) UpdateResources(id string, resources Resources) error {
+	c.lock(id)
+	defer c.unlock(id)
+	container, err := c.getContainer(id)
+	if err != nil {
+		return err
+	}
+	if container.systemPid == 0 {
+		return fmt.Errorf("No active process for container %s", id)
+	}
+	_, err = c.remote.apiClient.UpdateContainer(context.Background(), &containerd.UpdateContainerRequest{
+		Id:        id,
+		Pid:       initProcessID,
+		Resources: (*containerd.UpdateResource)(&resources),
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }

@@ -551,22 +551,10 @@ func (container *Container) IpcMounts() []Mount {
 	return mounts
 }
 
-// func updateCommand(c *execdriver.Command, resources containertypes.Resources) {
-// 	c.Resources.BlkioWeight = resources.BlkioWeight
-// 	c.Resources.CPUShares = resources.CPUShares
-// 	c.Resources.CPUPeriod = resources.CPUPeriod
-// 	c.Resources.CPUQuota = resources.CPUQuota
-// 	c.Resources.CpusetCpus = resources.CpusetCpus
-// 	c.Resources.CpusetMems = resources.CpusetMems
-// 	c.Resources.Memory = resources.Memory
-// 	c.Resources.MemorySwap = resources.MemorySwap
-// 	c.Resources.MemoryReservation = resources.MemoryReservation
-// 	c.Resources.KernelMemory = resources.KernelMemory
-// }
-
 // UpdateContainer updates configuration of a container.
 func (container *Container) UpdateContainer(hostConfig *containertypes.HostConfig) error {
 	container.Lock()
+	defer container.Unlock()
 
 	// update resources of container
 	resources := hostConfig.Resources
@@ -606,19 +594,8 @@ func (container *Container) UpdateContainer(hostConfig *containertypes.HostConfi
 	if hostConfig.RestartPolicy.Name != "" {
 		container.HostConfig.RestartPolicy = hostConfig.RestartPolicy
 	}
-	container.Unlock()
 
-	// If container is not running, update hostConfig struct is enough,
-	// resources will be updated when the container is started again.
-	// If container is running (including paused), we need to update
-	// the command so we can update configs to the real world.
-	if container.IsRunning() {
-		container.Lock()
-		// updateCommand(container.Command, *cResources)
-		container.Unlock()
-	}
-
-	if err := container.ToDiskLocking(); err != nil {
+	if err := container.ToDisk(); err != nil {
 		logrus.Errorf("Error saving updated container: %v", err)
 		return err
 	}

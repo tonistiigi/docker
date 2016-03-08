@@ -24,11 +24,11 @@ type Process struct {
 	// relative to the container's root.
 	Cwd *string `json:"cwd"`
 	// Capabilities are linux capabilities that are kept for the container.
-	// Capabilities []string `json:"capabilities,omitempty"`
-	// // ApparmorProfile specified the apparmor profile for the container.
-	// ApparmorProfile *string `json:"apparmorProfile,omitempty"`
-	// // SelinuxProcessLabel specifies the selinux context that the container process is run as.
-	// SelinuxLabel *string `json:"selinuxLabel,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	// ApparmorProfile specified the apparmor profile for the container.
+	ApparmorProfile *string `json:"apparmorProfile,omitempty"`
+	// SelinuxProcessLabel specifies the selinux context that the container process is run as.
+	SelinuxLabel *string `json:"selinuxLabel,omitempty"`
 }
 
 // Stats contains a stats properties from containerd.
@@ -37,3 +37,6 @@ type Stats containerd.StatsResponse
 // User specifies linux specific user and group information for the container's
 // main process.
 type User specs.User
+
+// Resources defines updatable container resource values.
+type Resources containerd.UpdateResource

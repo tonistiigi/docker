@@ -61,23 +61,24 @@ func DefaultSpec() specs.LinuxSpec {
 		},
 	}
 
+	s.Process.Capabilities = []string{
+		"CAP_CHOWN",
+		"CAP_DAC_OVERRIDE",
+		"CAP_FSETID",
+		"CAP_FOWNER",
+		"CAP_MKNOD",
+		"CAP_NET_RAW",
+		"CAP_SETGID",
+		"CAP_SETUID",
+		"CAP_SETFCAP",
+		"CAP_SETPCAP",
+		"CAP_NET_BIND_SERVICE",
+		"CAP_SYS_CHROOT",
+		"CAP_KILL",
+		"CAP_AUDIT_WRITE",
+	}
+
 	ls := specs.Linux{
-		Capabilities: []string{
-			"CAP_CHOWN",
-			"CAP_DAC_OVERRIDE",
-			"CAP_FSETID",
-			"CAP_FOWNER",
-			"CAP_MKNOD",
-			"CAP_NET_RAW",
-			"CAP_SETGID",
-			"CAP_SETUID",
-			"CAP_SETFCAP",
-			"CAP_SETPCAP",
-			"CAP_NET_BIND_SERVICE",
-			"CAP_SYS_CHROOT",
-			"CAP_KILL",
-			"CAP_AUDIT_WRITE",
-		},
 		Namespaces: []specs.Namespace{
 			{Type: "mount"},
 			{Type: "network"},
@@ -87,7 +88,7 @@ func DefaultSpec() specs.LinuxSpec {
 		},
 		Devices: []specs.Device{
 			{
-				Type:     'c',
+				Type:     "c",
 				Path:     "/dev/zero",
 				Major:    1,
 				Minor:    5,
@@ -96,7 +97,7 @@ func DefaultSpec() specs.LinuxSpec {
 				GID:      u32Ptr(0),
 			},
 			{
-				Type:     'c',
+				Type:     "c",
 				Path:     "/dev/null",
 				Major:    1,
 				Minor:    3,
@@ -105,7 +106,7 @@ func DefaultSpec() specs.LinuxSpec {
 				GID:      u32Ptr(0),
 			},
 			{
-				Type:     'c',
+				Type:     "c",
 				Path:     "/dev/urandom",
 				Major:    1,
 				Minor:    9,
@@ -114,7 +115,7 @@ func DefaultSpec() specs.LinuxSpec {
 				GID:      u32Ptr(0),
 			},
 			{
-				Type:     'c',
+				Type:     "c",
 				Path:     "/dev/random",
 				Major:    1,
 				Minor:    8,
@@ -123,7 +124,7 @@ func DefaultSpec() specs.LinuxSpec {
 				GID:      u32Ptr(0),
 			},
 			// {
-			// 	Type:     'c',
+			// 	Type:     "c",
 			// 	Path:     "/dev/tty",
 			// 	Major:    5,
 			// 	Minor:    0,
@@ -132,7 +133,7 @@ func DefaultSpec() specs.LinuxSpec {
 			// 	GID:      u32Ptr(0),
 			// },
 			// {
-			// 	Type:     'c',
+			// 	Type:     "c",
 			// 	Path:     "/dev/console",
 			// 	Major:    5,
 			// 	Minor:    1,
@@ -141,7 +142,7 @@ func DefaultSpec() specs.LinuxSpec {
 			// 	GID:      u32Ptr(0),
 			// },
 			{
-				Type:     'c',
+				Type:     "c",
 				Path:     "/dev/fuse",
 				Major:    10,
 				Minor:    229,
@@ -158,49 +159,49 @@ func DefaultSpec() specs.LinuxSpec {
 				},
 				{
 					Allow:  true,
-					Type:   rPtr('c'),
+					Type:   sPtr("c"),
 					Major:  iPtr(1),
 					Minor:  iPtr(5),
 					Access: sPtr("rwm"),
 				},
 				{
 					Allow:  true,
-					Type:   rPtr('c'),
+					Type:   sPtr("c"),
 					Major:  iPtr(1),
 					Minor:  iPtr(3),
 					Access: sPtr("rwm"),
 				},
 				{
 					Allow:  true,
-					Type:   rPtr('c'),
+					Type:   sPtr("c"),
 					Major:  iPtr(1),
 					Minor:  iPtr(9),
 					Access: sPtr("rwm"),
 				},
 				{
 					Allow:  true,
-					Type:   rPtr('c'),
+					Type:   sPtr("c"),
 					Major:  iPtr(1),
 					Minor:  iPtr(8),
 					Access: sPtr("rwm"),
 				},
 				{
 					Allow:  true,
-					Type:   rPtr('c'),
+					Type:   sPtr("c"),
 					Major:  iPtr(5),
 					Minor:  iPtr(0),
 					Access: sPtr("rwm"),
 				},
 				{
 					Allow:  true,
-					Type:   rPtr('c'),
+					Type:   sPtr("c"),
 					Major:  iPtr(5),
 					Minor:  iPtr(1),
 					Access: sPtr("rwm"),
 				},
 				{
 					Allow:  false,
-					Type:   rPtr('c'),
+					Type:   sPtr("c"),
 					Major:  iPtr(10),
 					Minor:  iPtr(229),
 					Access: sPtr("rwm"),

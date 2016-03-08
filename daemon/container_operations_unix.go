@@ -33,6 +33,9 @@ import (
 	"github.com/opencontainers/specs"
 )
 
+func u32Ptr(i int64) *uint32     { u := uint32(i); return &u }
+func fmPtr(i int64) *os.FileMode { fm := os.FileMode(i); return &fm }
+
 func (daemon *Daemon) setupLinkedContainers(container *container.Container) ([]string, error) {
 	var env []string
 	children := daemon.children(container)
@@ -920,7 +923,7 @@ func killProcessDirectly(container *container.Container) error {
 
 func specDevice(d *configs.Device) specs.Device {
 	return specs.Device{
-		Type:     d.Type,
+		Type:     string(d.Type),
 		Path:     d.Path,
 		Major:    d.Major,
 		Minor:    d.Minor,

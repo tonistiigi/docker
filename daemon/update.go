@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/engine-api/types/container"
 )
 
@@ -81,10 +82,21 @@ func (daemon *Daemon) update(name string, hostConfig *container.HostConfig) erro
 	// If container is running (including paused), we need to update configs
 	// to the real world.
 	if container.IsRunning() && !container.IsRestarting() {
-		// if err := daemon.execDriver.Update(container.Command); err != nil {
-		//  restoreConfig = true
-		// 	return errCannotUpdate(container.ID, err)
-		// }
+		var r libcontainerd.Resources
+		r.BlkioWeight = uint32(hostConfig.BlkioWeight)
+		r.CpuShares = uint32(hostConfig.CPUShares)
+		r.CpuPeriod = uint32(hostConfig.CPUPeriod)
+		r.CpuQuota = uint32(hostConfig.CPUQuota)
+		r.CpusetCpus = hostConfig.CpusetCpus
+		r.CpusetMems = hostConfig.CpusetMems
+		r.MemoryLimit = uint32(hostConfig.Memory)
+		r.MemorySwap = uint32(hostConfig.MemorySwap)
+		r.MemoryReservation = uint32(hostConfig.MemoryReservation)
+		r.KernelMemoryLimit = uint32(hostConfig.KernelMemory)
+		if err := daemon.containerd.UpdateResources(container.ID, r); err != nil {
+			restoreConfig = true
+			return errCannotUpdate(container.ID, err)
+		}
 	}
 
 	daemon.LogContainerEvent(container, "update")

@@ -206,12 +206,12 @@ func setCapabilities(s *specs.LinuxSpec, c *container.Container) error {
 	if c.HostConfig.Privileged {
 		caplist = caps.GetAllCapabilities()
 	} else {
-		caplist, err = caps.TweakCapabilities(s.Linux.Capabilities, c.HostConfig.CapAdd, c.HostConfig.CapDrop)
+		caplist, err = caps.TweakCapabilities(s.Process.Capabilities, c.HostConfig.CapAdd, c.HostConfig.CapDrop)
 		if err != nil {
 			return err
 		}
 	}
-	s.Linux.Capabilities = caplist
+	s.Process.Capabilities = caplist
 	return nil
 }
 
@@ -540,12 +540,10 @@ func (daemon *Daemon) populateCommonSpec(s *specs.Spec, c *container.Container) 
 	if len(cwd) == 0 {
 		cwd = "/"
 	}
-	s.Process = specs.Process{
-		Args:     append([]string{c.Path}, c.Args...),
-		Cwd:      cwd,
-		Env:      c.CreateDaemonEnvironment(linkedEnv),
-		Terminal: c.Config.Tty,
-	}
+	s.Process.Args = append([]string{c.Path}, c.Args...)
+	s.Process.Cwd = cwd
+	s.Process.Env = c.CreateDaemonEnvironment(linkedEnv)
+	s.Process.Terminal = c.Config.Tty
 	s.Hostname = c.FullHostname()
 
 	return nil
@@ -625,15 +623,15 @@ func (daemon *Daemon) createSpec(c *container.Container) (*libcontainerd.Spec, e
 	}
 
 	if apparmor.IsEnabled() {
+		appArmorProfile := "docker-default"
 		if c.HostConfig.Privileged {
-			s.Linux.ApparmorProfile = "unconfined"
+			appArmorProfile = "unconfined"
 		} else if len(c.AppArmorProfile) > 0 {
-			s.Linux.ApparmorProfile = c.AppArmorProfile
-		} else {
-			s.Linux.ApparmorProfile = "docker-default"
+			appArmorProfile = c.AppArmorProfile
 		}
+		s.Process.ApparmorProfile = appArmorProfile
 	}
-	s.Linux.SelinuxProcessLabel = c.GetProcessLabel()
+	s.Process.SelinuxLabel = c.GetProcessLabel()
 
 	return (*libcontainerd.Spec)(&s), nil
 }

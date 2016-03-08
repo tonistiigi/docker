@@ -51,6 +51,7 @@ type Client interface {
 	Restore(id string, options ...CreateOption) error
 	Stats(id string) (*Stats, error)
 	GetPidsForContainer(id string) ([]int, error)
+	UpdateResources(id string, resources Resources) error
 }
 
 // CreateOption allows to configure parameters of container creation.
