@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/Sirupsen/logrus"
 	containerd "github.com/docker/containerd/api/grpc/types"
 	"github.com/docker/docker/pkg/ioutils"
 	"golang.org/x/net/context"
@@ -59,6 +58,12 @@ func (p *process) openFifos(terminal bool) (*IOPipe, error) {
 	return io, nil
 }
 
+func (p *process) closeFifos(io *IOPipe) {
+	io.Stdin.Close()
+	closeReaderFifo(p.fifo(syscall.Stdout))
+	closeReaderFifo(p.fifo(syscall.Stderr))
+}
+
 type emptyReader struct{}
 
 func (r emptyReader) Read(b []byte) (int, error) {
@@ -68,9 +73,7 @@ func (r emptyReader) Read(b []byte) (int, error) {
 func openReaderFromFifo(fn string) io.Reader {
 	r, w := io.Pipe()
 	go func() {
-		logrus.Debugf(">open", fn)
 		stdoutf, err := os.OpenFile(fn, syscall.O_RDONLY, 0)
-		logrus.Debugf("<open", fn)
 		if err != nil {
 			r.CloseWithError(err)
 		}
@@ -78,8 +81,18 @@ func openReaderFromFifo(fn string) io.Reader {
 			r.CloseWithError(err)
 		}
 		w.Close()
+		stdoutf.Close()
 	}()
 	return r
+}
+
+// closeReaderFifo closes fifo that may be blocked on open by opening the write side.
+func closeReaderFifo(fn string) {
+	f, err := os.OpenFile(fn, syscall.O_WRONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return
+	}
+	f.Close()
 }
 
 func (p *process) fifo(index int) string {

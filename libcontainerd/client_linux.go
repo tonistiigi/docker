@@ -76,6 +76,7 @@ func (c *client) AddProcess(id, processID string, specp Process) error {
 	}
 
 	if _, err := c.remote.apiClient.AddProcess(context.Background(), r); err != nil {
+		p.closeFifos(iopipe)
 		return err
 	}
 

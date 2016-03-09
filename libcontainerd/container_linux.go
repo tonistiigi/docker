@@ -76,6 +76,7 @@ func (c *container) start() error {
 
 	resp, err := c.client.remote.apiClient.CreateContainer(context.Background(), r)
 	if err != nil {
+		c.closeFifos(iopipe)
 		return err
 	}
 
