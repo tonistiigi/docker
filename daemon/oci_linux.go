@@ -62,6 +62,9 @@ func setResources(s *specs.LinuxSpec, r containertypes.Resources) error {
 			ThrottleWriteIOPSDevice: writeIOpsDevice,
 		},
 		DisableOOMKiller: r.OomKillDisable,
+		Pids: &specs.Pids{
+			Limit: &r.PidsLimit,
+		},
 	}
 
 	if s.Linux.Resources != nil && len(s.Linux.Resources.Devices) > 0 {
