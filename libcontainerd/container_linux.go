@@ -1,6 +1,8 @@
 package libcontainerd
 
 import (
+	"encoding/json"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -8,6 +10,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	containerd "github.com/docker/containerd/api/grpc/types"
 	"github.com/docker/docker/restartmanager"
+	"github.com/opencontainers/specs"
 	"golang.org/x/net/context"
 )
 
@@ -40,8 +43,24 @@ func (c *container) clean() error {
 	return nil
 }
 
+func (c *container) spec() (*specs.Spec, error) {
+	var spec specs.Spec
+	dt, err := ioutil.ReadFile(filepath.Join(c.dir, configFilename))
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(dt, &spec); err != nil {
+		return nil, err
+	}
+	return &spec, nil
+}
+
 func (c *container) start() error {
-	iopipe, err := c.openFifos()
+	spec, err := c.spec()
+	if err != nil {
+		return nil
+	}
+	iopipe, err := c.openFifos(spec.Process.Terminal)
 	if err != nil {
 		return err
 	}

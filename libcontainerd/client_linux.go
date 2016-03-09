@@ -3,7 +3,6 @@ package libcontainerd
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,15 +23,10 @@ func (c *client) AddProcess(id, processID string, specp Process) error {
 		return err
 	}
 
-	var spec specs.Spec
-	dt, err := ioutil.ReadFile(filepath.Join(container.dir, configFilename))
+	spec, err := container.spec()
 	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(dt, &spec); err != nil {
-		return err
-	}
-
 	sp := spec.Process
 	sp.Args = specp.Args
 	sp.Terminal = specp.Terminal
@@ -76,7 +70,7 @@ func (c *client) AddProcess(id, processID string, specp Process) error {
 		NoNewPrivileges: sp.NoNewPrivileges,
 	}
 
-	iopipe, err := p.openFifos()
+	iopipe, err := p.openFifos(sp.Terminal)
 	if err != nil {
 		return err
 	}
@@ -211,7 +205,14 @@ func (c *client) restore(cont *containerd.Container, options ...CreateOption) (e
 	container := c.newContainer(cont.BundlePath, options...)
 	container.systemPid = systemPid(cont)
 
-	iopipe, err := container.openFifos()
+	var terminal bool
+	for _, p := range cont.Processes {
+		if p.Pid == initProcessID {
+			terminal = p.Terminal
+		}
+	}
+
+	iopipe, err := container.openFifos(terminal)
 	if err != nil {
 		return err
 	}

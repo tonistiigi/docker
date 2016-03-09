@@ -6,9 +6,9 @@ import (
 	"io"
 	"runtime"
 	"strconv"
-	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/runconfig"
 )
@@ -59,7 +59,7 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 			ec := int(e.ExitCode)
 			execConfig.ExitCode = &ec
 			execConfig.Running = false
-			time.Sleep(100 * time.Millisecond) // FIXME(tonistiigi)
+			execConfig.Wait()
 			if err := execConfig.CloseStreams(); err != nil {
 				logrus.Errorf("%s: %s", c.ID, err)
 			}
@@ -90,8 +90,10 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 func (daemon *Daemon) AttachStreams(id string, iop libcontainerd.IOPipe) error {
 	var s *runconfig.StreamConfig
 	c := daemon.containers.Get(id)
+	var ec *exec.Config
+	var err error
 	if c == nil {
-		ec, err := daemon.getExecConfig(id)
+		ec, err = daemon.getExecConfig(id)
 		if err != nil {
 			return fmt.Errorf("no such exec/container: %s", id)
 		}
@@ -116,17 +118,24 @@ func (daemon *Daemon) AttachStreams(id string, iop libcontainerd.IOPipe) error {
 
 		}
 	}
-	go func() {
-		// FIXME: remove log
-		logrus.Debugf(">stdout %s", id)
-		n, err := io.Copy(s.Stdout(), iop.Stdout)
-		logrus.Debugf("<stdout %s %d %v", id, n, err)
-	}()
-	go func() {
-		logrus.Debugf(">stderr %s", id)
-		n, err := io.Copy(s.Stderr(), iop.Stderr)
-		logrus.Debugf("<stderr %s %d %v", id, n, err)
-	}()
+
+	copy := func(w io.Writer, r io.Reader) {
+		if ec != nil {
+			ec.Add(1)
+		}
+		go func() {
+			_, err := io.Copy(w, r)
+			if ec != nil {
+				ec.Done()
+			}
+			if err != nil {
+				logrus.Errorf("%v stream copy error: %v", id, err)
+			}
+		}()
+	}
+
+	copy(s.Stdout(), iop.Stdout)
+	copy(s.Stderr(), iop.Stderr)
 
 	return nil
 }

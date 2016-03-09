@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/Sirupsen/logrus"
 	containerd "github.com/docker/containerd/api/grpc/types"
 	"github.com/docker/docker/pkg/ioutils"
 	"golang.org/x/net/context"
@@ -18,7 +19,7 @@ var fdNames = map[int]string{
 	syscall.Stderr: "stderr",
 }
 
-func (p *process) openFifos() (*IOPipe, error) {
+func (p *process) openFifos(terminal bool) (*IOPipe, error) {
 	bundleDir := p.dir
 	if err := os.MkdirAll(bundleDir, 0700); err != nil {
 		return nil, err
@@ -39,7 +40,11 @@ func (p *process) openFifos() (*IOPipe, error) {
 	}
 
 	io.Stdout = openReaderFromFifo(p.fifo(syscall.Stdout))
-	io.Stderr = openReaderFromFifo(p.fifo(syscall.Stderr))
+	if !terminal {
+		io.Stderr = openReaderFromFifo(p.fifo(syscall.Stderr))
+	} else {
+		io.Stderr = emptyReader{}
+	}
 
 	io.Stdin = ioutils.NewWriteCloserWrapper(stdinf, func() error {
 		stdinf.Close()
@@ -54,10 +59,18 @@ func (p *process) openFifos() (*IOPipe, error) {
 	return io, nil
 }
 
+type emptyReader struct{}
+
+func (r emptyReader) Read(b []byte) (int, error) {
+	return 0, io.EOF
+}
+
 func openReaderFromFifo(fn string) io.Reader {
 	r, w := io.Pipe()
 	go func() {
+		logrus.Debugf(">open", fn)
 		stdoutf, err := os.OpenFile(fn, syscall.O_RDONLY, 0)
+		logrus.Debugf("<open", fn)
 		if err != nil {
 			r.CloseWithError(err)
 		}
