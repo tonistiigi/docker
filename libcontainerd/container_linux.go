@@ -21,24 +21,24 @@ type container struct {
 	oom bool
 }
 
-func (c *container) clean() error {
-	if _, err := os.Lstat(c.dir); err != nil {
+func (ctr *container) clean() error {
+	if _, err := os.Lstat(ctr.dir); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		return err
 	}
 
-	syscall.Unmount(filepath.Join(c.dir, "rootfs"), syscall.MNT_DETACH) // ignore error
-	if err := os.RemoveAll(c.dir); err != nil {
+	syscall.Unmount(filepath.Join(ctr.dir, "rootfs"), syscall.MNT_DETACH) // ignore error
+	if err := os.RemoveAll(ctr.dir); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *container) spec() (*specs.Spec, error) {
+func (ctr *container) spec() (*specs.Spec, error) {
 	var spec specs.Spec
-	dt, err := ioutil.ReadFile(filepath.Join(c.dir, configFilename))
+	dt, err := ioutil.ReadFile(filepath.Join(ctr.dir, configFilename))
 	if err != nil {
 		return nil, err
 	}
@@ -48,85 +48,85 @@ func (c *container) spec() (*specs.Spec, error) {
 	return &spec, nil
 }
 
-func (c *container) start() error {
-	spec, err := c.spec()
+func (ctr *container) start() error {
+	spec, err := ctr.spec()
 	if err != nil {
 		return nil
 	}
-	iopipe, err := c.openFifos(spec.Process.Terminal)
+	iopipe, err := ctr.openFifos(spec.Process.Terminal)
 	if err != nil {
 		return err
 	}
 
 	r := &containerd.CreateContainerRequest{
-		Id:         c.id,
-		BundlePath: c.dir,
-		Stdin:      c.fifo(syscall.Stdin),
-		Stdout:     c.fifo(syscall.Stdout),
-		Stderr:     c.fifo(syscall.Stderr),
+		Id:         ctr.containerID,
+		BundlePath: ctr.dir,
+		Stdin:      ctr.fifo(syscall.Stdin),
+		Stdout:     ctr.fifo(syscall.Stdout),
+		Stderr:     ctr.fifo(syscall.Stderr),
 	}
-	c.client.appendContainer(c)
+	ctr.client.appendContainer(ctr)
 
-	resp, err := c.client.remote.apiClient.CreateContainer(context.Background(), r)
+	resp, err := ctr.client.remote.apiClient.CreateContainer(context.Background(), r)
 	if err != nil {
-		c.closeFifos(iopipe)
+		ctr.closeFifos(iopipe)
 		return err
 	}
 
 	// FIXME: is there a race for closing stdin before container starts
-	if err := c.client.backend.AttachStreams(c.id, *iopipe); err != nil {
+	if err := ctr.client.backend.AttachStreams(ctr.containerID, *iopipe); err != nil {
 		return err
 	}
-	c.systemPid = systemPid(resp.Container)
+	ctr.systemPid = systemPid(resp.Container)
 
-	return c.client.backend.StateChanged(c.id, StateInfo{
+	return ctr.client.backend.StateChanged(ctr.containerID, StateInfo{
 		State: StateStart,
-		Pid:   c.systemPid,
+		Pid:   ctr.systemPid,
 	})
 }
 
-func (c *container) newProcess(friendlyName string) *process {
+func (ctr *container) newProcess(friendlyName string) *process {
 	return &process{
-		dir: c.dir,
+		dir: ctr.dir,
 		processCommon: processCommon{
-			id:           c.id,
+			containerID:  ctr.containerID,
 			friendlyName: friendlyName,
-			client:       c.client,
+			client:       ctr.client,
 		},
 	}
 }
 
-func (c *container) handleEvent(e *containerd.Event) error {
-	c.client.lock(c.id)
-	defer c.client.unlock(c.id)
+func (ctr *container) handleEvent(e *containerd.Event) error {
+	ctr.client.lock(ctr.containerID)
+	defer ctr.client.unlock(ctr.containerID)
 	switch e.Type {
 	case StateExit, StatePause, StateResume, StateOOM:
 		st := StateInfo{
 			State:     e.Type,
 			ExitCode:  e.Status,
-			OOMKilled: e.Type == StateExit && c.oom,
+			OOMKilled: e.Type == StateExit && ctr.oom,
 		}
 		if e.Type == StateOOM {
-			c.oom = true
+			ctr.oom = true
 		}
-		if e.Type == StateExit && e.Pid != initFriendlyName {
+		if e.Type == StateExit && e.Pid != InitFriendlyName {
 			st.ProcessID = e.Pid
 			st.State = StateExitProcess
 		}
-		if st.State == StateExit && c.restartManager != nil {
-			restart, wait, err := c.restartManager.ShouldRestart(e.Status)
+		if st.State == StateExit && ctr.restartManager != nil {
+			restart, wait, err := ctr.restartManager.ShouldRestart(e.Status)
 			if err != nil {
 				logrus.Error(err)
 			} else if restart {
 				st.State = StateRestart
-				c.restarting = true
+				ctr.restarting = true
 				go func() {
 					err := <-wait
-					c.restarting = false
+					ctr.restarting = false
 					if err != nil {
 						logrus.Error(err)
 					} else {
-						c.start()
+						ctr.start()
 					}
 				}()
 			}
@@ -136,16 +136,16 @@ func (c *container) handleEvent(e *containerd.Event) error {
 		// We need to do so here in case the Message Handler decides to restart it.
 		if st.State == StateExit {
 			if os.Getenv("LIBCONTAINERD_NOCLEAN") != "1" {
-				c.clean()
+				ctr.clean()
 			}
-			c.client.deleteContainer(e.Id)
+			ctr.client.deleteContainer(e.Id)
 		}
-		c.client.q.append(e.Id, func() {
-			if err := c.client.backend.StateChanged(e.Id, st); err != nil {
+		ctr.client.q.append(e.Id, func() {
+			if err := ctr.client.backend.StateChanged(e.Id, st); err != nil {
 				logrus.Error(err)
 			}
 			if e.Type == StatePause || e.Type == StateResume {
-				c.pauseMonitor.handle(e.Type)
+				ctr.pauseMonitor.handle(e.Type)
 			}
 		})
 

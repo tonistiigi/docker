@@ -83,27 +83,53 @@ func (daemon *Daemon) createSpec(c *container.Container) (*libcontainerd.Spec, e
 	}
 	s.Windows.LayerPaths = layerPaths
 
-	// In s.Windows.Networking (TP4 back compat)
-	parts := strings.SplitN(string(c.HostConfig.NetworkMode), ":", 2)
-	switch parts[0] {
-	case "none":
-	case "default", "": // empty string to support existing containers
-		if !c.Config.NetworkDisabled {
-			s.Windows.Networking = &windowsoci.Networking{
-				MacAddress:   c.Config.MacAddress,
-				Bridge:       daemon.configStore.bridgeConfig.Iface,
-				PortBindings: c.HostConfig.PortBindings,
+	// In s.Windows.Networking (TP5+ libnetwork way of doing things)
+	// Connect all the libnetwork allocated networks to the container
+	var epList []string
+	if c.NetworkSettings != nil {
+		for n := range c.NetworkSettings.Networks {
+			sn, err := daemon.FindNetwork(n)
+			if err != nil {
+				continue
+			}
+
+			ep, err := c.GetEndpointInNetwork(sn)
+			if err != nil {
+				continue
+			}
+
+			data, err := ep.DriverInfo()
+			if err != nil {
+				continue
+			}
+			if data["hnsid"] != nil {
+				epList = append(epList, data["hnsid"].(string))
 			}
 		}
-	default:
-		return nil, fmt.Errorf("invalid network mode: %s", c.HostConfig.NetworkMode)
+		s.Windows.Networking = &windowsoci.Networking{
+			EndpointList: epList,
+		}
 	}
 
-	// In s.Windows.Networking
-	// @darrenstahlmsft Fix this when this PR is rebased on master 3/11
-	//	s.Windows.Network = &windowsoci.Networking{
-	//		EndpointList: ???? something????,
-	//	}
+	// In s.Windows.Networking (TP4 back compat)
+	// TODO Windows: Post TP4 - Remove this along with definitions from spec
+	// and changes to libcontainerd to not read these fields.
+	if daemon.netController == nil {
+		parts := strings.SplitN(string(c.HostConfig.NetworkMode), ":", 2)
+		switch parts[0] {
+		case "none":
+		case "default", "": // empty string to support existing containers
+			if !c.Config.NetworkDisabled {
+				s.Windows.Networking = &windowsoci.Networking{
+					MacAddress:   c.Config.MacAddress,
+					Bridge:       daemon.configStore.bridgeConfig.Iface,
+					PortBindings: c.HostConfig.PortBindings,
+				}
+			}
+		default:
+			return nil, fmt.Errorf("invalid network mode: %s", c.HostConfig.NetworkMode)
+		}
+	}
 
 	// In s.Windows.Resources
 	// @darrenstahlmsft implement these resources

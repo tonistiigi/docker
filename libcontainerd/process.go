@@ -6,10 +6,10 @@ package libcontainerd
 type processCommon struct {
 	client *client
 
-	// id is the Container ID
-	id string
+	// containerID is the Container ID
+	containerID string
 
-	// friendlyName is an identifier for the process (or `initFriendlyName`
+	// friendlyName is an identifier for the process (or `InitFriendlyName`
 	// for the first process)
 	friendlyName string
 

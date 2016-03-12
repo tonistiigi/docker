@@ -30,10 +30,10 @@ func hostIDFromMap(id uint32, mp []specs.IDMapping) int {
 	return 0
 }
 
-func systemPid(c *containerd.Container) uint32 {
+func systemPid(ctr *containerd.Container) uint32 {
 	var pid uint32
-	for _, p := range c.Processes {
-		if p.Pid == initFriendlyName {
+	for _, p := range ctr.Processes {
+		if p.Pid == InitFriendlyName {
 			pid = p.SystemPid
 		}
 	}

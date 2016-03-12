@@ -1,8 +1,6 @@
 package libcontainerd
 
-import (
-	"github.com/docker/docker/libcontainerd/windowsoci"
-)
+import "github.com/docker/docker/libcontainerd/windowsoci"
 
 // Spec is the base configuration for the container.
 type Spec windowsoci.WindowsSpec

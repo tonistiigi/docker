@@ -24,10 +24,10 @@ type client struct {
 	q      queue
 }
 
-func (c *client) AddProcess(id, processID string, specp Process) error {
-	c.lock(id)
-	defer c.unlock(id)
-	container, err := c.getContainer(id)
+func (clnt *client) AddProcess(containerID, processFriendlyName string, specp Process) error {
+	clnt.lock(containerID)
+	defer clnt.unlock(containerID)
+	container, err := clnt.getContainer(containerID)
 	if err != nil {
 		return err
 	}
@@ -56,20 +56,20 @@ func (c *client) AddProcess(id, processID string, specp Process) error {
 		sp.Capabilities = specp.Capabilities
 	}
 
-	p := container.newProcess(processID)
+	p := container.newProcess(processFriendlyName)
 
 	r := &containerd.AddProcessRequest{
 		Args:     sp.Args,
 		Cwd:      sp.Cwd,
 		Terminal: sp.Terminal,
-		Id:       id,
+		Id:       containerID,
 		Env:      sp.Env,
 		User: &containerd.User{
 			Uid:            sp.User.UID,
 			Gid:            sp.User.GID,
 			AdditionalGids: sp.User.AdditionalGids,
 		},
-		Pid:             processID,
+		Pid:             processFriendlyName,
 		Stdin:           p.fifo(syscall.Stdin),
 		Stdout:          p.fifo(syscall.Stdout),
 		Stderr:          p.fifo(syscall.Stderr),
@@ -84,25 +84,25 @@ func (c *client) AddProcess(id, processID string, specp Process) error {
 		return err
 	}
 
-	if _, err := c.remote.apiClient.AddProcess(context.Background(), r); err != nil {
+	if _, err := clnt.remote.apiClient.AddProcess(context.Background(), r); err != nil {
 		p.closeFifos(iopipe)
 		return err
 	}
 
-	container.processes[processID] = p
+	container.processes[processFriendlyName] = p
 
-	c.unlock(id)
+	clnt.unlock(containerID)
 
-	if err := c.backend.AttachStreams(processID, *iopipe); err != nil {
+	if err := clnt.backend.AttachStreams(processFriendlyName, *iopipe); err != nil {
 		return err
 	}
-	c.lock(id)
+	clnt.lock(containerID)
 
 	return nil
 }
 
-func (c *client) prepareBundleDir(uid, gid int) (string, error) {
-	root, err := filepath.Abs(c.remote.stateDir)
+func (clnt *client) prepareBundleDir(uid, gid int) (string, error) {
+	root, err := filepath.Abs(clnt.remote.stateDir)
 	if err != nil {
 		return "", err
 	}
@@ -126,16 +126,16 @@ func (c *client) prepareBundleDir(uid, gid int) (string, error) {
 	return p, nil
 }
 
-func (c *client) Create(id string, spec Spec, options ...CreateOption) (err error) {
-	c.lock(id)
-	defer c.unlock(id)
+func (clnt *client) Create(containerID string, spec Spec, options ...CreateOption) (err error) {
+	clnt.lock(containerID)
+	defer clnt.unlock(containerID)
 
-	if c, err := c.getContainer(id); err == nil {
-		if c.restarting { // docker doesn't actually call start if restart is on atm, but probably should in the future
-			c.restartManager.Cancel()
-			c.clean()
+	if ctr, err := clnt.getContainer(containerID); err == nil {
+		if ctr.restarting { // docker doesn't actually call start if restart is on atm, but probably should in the future
+			ctr.restartManager.Cancel()
+			ctr.clean()
 		} else {
-			return fmt.Errorf("Container %s is aleady active", id)
+			return fmt.Errorf("Container %s is aleady active", containerID)
 		}
 	}
 
@@ -143,12 +143,12 @@ func (c *client) Create(id string, spec Spec, options ...CreateOption) (err erro
 	if err != nil {
 		return err
 	}
-	dir, err := c.prepareBundleDir(uid, gid)
+	dir, err := clnt.prepareBundleDir(uid, gid)
 	if err != nil {
 		return err
 	}
 
-	container := c.newContainer(filepath.Join(dir, id), options...)
+	container := clnt.newContainer(filepath.Join(dir, containerID), options...)
 	if err := container.clean(); err != nil {
 		return err
 	}
@@ -156,7 +156,7 @@ func (c *client) Create(id string, spec Spec, options ...CreateOption) (err erro
 	defer func() {
 		if err != nil {
 			container.clean()
-			c.deleteContainer(id)
+			clnt.deleteContainer(containerID)
 		}
 	}()
 
@@ -182,43 +182,43 @@ func (c *client) Create(id string, spec Spec, options ...CreateOption) (err erro
 	return container.start()
 }
 
-func (c *client) Signal(id string, sig int) error {
-	c.lock(id)
-	defer c.unlock(id)
-	if _, err := c.getContainer(id); err != nil {
+func (clnt *client) Signal(containerID string, sig int) error {
+	clnt.lock(containerID)
+	defer clnt.unlock(containerID)
+	if _, err := clnt.getContainer(containerID); err != nil {
 		return err
 	}
-	_, err := c.remote.apiClient.Signal(context.Background(), &containerd.SignalRequest{
-		Id:     id,
-		Pid:    initFriendlyName,
+	_, err := clnt.remote.apiClient.Signal(context.Background(), &containerd.SignalRequest{
+		Id:     containerID,
+		Pid:    InitFriendlyName,
 		Signal: uint32(sig),
 	})
 	return err
 }
 
-func (c *client) restore(cont *containerd.Container, options ...CreateOption) (err error) {
-	c.lock(cont.Id)
-	defer c.unlock(cont.Id)
+func (clnt *client) restore(cont *containerd.Container, options ...CreateOption) (err error) {
+	clnt.lock(cont.Id)
+	defer clnt.unlock(cont.Id)
 
 	logrus.Debugf("restore container %s state %s", cont.Id, cont.Status)
 
-	id := cont.Id
-	if _, err := c.getContainer(id); err == nil {
-		return fmt.Errorf("container %s is aleady active", id)
+	containerID := cont.Id
+	if _, err := clnt.getContainer(containerID); err == nil {
+		return fmt.Errorf("container %s is aleady active", containerID)
 	}
 
 	defer func() {
 		if err != nil {
-			c.deleteContainer(cont.Id)
+			clnt.deleteContainer(cont.Id)
 		}
 	}()
 
-	container := c.newContainer(cont.BundlePath, options...)
+	container := clnt.newContainer(cont.BundlePath, options...)
 	container.systemPid = systemPid(cont)
 
 	var terminal bool
 	for _, p := range cont.Processes {
-		if p.Pid == initFriendlyName {
+		if p.Pid == InitFriendlyName {
 			terminal = p.Terminal
 		}
 	}
@@ -228,13 +228,13 @@ func (c *client) restore(cont *containerd.Container, options ...CreateOption) (e
 		return err
 	}
 
-	if err := c.backend.AttachStreams(id, *iopipe); err != nil {
+	if err := clnt.backend.AttachStreams(containerID, *iopipe); err != nil {
 		return err
 	}
 
-	c.appendContainer(container)
+	clnt.appendContainer(container)
 
-	err = c.backend.StateChanged(id, StateInfo{
+	err = clnt.backend.StateChanged(containerID, StateInfo{
 		State: StateRestore,
 		Pid:   container.systemPid,
 	})
@@ -243,10 +243,10 @@ func (c *client) restore(cont *containerd.Container, options ...CreateOption) (e
 		return err
 	}
 
-	if event, ok := c.remote.pastEvents[id]; ok {
+	if event, ok := clnt.remote.pastEvents[containerID]; ok {
 		// This should only be a pause or resume event
 		if event.Type == StatePause || event.Type == StateResume {
-			return c.backend.StateChanged(id, StateInfo{
+			return clnt.backend.StateChanged(containerID, StateInfo{
 				State: event.Type,
 				Pid:   container.systemPid,
 			})
@@ -258,86 +258,86 @@ func (c *client) restore(cont *containerd.Container, options ...CreateOption) (e
 	return nil
 }
 
-func (c *client) Resize(id, processID string, width, height int) error {
-	c.lock(id)
-	defer c.unlock(id)
-	if _, err := c.getContainer(id); err != nil {
+func (clnt *client) Resize(containerID, processFriendlyName string, width, height int) error {
+	clnt.lock(containerID)
+	defer clnt.unlock(containerID)
+	if _, err := clnt.getContainer(containerID); err != nil {
 		return err
 	}
-	_, err := c.remote.apiClient.UpdateProcess(context.Background(), &containerd.UpdateProcessRequest{
-		Id:     id,
-		Pid:    processID,
+	_, err := clnt.remote.apiClient.UpdateProcess(context.Background(), &containerd.UpdateProcessRequest{
+		Id:     containerID,
+		Pid:    processFriendlyName,
 		Width:  uint32(width),
 		Height: uint32(height),
 	})
 	return err
 }
 
-func (c *client) Pause(id string) error {
-	return c.setState(id, StatePause)
+func (clnt *client) Pause(containerID string) error {
+	return clnt.setState(containerID, StatePause)
 }
 
-func (c *client) setState(id, state string) error {
-	c.lock(id)
-	container, err := c.getContainer(id)
+func (clnt *client) setState(containerID, state string) error {
+	clnt.lock(containerID)
+	container, err := clnt.getContainer(containerID)
 	if err != nil {
-		c.unlock(id)
+		clnt.unlock(containerID)
 		return err
 	}
 	if container.systemPid == 0 {
-		c.unlock(id)
-		return fmt.Errorf("No active process for container %s", id)
+		clnt.unlock(containerID)
+		return fmt.Errorf("No active process for container %s", containerID)
 	}
 	st := "running"
 	if state == StatePause {
 		st = "paused"
 	}
 	chstate := make(chan struct{})
-	_, err = c.remote.apiClient.UpdateContainer(context.Background(), &containerd.UpdateContainerRequest{
-		Id:     id,
-		Pid:    initFriendlyName,
+	_, err = clnt.remote.apiClient.UpdateContainer(context.Background(), &containerd.UpdateContainerRequest{
+		Id:     containerID,
+		Pid:    InitFriendlyName,
 		Status: st,
 	})
 	if err != nil {
-		c.unlock(id)
+		clnt.unlock(containerID)
 		return err
 	}
 	container.pauseMonitor.append(state, chstate)
-	c.unlock(id)
+	clnt.unlock(containerID)
 	<-chstate
 	return nil
 }
 
-func (c *client) Resume(id string) error {
-	return c.setState(id, StateResume)
+func (clnt *client) Resume(containerID string) error {
+	return clnt.setState(containerID, StateResume)
 }
 
-func (c *client) Stats(id string) (*Stats, error) {
-	resp, err := c.remote.apiClient.Stats(context.Background(), &containerd.StatsRequest{id})
+func (clnt *client) Stats(containerID string) (*Stats, error) {
+	resp, err := clnt.remote.apiClient.Stats(context.Background(), &containerd.StatsRequest{containerID})
 	if err != nil {
 		return nil, err
 	}
 	return (*Stats)(resp), nil
 }
 
-func (c *client) Restore(id string, options ...CreateOption) error {
-	cont, err := c.getContainerdContainer(id)
+func (clnt *client) Restore(containerID string, options ...CreateOption) error {
+	cont, err := clnt.getContainerdContainer(containerID)
 	if err == nil {
-		if err := c.restore(cont, options...); err != nil {
-			logrus.Errorf("error restoring %s: %v", id, err)
+		if err := clnt.restore(cont, options...); err != nil {
+			logrus.Errorf("error restoring %s: %v", containerID, err)
 		}
 		return nil
 	}
-	c.lock(id)
-	defer c.unlock(id)
+	clnt.lock(containerID)
+	defer clnt.unlock(containerID)
 
 	var exitCode uint32
-	if event, ok := c.remote.pastEvents[id]; ok {
+	if event, ok := clnt.remote.pastEvents[containerID]; ok {
 		exitCode = event.Status
-		delete(c.remote.pastEvents, id)
+		delete(clnt.remote.pastEvents, containerID)
 	}
 
-	err = c.backend.StateChanged(id, StateInfo{
+	err = clnt.backend.StateChanged(containerID, StateInfo{
 		State:    StateExit,
 		ExitCode: exitCode,
 	})
@@ -345,7 +345,7 @@ func (c *client) Restore(id string, options ...CreateOption) error {
 	// Unmount and delete the bundle folder
 	if mts, err := mount.GetMounts(); err == nil {
 		for _, mts := range mts {
-			if strings.HasSuffix(mts.Mountpoint, id+"/rootfs") {
+			if strings.HasSuffix(mts.Mountpoint, containerID+"/rootfs") {
 				if err := syscall.Unmount(mts.Mountpoint, syscall.MNT_DETACH); err == nil {
 					os.RemoveAll(strings.TrimSuffix(mts.Mountpoint, "/rootfs"))
 				}
@@ -357,8 +357,8 @@ func (c *client) Restore(id string, options ...CreateOption) error {
 	return err
 }
 
-func (c *client) GetPidsForContainer(id string) ([]int, error) {
-	cont, err := c.getContainerdContainer(id)
+func (clnt *client) GetPidsForContainer(containerID string) ([]int, error) {
+	cont, err := clnt.getContainerdContainer(containerID)
 	if err != nil {
 		return nil, err
 	}
@@ -369,28 +369,28 @@ func (c *client) GetPidsForContainer(id string) ([]int, error) {
 	return pids, nil
 }
 
-func (c *client) getContainerdContainer(id string) (*containerd.Container, error) {
-	resp, err := c.remote.apiClient.State(context.Background(), &containerd.StateRequest{Id: id})
+func (clnt *client) getContainerdContainer(containerID string) (*containerd.Container, error) {
+	resp, err := clnt.remote.apiClient.State(context.Background(), &containerd.StateRequest{Id: containerID})
 	if err != nil {
 		return nil, err
 	}
 	for _, cont := range resp.Containers {
-		if cont.Id == id {
+		if cont.Id == containerID {
 			return cont, nil
 		}
 	}
 	return nil, fmt.Errorf("invalid state response")
 }
 
-func (c *client) newContainer(dir string, options ...CreateOption) *container {
+func (clnt *client) newContainer(dir string, options ...CreateOption) *container {
 	container := &container{
 		containerCommon: containerCommon{
 			process: process{
 				dir: dir,
 				processCommon: processCommon{
-					id:           filepath.Base(dir),
-					client:       c,
-					friendlyName: initFriendlyName,
+					containerID:  filepath.Base(dir),
+					client:       clnt,
+					friendlyName: InitFriendlyName,
 				},
 			},
 			processes: make(map[string]*process),
@@ -404,19 +404,19 @@ func (c *client) newContainer(dir string, options ...CreateOption) *container {
 	return container
 }
 
-func (c *client) UpdateResources(id string, resources Resources) error {
-	c.lock(id)
-	defer c.unlock(id)
-	container, err := c.getContainer(id)
+func (clnt *client) UpdateResources(containerID string, resources Resources) error {
+	clnt.lock(containerID)
+	defer clnt.unlock(containerID)
+	container, err := clnt.getContainer(containerID)
 	if err != nil {
 		return err
 	}
 	if container.systemPid == 0 {
-		return fmt.Errorf("No active process for container %s", id)
+		return fmt.Errorf("No active process for container %s", containerID)
 	}
-	_, err = c.remote.apiClient.UpdateContainer(context.Background(), &containerd.UpdateContainerRequest{
-		Id:        id,
-		Pid:       initFriendlyName,
+	_, err = clnt.remote.apiClient.UpdateContainer(context.Background(), &containerd.UpdateContainerRequest{
+		Id:        containerID,
+		Pid:       InitFriendlyName,
 		Resources: (*containerd.UpdateResource)(&resources),
 	})
 	if err != nil {

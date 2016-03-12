@@ -58,10 +58,8 @@ type natSettings struct {
 
 type networkConnection struct {
 	NetworkName string
-	// TODO Windows: Add Ip4Address string to this structure when hooked up in
-	// docker CLI. This is present in the HCS JSON handler.
-	EnableNat bool
-	Nat       natSettings
+	//EnableNat bool
+	Nat natSettings
 }
 type networkSettings struct {
 	MacAddress string
@@ -94,6 +92,7 @@ type containerInit struct {
 	MappedDirectories       []mappedDir // List of mapped directories (volumes/mounts)
 	SandboxPath             string      // Location of unmounted sandbox (used for Hyper-V containers, not Windows Server containers)
 	HvPartition             bool        // True if it a Hyper-V Container
+	EndpointList            []string    //List of endpoints to be attached to container
 }
 
 // defaultOwner is a tag passed to HCS to allow it to differentiate between
@@ -101,19 +100,22 @@ type containerInit struct {
 // of docker.
 const defaultOwner = "docker"
 
-func (c *client) Create(id string, spec Spec, options ...CreateOption) error {
-
-	logrus.Debugln("LCD Create() with spec", spec)
+func (clnt *client) Create(containerID string, spec Spec, options ...CreateOption) error {
+	logrus.Debugln("LCD client.Create() with spec", spec)
 
 	cu := &containerInit{
 		SystemType: "Container",
-		Name:       id,
+		Name:       containerID,
 		Owner:      defaultOwner,
 
 		VolumePath:              spec.Root.Path,
 		IgnoreFlushesDuringBoot: spec.Windows.FirstStart,
 		LayerFolderPath:         spec.Windows.LayerFolder,
 		HostName:                spec.Hostname,
+	}
+
+	if spec.Windows.Networking != nil {
+		cu.EndpointList = spec.Windows.Networking.EndpointList
 	}
 
 	if spec.Windows.Resources != nil && spec.Windows.Resources.CPU != nil {
@@ -153,7 +155,8 @@ func (c *client) Create(id string, spec Spec, options ...CreateOption) error {
 	}
 	cu.MappedDirectories = mds
 
-	if spec.Windows.Networking != nil {
+	// TODO Windows: vv START OF TP4 BLOCK OF CODE. REMOVE ONCE TP4 IS NO LONGER SUPPORTED
+	if hcsshim.IsTP4() && spec.Windows.Networking != nil {
 		// Enumerate through the port bindings specified by the user and convert
 		// them into the internal structure matching the JSON blob that can be
 		// understood by the HCS.
@@ -214,6 +217,7 @@ func (c *client) Create(id string, spec Spec, options ...CreateOption) error {
 	} else {
 		logrus.Debugln("No network interface")
 	}
+	// TODO Windows: ^^ END OF TP4 BLOCK OF CODE. REMOVE ONCE TP4 IS NO LONGER SUPPORTED
 
 	configurationb, err := json.Marshal(cu)
 	if err != nil {
@@ -226,13 +230,13 @@ func (c *client) Create(id string, spec Spec, options ...CreateOption) error {
 	// The following a workaround for Windows TP4 which has a networking
 	// bug which fairly frequently returns an error. Back off and retry.
 	if !hcsshim.IsTP4() {
-		if err := hcsshim.CreateComputeSystem(id, configuration); err != nil {
+		if err := hcsshim.CreateComputeSystem(containerID, configuration); err != nil {
 			return err
 		}
 	} else {
 		maxAttempts := 5
 		for i := 0; i < maxAttempts; i++ {
-			err = hcsshim.CreateComputeSystem(id, configuration)
+			err = hcsshim.CreateComputeSystem(containerID, configuration)
 			if err == nil {
 				break
 			}
@@ -253,106 +257,126 @@ func (c *client) Create(id string, spec Spec, options ...CreateOption) error {
 		}
 	}
 
-	container := c.newContainer(id, spec.Process, options...)
+	container := clnt.newContainer(containerID, spec.Process, options...)
 
 	defer func() {
 		if err != nil {
-			c.deleteContainer(id)
+			clnt.deleteContainer(containerID)
 		}
 	}()
 
-	logrus.Debugf("Finished Create() id=%s, calling container.start()", id)
+	logrus.Debugf("Finished Create() id=%s, calling container.start()", containerID)
 	return container.start()
 }
 
 // TODO Implement
-func (c *client) AddProcess(id, processID string, specp Process) error {
+func (clnt *client) AddProcess(containerID, processID string, specp Process) error {
 	return errors.New("Not yet implemented on Windows")
 }
 
-func (c *client) Signal(id string, sig int) error {
+func (clnt *client) Signal(containerID string, sig int) error {
 	var (
 		cont *container
 		err  error
 	)
 
 	// Get the container as we need it to find the pid of the process.
-	c.lock(id)
-	defer c.unlock(id)
-	if cont, err = c.getContainer(id); err != nil {
+	clnt.lock(containerID)
+	defer clnt.unlock(containerID)
+	if cont, err = clnt.getContainer(containerID); err != nil {
 		return err
 	}
 
-	logrus.Debugf("lcd: Signal() id=%s sig=%d pid=%d", id, sig, cont.systemPid)
-
-	context := fmt.Sprintf("kill: sig=%d pid=%d", sig, cont.systemPid)
+	logrus.Debugf("lcd: Signal() containerID=%s sig=%d pid=%d", containerID, sig, cont.systemPid)
+	context := fmt.Sprintf("Signal: sig=%d pid=%d", sig, cont.systemPid)
 
 	if syscall.Signal(sig) == syscall.SIGKILL {
 		// Terminate the compute system
-		if err := hcsshim.TerminateComputeSystem(id, hcsshim.TimeoutInfinite, context); err != nil {
-			logrus.Errorf("Failed to terminate %s - %q", id, err)
+		if err := hcsshim.TerminateComputeSystem(containerID, hcsshim.TimeoutInfinite, context); err != nil {
+			logrus.Errorf("Failed to terminate %s - %q", containerID, err)
 		}
 
 	} else {
 		// Terminate Process
-		if err = hcsshim.TerminateProcessInComputeSystem(id, cont.systemPid); err != nil {
-			logrus.Warnf("Failed to terminate pid %d in %s: %q", cont.systemPid, id, err)
+		if err = hcsshim.TerminateProcessInComputeSystem(containerID, cont.systemPid); err != nil {
+			logrus.Warnf("Failed to terminate pid %d in %s: %q", cont.systemPid, containerID, err)
 			// Ignore errors
 			err = nil
 		}
 
 		// Shutdown the compute system
-		if err := hcsshim.ShutdownComputeSystem(id, hcsshim.TimeoutInfinite, context); err != nil {
-			logrus.Errorf("Failed to shutdown %s - %q", id, err)
+		if err := hcsshim.ShutdownComputeSystem(containerID, hcsshim.TimeoutInfinite, context); err != nil {
+			logrus.Errorf("Failed to shutdown %s - %q", containerID, err)
 		}
 	}
-
 	return nil
 }
 
+func (clnt *client) Resize(containerID, processFriendlyName string, width, height int) error {
+	// Get the libcontainerd container object
+	clnt.lock(containerID)
+	defer clnt.unlock(containerID)
+	cont, err := clnt.getContainer(containerID)
+	if err != nil {
+		return err
+	}
+
+	if processFriendlyName == InitFriendlyName {
+		logrus.Debugln("Resizing systemPID in", containerID, cont.process.systemPid)
+		return hcsshim.ResizeConsoleInComputeSystem(containerID, cont.process.systemPid, height, width)
+	}
+
+	// TODO Windows containerd.
+	// A. All this looking up is extremely inefficient. Old code passed the PID in directly
+	// B. This needs revisiting for exec'd processes. Currently only sending the systemPID
+	//	for _, p := range cont.processes {
+	//		if p.friendlyName == processFriendlyName {
+	//			//if p.ociProcess.Terminal {
+	//			logrus.Debugln("Resizing exec'd process", containerID, p.systemPid)
+	//			return hcsshim.ResizeConsoleInComputeSystem(containerID, p.systemPid, height, width)
+	//			//}
+	//		}
+	//	}
+
+	return err
+
+}
+
+func (clnt *client) Pause(containerID string) error {
+	return errors.New("Windows: Containers cannot be paused")
+}
+
+func (clnt *client) Resume(containerID string) error {
+	return errors.New("Windows: Containers cannot be paused")
+}
+
+func (clnt *client) Stats(containerID string) (*Stats, error) {
+	return nil, errors.New("Windows: Stats not implemented")
+}
+
 // TODO Implement
-func (c *client) Resize(id, processID string, width, height int) error {
+func (clnt *client) Restore(containerID string, options ...CreateOption) error {
 	return errors.New("Not yet implemented on Windows")
 }
 
-// TODO Implement (error on Windows)
-func (c *client) Pause(id string) error {
-	return errors.New("Not yet implemented on Windows")
+func (clnt *client) GetPidsForContainer(containerID string) ([]int, error) {
+	return nil, errors.New("GetPidsForContainer: GetPidsForContainer() not implemented")
 }
 
-// TODO Implement
-func (c *client) Resume(id string) error {
-	return errors.New("Not yet implemented on Windows")
+func (clnt *client) UpdateResources(containerID string, resources Resources) error {
+	// Updating resource isn't supported on Windows
+	// but we should return nil for enabling updating container
+	return nil
 }
 
-// TODO Implement (error on Windows for now)
-func (c *client) Stats(id string) (*Stats, error) {
-	return nil, errors.New("Not yet implemented on Windows")
-}
-
-// TODO Implement
-func (c *client) Restore(id string, options ...CreateOption) error {
-	return errors.New("Not yet implemented on Windows")
-}
-
-// TODO Implement
-func (c *client) GetPidsForContainer(id string) ([]int, error) {
-	return nil, errors.New("Not yet implemented on Windows")
-}
-
-// TODO Implement
-func (c *client) UpdateResources(id string, resources Resources) error {
-	return errors.New("Not yet implemented on Windows")
-}
-
-func (c *client) newContainer(id string, p windowsoci.Process, options ...CreateOption) *container {
+func (clnt *client) newContainer(containerID string, p windowsoci.Process, options ...CreateOption) *container {
 	container := &container{
 		containerCommon: containerCommon{
 			process: process{
 				processCommon: processCommon{
-					id:           id,
-					client:       c,
-					friendlyName: initFriendlyName,
+					containerID:  containerID,
+					client:       clnt,
+					friendlyName: InitFriendlyName,
 				},
 				ociProcess: p,
 			},

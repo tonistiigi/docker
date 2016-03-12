@@ -29,7 +29,6 @@ import (
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/docker/listeners"
 	"github.com/docker/docker/dockerversion"
-	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/opts"
 	"github.com/docker/docker/pkg/jsonlog"
 	flag "github.com/docker/docker/pkg/mflag"
@@ -266,11 +265,7 @@ func (cli *DaemonCli) CmdDaemon(args ...string) error {
 
 	registryService := registry.NewService(cli.Config.ServiceOptions)
 
-	containerdRemote, err := libcontainerd.New(filepath.Join(cli.Config.ExecRoot, "libcontainerd"), cli.getLibcontainerdRemoteOptions()...)
-	if err != nil {
-		logrus.Error(err)
-	}
-
+	containerdRemote := cli.getContainerdRemote()
 	d, err := daemon.NewDaemon(cli.Config, registryService, containerdRemote)
 	if err != nil {
 		if pfile != nil {

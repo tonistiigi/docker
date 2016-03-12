@@ -56,7 +56,7 @@ func (p *process) openFifos(terminal bool) (*IOPipe, error) {
 	io.Stdin = ioutils.NewWriteCloserWrapper(stdinf, func() error {
 		stdinf.Close()
 		_, err := p.client.remote.apiClient.UpdateProcess(context.Background(), &containerd.UpdateProcessRequest{
-			Id:         p.id,
+			Id:         p.containerID,
 			Pid:        p.friendlyName,
 			CloseStdin: true,
 		})

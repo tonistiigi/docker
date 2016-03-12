@@ -4,6 +4,7 @@ package windowsoci
 
 import (
 	"fmt"
+
 	"github.com/docker/go-connections/nat"
 )
 
@@ -52,7 +53,7 @@ type Windows struct {
 
 // Process contains information to start a specific application inside the container.
 type Process struct {
-	// Terminal creates an interactive terminal for the container.
+	// Terminal indicates if stderr should NOT be attached for the container.
 	Terminal bool `json:"terminal"`
 	// ConsoleSize contains the initial h,w of the console size
 	InitialConsoleSize [2]int `json:"-"`

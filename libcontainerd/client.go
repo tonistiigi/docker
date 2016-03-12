@@ -16,43 +16,43 @@ type clientCommon struct {
 	sync.Mutex                              // lock for containerMutexes map access
 }
 
-func (c *client) lock(id string) {
-	c.Lock()
-	if _, ok := c.containerMutexes[id]; !ok {
-		c.containerMutexes[id] = &sync.Mutex{}
+func (clnt *client) lock(containerID string) {
+	clnt.Lock()
+	if _, ok := clnt.containerMutexes[containerID]; !ok {
+		clnt.containerMutexes[containerID] = &sync.Mutex{}
 	}
-	c.Unlock()
-	c.containerMutexes[id].Lock()
+	clnt.Unlock()
+	clnt.containerMutexes[containerID].Lock()
 }
 
-func (c *client) unlock(id string) {
-	c.Lock()
-	if l, ok := c.containerMutexes[id]; ok {
+func (clnt *client) unlock(containerID string) {
+	clnt.Lock()
+	if l, ok := clnt.containerMutexes[containerID]; ok {
 		l.Unlock()
 	} else {
-		logrus.Warnf("unlock of non-existing mutex: %s", id)
+		logrus.Warnf("unlock of non-existing mutex: %s", containerID)
 	}
-	c.Unlock()
+	clnt.Unlock()
 }
 
-// must hold a lock for c.ID
-func (c *client) appendContainer(cont *container) {
-	c.mapMutex.Lock()
-	c.containers[cont.id] = cont
-	c.mapMutex.Unlock()
+// must hold a lock for cont.containerID
+func (clnt *client) appendContainer(cont *container) {
+	clnt.mapMutex.Lock()
+	clnt.containers[cont.containerID] = cont
+	clnt.mapMutex.Unlock()
 }
-func (c *client) deleteContainer(friendlyName string) {
-	c.mapMutex.Lock()
-	delete(c.containers, friendlyName)
-	c.mapMutex.Unlock()
+func (clnt *client) deleteContainer(friendlyName string) {
+	clnt.mapMutex.Lock()
+	delete(clnt.containers, friendlyName)
+	clnt.mapMutex.Unlock()
 }
 
-func (c *client) getContainer(id string) (*container, error) {
-	c.mapMutex.RLock()
-	container, ok := c.containers[id]
-	defer c.mapMutex.RUnlock()
+func (clnt *client) getContainer(containerID string) (*container, error) {
+	clnt.mapMutex.RLock()
+	container, ok := clnt.containers[containerID]
+	defer clnt.mapMutex.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("invalid container: %s", id) // fixme: typed error
+		return nil, fmt.Errorf("invalid container: %s", containerID) // fixme: typed error
 	}
 	return container, nil
 }

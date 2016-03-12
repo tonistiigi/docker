@@ -1,35 +1,28 @@
 package libcontainerd
 
-import (
-	//	"github.com/Sirupsen/logrus"
-	"sync"
-
-	"github.com/Sirupsen/logrus"
-)
+import "sync"
 
 type remote struct {
-	sync.RWMutex
-	stateDir string
-	clients  []*client
 }
 
-// TODO JJH - Still sure this can be entirely factored out on Windows.
-// Need to play some more with the code.
-
-// New creates a fresh instance of libcontainerd remote.
-func New(stateDir string, options ...RemoteOption) (Remote, error) {
-	logrus.Debugf("libcontainerd remote new() in stateDir %v", stateDir)
-	r := &remote{
-		stateDir: stateDir,
+func (r *remote) Client(b Backend) (Client, error) {
+	c := &client{
+		clientCommon: clientCommon{
+			backend:          b,
+			containerMutexes: make(map[string]*sync.Mutex),
+			containers:       make(map[string]*container),
+		},
 	}
-	return r, nil
+	return c, nil
 }
 
-// TODO Windows containerd. To implement
+// Cleanup is a no-op on Windows. It is here to implement the same interface
+// to meet compilation requirements.
 func (r *remote) Cleanup() {
 }
 
-// setClientPlatformFields sets up platform specific fields in a client
-// structure. This is a no-op on Windows
-func (r *remote) setClientPlatformFields(client *client) {
+// New creates a fresh instance of libcontainerd remote. This is largely
+// a no-op on Windows.
+func New(unused1 string, unused2 ...RemoteOption) (Remote, error) {
+	return &remote{}, nil
 }

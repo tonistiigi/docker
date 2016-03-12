@@ -156,10 +156,20 @@ func (r *remote) Cleanup() {
 	os.Remove(filepath.Join(r.stateDir, containerdSockFilename))
 }
 
-// setClientPlatformFields sets up platform specific fields in a client
-// structure.
-func (r *remote) setClientPlatformFields(client *client) {
-	client.remote = r
+func (r *remote) Client(b Backend) (Client, error) {
+	c := &client{
+		clientCommon: clientCommon{
+			backend:          b,
+			containerMutexes: make(map[string]*sync.Mutex),
+			containers:       make(map[string]*container),
+		},
+		remote: r,
+	}
+
+	r.Lock()
+	r.clients = append(r.clients, c)
+	r.Unlock()
+	return c, nil
 }
 
 func (r *remote) updateEventTimestamp(t time.Time) {
