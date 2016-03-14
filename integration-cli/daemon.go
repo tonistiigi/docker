@@ -142,6 +142,7 @@ func (d *Daemon) StartWithLogFile(out *os.File, providedArgs ...string) error {
 
 	args := append(d.GlobalFlags,
 		d.Command,
+		"--containerd", "/var/run/docker/libcontainerd/containerd.sock",
 		"--graph", d.root,
 		"--pidfile", fmt.Sprintf("%s/docker.pid", d.folder),
 		fmt.Sprintf("--userland-proxy=%t", d.userlandProxy),
@@ -243,6 +244,25 @@ func (d *Daemon) StartWithBusybox(arg ...string) error {
 		return err
 	}
 	return d.LoadBusybox()
+}
+
+// Kill will send a SIGKILL to the daemon
+func (d *Daemon) Kill() error {
+	if d.cmd == nil || d.wait == nil {
+		return errors.New("daemon not started")
+	}
+
+	defer func() {
+		d.logFile.Close()
+		d.cmd = nil
+	}()
+
+	if err := d.cmd.Process.Kill(); err != nil {
+		d.c.Logf("Could not kill daemon: %v", err)
+		return err
+	}
+
+	return nil
 }
 
 // Stop will send a SIGINT every second and wait for the daemon to stop.

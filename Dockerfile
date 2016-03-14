@@ -249,6 +249,25 @@ RUN set -x \
 	&& go build -v -o /usr/local/bin/rsrc github.com/akavel/rsrc \
 	&& rm -rf "$GOPATH"
 
+# Install runc
+ENV RUNC_COMMIT docker-containerd-integration-5
+RUN set -x \
+	&& export GOPATH="$(mktemp -d)" \
+  && git clone git://github.com/tonistiigi/runc.git "$GOPATH/src/github.com/opencontainers/runc" \
+	&& cd "$GOPATH/src/github.com/opencontainers/runc" \
+	&& git checkout -q "$RUNC_COMMIT" \
+	&& make BUILDTAGS="seccomp apparmor selinux" && make install
+
+
+# Install containerd
+ENV CONTAINERD_COMMIT docker-containerd-integration-5
+RUN set -x \
+	&& export GOPATH="$(mktemp -d)" \
+  && git clone git://github.com/tonistiigi/containerd.git "$GOPATH/src/github.com/docker/containerd" \
+	&& cd "$GOPATH/src/github.com/docker/containerd" \
+	&& git checkout -q "$CONTAINERD_COMMIT" \
+	&& make && make install
+
 # Wrap all commands in the "docker-in-docker" script to allow nested containers
 ENTRYPOINT ["hack/dind"]
 

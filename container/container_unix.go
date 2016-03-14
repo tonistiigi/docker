@@ -11,7 +11,6 @@ import (
 	"syscall"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/daemon/execdriver"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/symlink"
 	"github.com/docker/docker/pkg/system"
@@ -39,20 +38,24 @@ type Container struct {
 	NoNewPrivileges bool
 }
 
+// ExitStatus provides exit reasons for a container.
+type ExitStatus struct {
+	// The exit code with which the container exited.
+	ExitCode int
+
+	// Whether the container encountered an OOM.
+	OOMKilled bool
+}
+
 // CreateDaemonEnvironment returns the list of all environment variables given the list of
 // environment variables related to links.
 // Sets PATH, HOSTNAME and if container.Config.Tty is set: TERM.
 // The defaults set here do not override the values in container.Config.Env
 func (container *Container) CreateDaemonEnvironment(linkedEnv []string) []string {
-	// if a domain name was specified, append it to the hostname (see #7851)
-	fullHostname := container.Config.Hostname
-	if container.Config.Domainname != "" {
-		fullHostname = fmt.Sprintf("%s.%s", fullHostname, container.Config.Domainname)
-	}
 	// Setup environment
 	env := []string{
 		"PATH=" + system.DefaultPathEnv,
-		"HOSTNAME=" + fullHostname,
+		"HOSTNAME=" + container.FullHostname(),
 	}
 	if container.Config.Tty {
 		env = append(env, "TERM=xterm")
@@ -62,7 +65,6 @@ func (container *Container) CreateDaemonEnvironment(linkedEnv []string) []string
 	// we need to replace the 'env' keys where they match and append anything
 	// else.
 	env = utils.ReplaceOrAppendEnvValues(env, container.Config.Env)
-
 	return env
 }
 
@@ -93,10 +95,7 @@ func (container *Container) BuildHostnameFile() error {
 	}
 	container.HostnamePath = hostnamePath
 
-	if container.Config.Domainname != "" {
-		return ioutil.WriteFile(container.HostnamePath, []byte(fmt.Sprintf("%s.%s\n", container.Config.Hostname, container.Config.Domainname)), 0644)
-	}
-	return ioutil.WriteFile(container.HostnamePath, []byte(container.Config.Hostname+"\n"), 0644)
+	return ioutil.WriteFile(container.HostnamePath, []byte(container.FullHostname()+"\n"), 0644)
 }
 
 // appendNetworkMounts appends any network mounts to the array of mount points passed in
@@ -112,8 +111,8 @@ func appendNetworkMounts(container *Container, volumeMounts []volume.MountPoint)
 }
 
 // NetworkMounts returns the list of network mounts.
-func (container *Container) NetworkMounts() []execdriver.Mount {
-	var mounts []execdriver.Mount
+func (container *Container) NetworkMounts() []Mount {
+	var mounts []Mount
 	shared := container.HostConfig.NetworkMode.IsContainer()
 	if container.ResolvConfPath != "" {
 		if _, err := os.Stat(container.ResolvConfPath); err != nil {
@@ -124,7 +123,7 @@ func (container *Container) NetworkMounts() []execdriver.Mount {
 			if m, exists := container.MountPoints["/etc/resolv.conf"]; exists {
 				writable = m.RW
 			}
-			mounts = append(mounts, execdriver.Mount{
+			mounts = append(mounts, Mount{
 				Source:      container.ResolvConfPath,
 				Destination: "/etc/resolv.conf",
 				Writable:    writable,
@@ -141,7 +140,7 @@ func (container *Container) NetworkMounts() []execdriver.Mount {
 			if m, exists := container.MountPoints["/etc/hostname"]; exists {
 				writable = m.RW
 			}
-			mounts = append(mounts, execdriver.Mount{
+			mounts = append(mounts, Mount{
 				Source:      container.HostnamePath,
 				Destination: "/etc/hostname",
 				Writable:    writable,
@@ -158,7 +157,7 @@ func (container *Container) NetworkMounts() []execdriver.Mount {
 			if m, exists := container.MountPoints["/etc/hosts"]; exists {
 				writable = m.RW
 			}
-			mounts = append(mounts, execdriver.Mount{
+			mounts = append(mounts, Mount{
 				Source:      container.HostsPath,
 				Destination: "/etc/hosts",
 				Writable:    writable,
@@ -233,37 +232,26 @@ func (container *Container) UnmountIpcMounts(unmount func(pth string) error) {
 }
 
 // IpcMounts returns the list of IPC mounts
-func (container *Container) IpcMounts() []execdriver.Mount {
-	var mounts []execdriver.Mount
+func (container *Container) IpcMounts() []Mount {
+	var mounts []Mount
 
 	if !container.HasMountFor("/dev/shm") {
 		label.SetFileLabel(container.ShmPath, container.MountLabel)
-		mounts = append(mounts, execdriver.Mount{
+		mounts = append(mounts, Mount{
 			Source:      container.ShmPath,
 			Destination: "/dev/shm",
 			Writable:    true,
 			Propagation: volume.DefaultPropagationMode,
 		})
 	}
-	return mounts
-}
 
-func updateCommand(c *execdriver.Command, resources containertypes.Resources) {
-	c.Resources.BlkioWeight = resources.BlkioWeight
-	c.Resources.CPUShares = resources.CPUShares
-	c.Resources.CPUPeriod = resources.CPUPeriod
-	c.Resources.CPUQuota = resources.CPUQuota
-	c.Resources.CpusetCpus = resources.CpusetCpus
-	c.Resources.CpusetMems = resources.CpusetMems
-	c.Resources.Memory = resources.Memory
-	c.Resources.MemorySwap = resources.MemorySwap
-	c.Resources.MemoryReservation = resources.MemoryReservation
-	c.Resources.KernelMemory = resources.KernelMemory
+	return mounts
 }
 
 // UpdateContainer updates configuration of a container.
 func (container *Container) UpdateContainer(hostConfig *containertypes.HostConfig) error {
 	container.Lock()
+	defer container.Unlock()
 
 	// update resources of container
 	resources := hostConfig.Resources
@@ -303,19 +291,8 @@ func (container *Container) UpdateContainer(hostConfig *containertypes.HostConfi
 	if hostConfig.RestartPolicy.Name != "" {
 		container.HostConfig.RestartPolicy = hostConfig.RestartPolicy
 	}
-	container.Unlock()
 
-	// If container is not running, update hostConfig struct is enough,
-	// resources will be updated when the container is started again.
-	// If container is running (including paused), we need to update
-	// the command so we can update configs to the real world.
-	if container.IsRunning() {
-		container.Lock()
-		updateCommand(container.Command, *cResources)
-		container.Unlock()
-	}
-
-	if err := container.ToDiskLocking(); err != nil {
+	if err := container.ToDisk(); err != nil {
 		logrus.Errorf("Error saving updated container: %v", err)
 		return err
 	}
@@ -409,10 +386,10 @@ func copyOwnership(source, destination string) error {
 }
 
 // TmpfsMounts returns the list of tmpfs mounts
-func (container *Container) TmpfsMounts() []execdriver.Mount {
-	var mounts []execdriver.Mount
+func (container *Container) TmpfsMounts() []Mount {
+	var mounts []Mount
 	for dest, data := range container.HostConfig.Tmpfs {
-		mounts = append(mounts, execdriver.Mount{
+		mounts = append(mounts, Mount{
 			Source:      "tmpfs",
 			Destination: dest,
 			Data:        data,
