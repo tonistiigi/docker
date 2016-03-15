@@ -202,6 +202,7 @@ func (s *State) SetStoppedLocking(exitStatus *ExitStatus) {
 // SetStopped sets the container state to "stopped" without locking.
 func (s *State) SetStopped(exitStatus *ExitStatus) {
 	s.Running = false
+	s.Paused = false
 	s.Restarting = false
 	s.Pid = 0
 	s.FinishedAt = time.Now().UTC()
