@@ -2,9 +2,8 @@ package libcontainerd
 
 import (
 	"io"
-	"syscall"
-
 	"strings"
+	"syscall"
 
 	"github.com/Microsoft/hcsshim"
 	"github.com/Sirupsen/logrus"
@@ -14,6 +13,16 @@ type container struct {
 	containerCommon
 
 	// Platform specific fields are below here. There are none presently on Windows.
+}
+
+func (ctr *container) newProcess(friendlyName string) *process {
+	return &process{
+		processCommon: processCommon{
+			containerID:  ctr.containerID,
+			friendlyName: friendlyName,
+			client:       ctr.client,
+		},
+	}
 }
 
 func (ctr *container) start() error {
@@ -37,7 +46,6 @@ func (ctr *container) start() error {
 
 	// Convert the args array into the escaped command line.
 	for i, arg := range ctr.process.ociProcess.Args {
-		// Likely bugbug - we probably don't want to update the args, but just build locally. @darrenstahlmsft?
 		ctr.process.ociProcess.Args[i] = syscall.EscapeArg(arg)
 	}
 	createProcessParms.CommandLine = strings.Join(ctr.process.ociProcess.Args, " ")
@@ -45,11 +53,13 @@ func (ctr *container) start() error {
 
 	iopipe := &IOPipe{Terminal: ctr.process.ociProcess.Terminal}
 
-	var (
-		pid            uint32
-		stdout, stderr io.ReadCloser
-	)
-	// Start the command running in the container.
+	// Start the command running in the container. Note we always tell HCS to
+	// create stdout as it's required regardless of '-i' or '-t' options, so that
+	// docker can always grab the output through logs. We also tell HCS to always
+	// create stdin, even if it's not used - it will be closed shortly. Stderr
+	// is only created if it we're not -t.
+	var pid uint32
+	var stdout, stderr io.ReadCloser
 	pid, iopipe.Stdin, stdout, stderr, err = hcsshim.CreateProcessInComputeSystem(
 		ctr.containerID,
 		true,
@@ -69,12 +79,12 @@ func (ctr *container) start() error {
 		iopipe.Stderr = openReaderFromPipe(stderr)
 	}
 
-	//Save the PID as we'll need this in Kill()
+	// Save the PID
 	logrus.Debugf("Process started - PID %d", pid)
 	ctr.systemPid = uint32(pid)
 
 	// Spin up a go routine waiting for exit to handle cleanup
-	go ctr.waitExit(pid, true)
+	go ctr.waitExit(pid, InitFriendlyName, true)
 
 	ctr.client.appendContainer(ctr)
 
@@ -83,18 +93,20 @@ func (ctr *container) start() error {
 		return err
 	}
 
-	return ctr.client.backend.StateChanged(ctr.containerID, StateInfo{
+	// Tell the docker engine that the container has started.
+	si := StateInfo{
 		State: StateStart,
-		Pid:   ctr.systemPid,
-	})
+		Pid:   ctr.systemPid, // Not sure this is needed? Double-check monitor.go in daemon BUGBUG @jhowardmsft
+	}
+	return ctr.client.backend.StateChanged(ctr.containerID, si)
 
 }
 
 // waitExit runs as a goroutine waiting for the process to exit. It's
 // equivalent to (in the linux containerd world) where events come in for
 // state change notifications from containerd.
-func (ctr *container) waitExit(pid uint32, isFirstProcessToStart bool) error {
-	logrus.Debugln("waitExit on ", pid)
+func (ctr *container) waitExit(pid uint32, processFriendlyName string, isFirstProcessToStart bool) error {
+	logrus.Debugln("waitExit on pid", pid)
 
 	// Block indefinitely for the process to exit.
 	exitCode, err := hcsshim.WaitForProcessInComputeSystem(ctr.containerID, pid, hcsshim.TimeoutInfinite)
@@ -106,14 +118,16 @@ func (ctr *container) waitExit(pid uint32, isFirstProcessToStart bool) error {
 	}
 
 	// Assume the container has exited
-	st := StateInfo{
-		State:    StateExit,
-		ExitCode: uint32(exitCode),
+	si := StateInfo{
+		State:     StateExit,
+		ExitCode:  uint32(exitCode),
+		Pid:       pid,
+		ProcessID: processFriendlyName,
 	}
 
 	// But it could have been an exec'd process which exited
 	if !isFirstProcessToStart {
-		st.State = StateExitProcess
+		si.State = StateExitProcess
 	}
 
 	// If this is the init process, always call into vmcompute.dll to
@@ -130,39 +144,39 @@ func (ctr *container) waitExit(pid uint32, isFirstProcessToStart bool) error {
 		} else {
 			logrus.Debugf("Completed shutting down container %s", ctr.containerID)
 		}
-	}
 
-	// BUGBUG - Is taking the lock necessary here? Should it just be taken for
-	// the deleteContainer call, not for the restart logic? @jhowardmsft
-	ctr.client.lock(ctr.containerID)
-	defer ctr.client.unlock(ctr.containerID)
+		// BUGBUG - Is taking the lock necessary here? Should it just be taken for
+		// the deleteContainer call, not for the restart logic? @jhowardmsft
+		ctr.client.lock(ctr.containerID)
+		defer ctr.client.unlock(ctr.containerID)
 
-	if st.State == StateExit && ctr.restartManager != nil {
-		restart, wait, err := ctr.restartManager.ShouldRestart(uint32(exitCode))
-		if err != nil {
-			logrus.Error(err)
-		} else if restart {
-			st.State = StateRestart
-			ctr.restarting = true
-			go func() {
-				err := <-wait
-				ctr.restarting = false
-				if err != nil {
-					logrus.Error(err)
-				} else {
-					ctr.start()
-				}
-			}()
+		if si.State == StateExit && ctr.restartManager != nil {
+			restart, wait, err := ctr.restartManager.ShouldRestart(uint32(exitCode))
+			if err != nil {
+				logrus.Error(err)
+			} else if restart {
+				si.State = StateRestart
+				ctr.restarting = true
+				go func() {
+					err := <-wait
+					ctr.restarting = false
+					if err != nil {
+						logrus.Error(err)
+					} else {
+						ctr.start()
+					}
+				}()
+			}
 		}
-	}
 
-	// Remove process from list if we have exited
-	// We need to do so here in case the Message Handler decides to restart it.
-	ctr.client.deleteContainer(ctr.friendlyName)
+		// Remove process from list if we have exited
+		// We need to do so here in case the Message Handler decides to restart it.
+		ctr.client.deleteContainer(ctr.friendlyName)
+	}
 
 	// Call into the backend to notify it of the state change.
-	logrus.Debugln("waitExit() calling backend.StateChanged %v", st)
-	if err := ctr.client.backend.StateChanged(ctr.containerID, st); err != nil {
+	logrus.Debugf("waitExit() calling backend.StateChanged %v", si)
+	if err := ctr.client.backend.StateChanged(ctr.containerID, si); err != nil {
 		logrus.Error(err)
 	}
 

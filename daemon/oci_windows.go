@@ -106,9 +106,9 @@ func (daemon *Daemon) createSpec(c *container.Container) (*libcontainerd.Spec, e
 				epList = append(epList, data["hnsid"].(string))
 			}
 		}
-		s.Windows.Networking = &windowsoci.Networking{
-			EndpointList: epList,
-		}
+	}
+	s.Windows.Networking = &windowsoci.Networking{
+		EndpointList: epList,
 	}
 
 	// In s.Windows.Networking (TP4 back compat)

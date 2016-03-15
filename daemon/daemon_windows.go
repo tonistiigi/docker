@@ -292,7 +292,7 @@ func (daemon *Daemon) cleanupMountsByID(in string) error {
 	return nil
 }
 
-func (daemon *Daemon) cleanupMounts(in string) error {
+func (daemon *Daemon) cleanupMounts() error {
 	return nil
 }
 

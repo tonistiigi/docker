@@ -111,13 +111,14 @@ type HvRuntime struct {
 
 // Networking contains the platform specific network settings for the container
 type Networking struct {
-	MacAddress string `json:"mac,omitempty"`
-	Bridge     string `json:"bridge,omitempty"`
-	// PortBindings is the port mapping between the exposed port in the
-	// container and the port on the host.
+	// TODO Windows TP5. The following three fields are for 'legacy' non-
+	// libnetwork networking through HCS. They can be removed once TP4 is
+	// no longer supported. Also remove in libcontainerd\client_windows.go,
+	// function Create(), and in daemon\oci_windows.go, function CreateSpec()
+	MacAddress   string      `json:"mac,omitempty"`
+	Bridge       string      `json:"bridge,omitempty"`
 	PortBindings nat.PortMap `json:"port_bindings,omitempty"`
-
-	// Below this is what is needed for TP5 and going forward
+	// End of TODO Windows TP5.
 
 	// List of endpoints to be attached to the container
 	EndpointList []string `json:"endpoints,omitempty"`
@@ -136,7 +137,7 @@ type Storage struct {
 // Memory contains memory settings for the container
 type Memory struct {
 	// Memory limit (in bytes).
-	Limit *uint64 `json:"limit,omitempty"`
+	Limit *int64 `json:"limit,omitempty"`
 	// Memory reservation (in bytes).
 	Reservation *uint64 `json:"reservation,omitempty"`
 }
@@ -148,7 +149,7 @@ type CPU struct {
 	// CPU shares (relative weight (ratio) vs. other containers with cpu shares). Range is from 1 to 10000.
 	Shares *uint64 `json:"shares,omitempty"`
 	// Percent of available CPUs usable by the container.
-	Percent *uint64 `json:"percent,omitempty"`
+	Percent *int64 `json:"percent,omitempty"`
 }
 
 // Network network resource management information

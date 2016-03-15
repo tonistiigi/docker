@@ -67,6 +67,8 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 			// remove the exec command from the container's store only and not the
 			// daemon's store so that the exec command can be inspected.
 			c.ExecCommands.Delete(execConfig.ID)
+		} else {
+			logrus.Warnf("Ignoring StateExitProcess for %v but no exec command found", e)
 		}
 	case libcontainerd.StateStart, libcontainerd.StateRestore:
 		c.SetRunning(int(e.Pid), e.State == libcontainerd.StateStart)
