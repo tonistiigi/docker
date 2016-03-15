@@ -164,6 +164,12 @@ func (daemon *Daemon) Cleanup(container *container.Container) {
 
 	daemon.conditionalUnmountOnCleanup(container)
 
+	// FIXME: remove once reference counting for graphdrivers has been refactored
+	// Ensure that all the mounts are gone
+	if mountid, err := daemon.layerStore.GetMountID(container.ID); err == nil {
+		daemon.cleanupMountsByID(mountid)
+	}
+
 	for _, eConfig := range container.ExecCommands.Commands() {
 		daemon.unregisterExecCommand(container, eConfig)
 	}
