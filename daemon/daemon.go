@@ -292,8 +292,12 @@ func (daemon *Daemon) restore() error {
 		}
 		// fixme: only if not running
 		// get list of containers we need to restart
-		if daemon.configStore.AutoRestart && !c.IsRunning() && c.ShouldRestart() {
+		if daemon.configStore.AutoRestart && !c.IsRunning() && !c.IsPaused() && c.ShouldRestart() {
 			restartContainers[c] = make(chan struct{})
+		} else if !c.IsRunning() && !c.IsPaused() {
+			if mountid, err := daemon.layerStore.GetMountID(c.ID); err == nil {
+				daemon.cleanupMountsByID(mountid)
+			}
 		}
 
 		// if c.hostConfig.Links is nil (not just empty), then it is using the old sqlite links and needs to be migrated
@@ -790,9 +794,6 @@ func NewDaemon(config *Config, registryService *registry.Service, containerdRemo
 	d.nameIndex = registrar.NewRegistrar()
 	d.linkIndex = newLinkIndex()
 
-	if err := d.cleanupMounts(); err != nil {
-		return nil, err
-	}
 	go d.execCommandGC()
 
 	d.containerd, err = containerdRemote.Client(d)

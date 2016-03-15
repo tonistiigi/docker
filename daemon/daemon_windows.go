@@ -288,7 +288,11 @@ func (daemon *Daemon) registerLinks(container *container.Container, hostConfig *
 	return nil
 }
 
-func (daemon *Daemon) cleanupMounts() error {
+func (daemon *Daemon) cleanupMountsByID(in string) error {
+	return nil
+}
+
+func (daemon *Daemon) cleanupMounts(in string) error {
 	return nil
 }
 

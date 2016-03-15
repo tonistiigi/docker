@@ -1508,6 +1508,17 @@ func (s *DockerDaemonSuite) TestCleanupMountsAfterCrash(c *check.C) {
 	c.Assert(err, check.IsNil, check.Commentf("Output: %s", out))
 	id := strings.TrimSpace(out)
 	c.Assert(s.d.cmd.Process.Signal(os.Kill), check.IsNil)
+
+	// kill the container
+	runCmd := exec.Command("ctr", "--address", "/var/run/docker/libcontainerd/containerd.sock", "containers", "kill", id)
+	if out, ec, err := runCommandWithOutput(runCmd); err != nil {
+		c.Fatalf("Failed to run ctr, ExitCode: %d, err: '%v' output: '%s' cid: '%s'\n", ec, err, out, id)
+	}
+
+	// Give time to containerd to process the command if we don't
+	// the exit event might be received after we do the inspect
+	time.Sleep(3 * time.Second)
+
 	c.Assert(s.d.Start(), check.IsNil)
 	mountOut, err := ioutil.ReadFile("/proc/self/mountinfo")
 	c.Assert(err, check.IsNil, check.Commentf("Output: %s", mountOut))
