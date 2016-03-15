@@ -27,23 +27,24 @@ func (daemon *Daemon) cleanupMountsFromReaderByID(reader io.Reader, id string, u
 	if daemon.repository == "" {
 		return nil
 	}
-	mountRoot := ""
-	sc := bufio.NewScanner(reader)
 	var errors []string
+	mountRoot := ""
+	shmSuffix := "/" + id + "/shm"
+	mergedSuffix := "/" + id + "/merged"
+	sc := bufio.NewScanner(reader)
 	for sc.Scan() {
 		line := sc.Text()
 		fields := strings.Fields(line)
 		if strings.HasPrefix(fields[4], daemon.root) {
 			logrus.Debugf("Mount base: %v", fields[4])
 			mnt := fields[4]
-			mountBase := filepath.Base(mnt)
-			if mountBase == "shm" || mountBase == "merged" {
+			if strings.HasSuffix(mnt, shmSuffix) || strings.HasSuffix(mnt, mergedSuffix) {
 				logrus.Debugf("Unmounting %v", mnt)
 				if err := unmount(mnt); err != nil {
 					logrus.Error(err)
 					errors = append(errors, err.Error())
 				}
-			} else if mountBase == id {
+			} else if mountBase := filepath.Base(mnt); mountBase == id {
 				mountRoot = mnt
 			}
 		}
