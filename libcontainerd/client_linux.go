@@ -11,6 +11,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	containerd "github.com/docker/containerd/api/grpc/types"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/pkg/mount"
 	"github.com/opencontainers/specs/specs-go"
 	"golang.org/x/net/context"
 )
@@ -336,10 +337,24 @@ func (c *client) Restore(id string, options ...CreateOption) error {
 		delete(c.remote.pastEvents, id)
 	}
 
-	return c.backend.StateChanged(id, StateInfo{
+	err = c.backend.StateChanged(id, StateInfo{
 		State:    StateExit,
 		ExitCode: exitCode,
 	})
+
+	// Unmount and delete the bundle folder
+	if mts, err := mount.GetMounts(); err == nil {
+		for _, mts := range mts {
+			if strings.HasSuffix(mts.Mountpoint, id+"/rootfs") {
+				if err := syscall.Unmount(mts.Mountpoint, syscall.MNT_DETACH); err == nil {
+					os.RemoveAll(strings.TrimSuffix(mts.Mountpoint, "/rootfs"))
+				}
+				break
+			}
+		}
+	}
+
+	return err
 }
 
 func (c *client) GetPidsForContainer(id string) ([]int, error) {
