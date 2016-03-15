@@ -250,7 +250,7 @@ RUN set -x \
 	&& rm -rf "$GOPATH"
 
 # Install runc
-ENV RUNC_COMMIT docker-containerd-integration-5
+ENV RUNC_COMMIT docker-containerd-integration-6
 RUN set -x \
 	&& export GOPATH="$(mktemp -d)" \
   && git clone git://github.com/tonistiigi/runc.git "$GOPATH/src/github.com/opencontainers/runc" \
@@ -260,7 +260,7 @@ RUN set -x \
 
 
 # Install containerd
-ENV CONTAINERD_COMMIT docker-containerd-integration-5
+ENV CONTAINERD_COMMIT docker-containerd-integration-6
 RUN set -x \
 	&& export GOPATH="$(mktemp -d)" \
   && git clone git://github.com/tonistiigi/containerd.git "$GOPATH/src/github.com/docker/containerd" \
