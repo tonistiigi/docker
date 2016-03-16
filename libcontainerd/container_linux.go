@@ -124,6 +124,12 @@ func (ctr *container) handleEvent(e *containerd.Event) error {
 					err := <-wait
 					ctr.restarting = false
 					if err != nil {
+						st.State = StateExit
+						ctr.client.q.append(e.Id, func() {
+							if err := ctr.client.backend.StateChanged(e.Id, st); err != nil {
+								logrus.Error(err)
+							}
+						})
 						logrus.Error(err)
 					} else {
 						ctr.start()
