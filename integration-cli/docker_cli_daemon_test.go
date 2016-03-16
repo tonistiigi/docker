@@ -1987,6 +1987,7 @@ func (s *DockerDaemonSuite) TestDaemonNoSpaceleftOnDeviceError(c *check.C) {
 // Test daemon restart with container links + auto restart
 func (s *DockerDaemonSuite) TestDaemonRestartContainerLinksRestart(c *check.C) {
 	d := NewDaemon(c)
+	defer d.Stop()
 	err := d.StartWithBusybox()
 	c.Assert(err, checker.IsNil)
 
