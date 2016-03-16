@@ -323,11 +323,12 @@ func (daemon *Daemon) conditionalMountOnStart(container *container.Container) er
 
 // conditionalUnmountOnCleanup is a platform specific helper function called
 // during the cleanup of a container to unmount.
-func (daemon *Daemon) conditionalUnmountOnCleanup(container *container.Container) {
+func (daemon *Daemon) conditionalUnmountOnCleanup(container *container.Container) error {
 	// We do not unmount if a Hyper-V container
 	if !container.HostConfig.Isolation.IsHyperV() {
-		daemon.Unmount(container)
+		return daemon.Unmount(container)
 	}
+	return nil
 }
 
 func restoreCustomImage(is image.Store, ls layer.Store, rs reference.Store) error {

@@ -87,7 +87,6 @@ func setDevices(s *specs.Spec, c *container.Container) error {
 			devs = append(devs, specDevice(d))
 		}
 	} else {
-		// FIXME: This is missing the cgroups allowed devices conf + fuse
 		for _, deviceMapping := range c.HostConfig.Devices {
 			d, err := getDevicesFromPath(deviceMapping)
 			if err != nil {

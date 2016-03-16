@@ -910,10 +910,12 @@ func (daemon *Daemon) Mount(container *container.Container) error {
 }
 
 // Unmount unsets the container base filesystem
-func (daemon *Daemon) Unmount(container *container.Container) {
+func (daemon *Daemon) Unmount(container *container.Container) error {
 	if err := container.RWLayer.Unmount(); err != nil {
 		logrus.Errorf("Error unmounting container %s: %s", container.ID, err)
+		return err
 	}
+	return nil
 }
 
 func (daemon *Daemon) kill(c *container.Container, sig int) error {
