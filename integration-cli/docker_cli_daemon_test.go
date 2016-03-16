@@ -1507,7 +1507,7 @@ func (s *DockerDaemonSuite) TestCleanupMountsAfterCrash(c *check.C) {
 	out, err := s.d.Cmd("run", "-d", "busybox", "top")
 	c.Assert(err, check.IsNil, check.Commentf("Output: %s", out))
 	id := strings.TrimSpace(out)
-	c.Assert(s.d.cmd.Process.Signal(os.Kill), check.IsNil)
+	c.Assert(s.d.Kill(), check.IsNil)
 
 	// kill the container
 	runCmd := exec.Command("ctr", "--address", "/var/run/docker/libcontainerd/containerd.sock", "containers", "kill", id)

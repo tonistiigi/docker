@@ -262,6 +262,10 @@ func (d *Daemon) Kill() error {
 		return err
 	}
 
+	if err := os.Remove(fmt.Sprintf("%s/docker.pid", d.folder)); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -317,6 +321,10 @@ out2:
 
 	if err := d.cmd.Process.Kill(); err != nil {
 		d.c.Logf("Could not kill daemon: %v", err)
+		return err
+	}
+
+	if err := os.Remove(fmt.Sprintf("%s/docker.pid", d.folder)); err != nil {
 		return err
 	}
 
