@@ -1086,3 +1086,9 @@ func (daemon *Daemon) stats(c *container.Container) (*types.StatsJSON, error) {
 	s.Read = time.Unix(int64(stats.Timestamp), 0)
 	return s, nil
 }
+
+// setDefaultIsolation determine the default isolation mode for the
+// daemon to run in. This is only applicable on Windows
+func (daemon *Daemon) setDefaultIsolation() error {
+	return nil
+}

@@ -19,6 +19,7 @@ func (daemon *Daemon) createSpec(c *container.Container) (*libcontainerd.Spec, e
 		return nil, err
 	}
 
+	// TODO Windows - this can be removed. Not used (UID/GID)
 	rootUID, rootGID := daemon.GetRemappedUIDGID()
 	if err := c.SetupWorkingDirectory(rootUID, rootGID); err != nil {
 		return nil, err
@@ -45,6 +46,21 @@ func (daemon *Daemon) createSpec(c *container.Container) (*libcontainerd.Spec, e
 		})
 	}
 
+	// Are we going to run as a Hyper-V container?
+	hv := false
+	if c.HostConfig.Isolation.IsDefault() {
+		// Container is set to use the default, so take the default from the daemon configuration
+		hv = daemon.defaultIsolation.IsHyperV()
+	} else {
+		// Container is requesting an isolation mode. Honour it.
+		hv = c.HostConfig.Isolation.IsHyperV()
+	}
+	if hv {
+		// TODO We don't yet have the ImagePath hooked up. But set to
+		// something non-nil to pickup in libcontainerd.
+		s.Windows.HvRuntime = &windowsoci.HvRuntime{}
+	}
+
 	// In s.Process
 	s.Process.Args = append([]string{c.Path}, c.Args...)
 	s.Process.Cwd = c.Config.WorkingDir
@@ -60,7 +76,7 @@ func (daemon *Daemon) createSpec(c *container.Container) (*libcontainerd.Spec, e
 	// In s.Windows
 	s.Windows.FirstStart = !c.HasBeenStartedBefore
 
-	// s.Windows.LayerFolder
+	// s.Windows.LayerFolder.
 	m, err := c.RWLayer.Metadata()
 	if err != nil {
 		return nil, fmt.Errorf("Failed to get layer metadata - %s", err)

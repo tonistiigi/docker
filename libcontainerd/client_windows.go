@@ -90,15 +90,15 @@ type containerInit struct {
 	Layers                  []layer     // List of storage layers
 	ProcessorWeight         uint64      `json:",omitempty"` // CPU Shares 0..10000 on Windows; where 0 will be omitted and HCS will default.
 	ProcessorMaximum        int64       `json:",omitempty"` // CPU maximum usage percent 1..100
-	StorageIOPSMaximum      uint64      // Maximum Storage IOPS
-	StorageBandwidthMaximum uint64      // Maximum Storage Bandwidth in bytes per second
-	StorageSandboxSize      uint64      // Size in bytes that the container system drive should be expanded to if smaller
-	MemoryMaximumInMB       int64       // Maximum memory available to the container in Megabytes
+	StorageIOPSMaximum      uint64      `json:",omitempty"` // Maximum Storage IOPS
+	StorageBandwidthMaximum uint64      `json:",omitempty"` // Maximum Storage Bandwidth in bytes per second
+	StorageSandboxSize      uint64      `json:",omitempty"` // Size in bytes that the container system drive should be expanded to if smaller
+	MemoryMaximumInMB       int64       `json:",omitempty"` // Maximum memory available to the container in Megabytes
 	HostName                string      // Hostname
 	MappedDirectories       []mappedDir // List of mapped directories (volumes/mounts)
-	SandboxPath             string      // Location of unmounted sandbox (used for Hyper-V containers, not Windows Server containers)
+	SandboxPath             string      // Location of unmounted sandbox (used for Hyper-V containers)
 	HvPartition             bool        // True if it a Hyper-V Container
-	EndpointList            []string    //List of endpoints to be attached to container
+	EndpointList            []string    // List of networking endpoints to be attached to container
 }
 
 // defaultOwner is a tag passed to HCS to allow it to differentiate between
@@ -139,7 +139,6 @@ func (clnt *client) Create(containerID string, spec Spec, unusedOnWindows ...Cre
 			if spec.Windows.Resources.Memory.Limit != nil {
 				cu.MemoryMaximumInMB = *spec.Windows.Resources.Memory.Limit / 1024 / 1024
 			}
-			cu.MemoryMaximumInMB = 200
 		}
 		if spec.Windows.Resources.Storage != nil {
 			if spec.Windows.Resources.Storage.Bps != nil {
@@ -154,9 +153,11 @@ func (clnt *client) Create(containerID string, spec Spec, unusedOnWindows ...Cre
 		}
 	}
 
-	if spec.Windows.HvRuntime != nil {
-		cu.HvPartition = len(spec.Windows.HvRuntime.ImagePath) > 0
-	}
+	// TODO Ultimately need to set the path from HvRuntime.ImagePath
+	cu.HvPartition = (spec.Windows.HvRuntime != nil)
+	//	if spec.Windows.HvRuntime != nil {
+	//		cu.HvPartition = len(spec.Windows.HvRuntime.ImagePath) > 0
+	//	}
 
 	if cu.HvPartition {
 		cu.SandboxPath = filepath.Dir(spec.Windows.LayerFolder)

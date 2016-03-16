@@ -23,6 +23,6 @@ func (r *remote) Cleanup() {
 
 // New creates a fresh instance of libcontainerd remote. This is largely
 // a no-op on Windows.
-func New(unused1 string, unused2 ...RemoteOption) (Remote, error) {
+func New(_ string, _ ...RemoteOption) (Remote, error) {
 	return &remote{}, nil
 }

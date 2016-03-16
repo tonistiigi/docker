@@ -21,6 +21,7 @@ import (
 	// register the windows graph driver
 	"github.com/docker/docker/daemon/graphdriver/windows"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/engine-api/types"
 	containertypes "github.com/docker/engine-api/types/container"
@@ -312,8 +313,19 @@ func setupDaemonRoot(config *Config, rootDir string, rootUID, rootGID int) error
 // conditionalMountOnStart is a platform specific helper function during the
 // container start to call mount.
 func (daemon *Daemon) conditionalMountOnStart(container *container.Container) error {
+
+	// Are we going to run as a Hyper-V container?
+	hv := false
+	if container.HostConfig.Isolation.IsDefault() {
+		// Container is set to use the default, so take the default from the daemon configuration
+		hv = daemon.defaultIsolation.IsHyperV()
+	} else {
+		// Container is requesting an isolation mode. Honour it.
+		hv = container.HostConfig.Isolation.IsHyperV()
+	}
+
 	// We do not mount if a Hyper-V container
-	if !container.HostConfig.Isolation.IsHyperV() {
+	if !hv {
 		if err := daemon.Mount(container); err != nil {
 			return err
 		}
@@ -413,4 +425,32 @@ func driverOptions(config *Config) []nwconfig.Option {
 
 func (daemon *Daemon) stats(c *container.Container) (*types.StatsJSON, error) {
 	return nil, nil
+}
+
+// setDefaultIsolation determine the default isolation mode for the
+// daemon to run in. This is only applicable on Windows
+func (daemon *Daemon) setDefaultIsolation() error {
+	daemon.defaultIsolation = containertypes.Isolation("process")
+	for _, option := range daemon.configStore.ExecOptions {
+		key, val, err := parsers.ParseKeyValueOpt(option)
+		if err != nil {
+			return err
+		}
+		key = strings.ToLower(key)
+		switch key {
+
+		case "isolation":
+			if !containertypes.Isolation(val).IsValid() {
+				return fmt.Errorf("Invalid exec-opt value for 'isolation':'%s'", val)
+			}
+			if containertypes.Isolation(val).IsHyperV() {
+				daemon.defaultIsolation = containertypes.Isolation("hyperv")
+			}
+		default:
+			return fmt.Errorf("Unrecognised exec-opt '%s'\n", key)
+		}
+	}
+
+	logrus.Infof("Windows default isolation mode: %s", daemon.defaultIsolation)
+	return nil
 }

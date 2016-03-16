@@ -131,6 +131,7 @@ type Daemon struct {
 	nameIndex                 *registrar.Registrar
 	linkIndex                 *linkIndex
 	containerd                libcontainerd.Client
+	defaultIsolation          containertypes.Isolation // Default isolation mode on Windows
 }
 
 // GetContainer looks for a container using the provided information, which could be
@@ -646,7 +647,7 @@ func NewDaemon(config *Config, registryService *registry.Service, containerdRemo
 	}
 	os.Setenv("TMPDIR", realTmp)
 
-	d := &Daemon{}
+	d := &Daemon{configStore: config}
 	// Ensure the daemon is properly shutdown if there is a failure during
 	// initialization
 	defer func() {
@@ -656,6 +657,11 @@ func NewDaemon(config *Config, registryService *registry.Service, containerdRemo
 			}
 		}
 	}()
+
+	// Set the default isolation mode (only applicable on Windows)
+	if err := d.setDefaultIsolation(); err != nil {
+		return nil, fmt.Errorf("error setting default isolation mode: %v", err)
+	}
 
 	// Verify logging driver type
 	if config.LogConfig.Type != "none" {
@@ -777,7 +783,6 @@ func NewDaemon(config *Config, registryService *registry.Service, containerdRemo
 	d.distributionMetadataStore = distributionMetadataStore
 	d.trustKey = trustKey
 	d.idIndex = truncindex.NewTruncIndex([]string{})
-	d.configStore = config
 	d.statsCollector = d.newStatsCollector(1 * time.Second)
 	d.defaultLogConfig = containertypes.LogConfig{
 		Type:   config.LogConfig.Type,
