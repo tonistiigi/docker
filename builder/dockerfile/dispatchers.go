@@ -300,13 +300,7 @@ func run(b *Builder, args []string, attributes map[string]bool, original string)
 		if runtime.GOOS != "windows" {
 			args = append([]string{"/bin/sh", "-c"}, args...)
 		} else {
-			// In the case of a shell RUN command, all the arguments are stored in the first args[0] as a single string.
-			// This breaks the parsing on Windows in libcontainerd. It must be split properly per CommandLineToArgv.
-			splitArgs, err := system.CommandLineToArgv(args[0])
-			if err != nil {
-				return err
-			}
-			args = append([]string{"cmd", "/S", "/C"}, splitArgs...)
+			args = append([]string{"cmd", "/S", "/C"}, args...)
 		}
 	}
 

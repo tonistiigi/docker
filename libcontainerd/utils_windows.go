@@ -2,6 +2,7 @@ package libcontainerd
 
 import (
 	"strings"
+	"syscall"
 )
 
 // setupEnvironmentVariables convert a string array of environment variables
@@ -15,4 +16,14 @@ func setupEnvironmentVariables(a []string) map[string]string {
 		}
 	}
 	return r
+}
+
+// EscapeArgs applies standard escaping on command-line arguments for the
+// OCI process spec.
+func EscapeArgs(args []string) []string {
+	escapedArgs := make([]string, len(args))
+	for i, a := range args {
+		escapedArgs[i] = syscall.EscapeArg(a)
+	}
+	return escapedArgs
 }

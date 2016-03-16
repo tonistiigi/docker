@@ -348,12 +348,8 @@ func (clnt *client) AddProcess(containerID, processFriendlyName string, procToAd
 
 	// Configure the environment for the process
 	createProcessParms.Environment = setupEnvironmentVariables(procToAdd.Env)
-
-	// Convert the args array into the escaped command line.
-	for i, arg := range procToAdd.Args {
-		procToAdd.Args[i] = syscall.EscapeArg(arg)
-	}
 	createProcessParms.CommandLine = strings.Join(procToAdd.Args, " ")
+
 	logrus.Debugf("commandLine: %s", createProcessParms.CommandLine)
 
 	// Start the command running in the container. Note we always tell HCS to

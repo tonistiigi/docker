@@ -39,3 +39,11 @@ func systemPid(ctr *containerd.Container) uint32 {
 	}
 	return pid
 }
+
+// EscapeArgs applies necessary escaping on command-line arguments for the
+// OCI process spec.
+//
+// For Linux, no escaping is necessary on arguments.
+func EscapeArgs(args []string) []string {
+	return args
+}

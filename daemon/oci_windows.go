@@ -63,6 +63,9 @@ func (daemon *Daemon) createSpec(c *container.Container) (*libcontainerd.Spec, e
 
 	// In s.Process
 	s.Process.Args = append([]string{c.Path}, c.Args...)
+	if !c.Config.ArgsEscaped {
+		s.Process.Args = libcontainerd.EscapeArgs(s.Process.Args)
+	}
 	s.Process.Cwd = c.Config.WorkingDir
 	s.Process.Env = c.CreateDaemonEnvironment(linkedEnv)
 	s.Process.InitialConsoleSize = c.HostConfig.ConsoleSize

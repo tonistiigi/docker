@@ -43,13 +43,7 @@ func (ctr *container) start() error {
 
 	// Configure the environment for the process
 	createProcessParms.Environment = setupEnvironmentVariables(ctr.process.ociProcess.Env)
-
-	// Convert the args array into the escaped command line.
-	for i, arg := range ctr.process.ociProcess.Args {
-		ctr.process.ociProcess.Args[i] = syscall.EscapeArg(arg)
-	}
 	createProcessParms.CommandLine = strings.Join(ctr.process.ociProcess.Args, " ")
-	logrus.Debugf("commandLine: %s", createProcessParms.CommandLine)
 
 	iopipe := &IOPipe{Terminal: ctr.process.ociProcess.Terminal}
 
