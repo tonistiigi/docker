@@ -59,10 +59,6 @@ func setupConfigReloadTrap(configFile string, flags *mflag.FlagSet, reload func(
 	}()
 }
 
-func (cli *DaemonCli) getContainerdRemote() libcontainerd.Remote {
-	containerdRemote, err := libcontainerd.New("", nil)
-	if err != nil {
-		logrus.Error(err)
-	}
-	return containerdRemote
+func (cli *DaemonCli) getPlatformRemoteOptions() []libcontainerd.RemoteOption {
+	return nil
 }

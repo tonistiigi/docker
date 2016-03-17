@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/Sirupsen/logrus"
@@ -66,21 +65,14 @@ func setupConfigReloadTrap(configFile string, flags *mflag.FlagSet, reload func(
 	}()
 }
 
-func (cli *DaemonCli) getContainerdRemote() libcontainerd.Remote {
-	var err error
-
-	remoteOpt := []libcontainerd.RemoteOption{
+func (cli *DaemonCli) getPlatformRemoteOptions() []libcontainerd.RemoteOption {
+	opts := []libcontainerd.RemoteOption{
 		libcontainerd.WithDebugLog(cli.Config.Debug),
 	}
 	if cli.Config.ContainerdAddr != "" {
-		remoteOpt = append(remoteOpt, libcontainerd.WithRemoteAddr(cli.Config.ContainerdAddr))
+		opts = append(opts, libcontainerd.WithRemoteAddr(cli.Config.ContainerdAddr))
 	} else {
-		remoteOpt = append(remoteOpt, libcontainerd.WithStartDaemon(true))
+		opts = append(opts, libcontainerd.WithStartDaemon(true))
 	}
-
-	containerdRemote, err := libcontainerd.New(filepath.Join(cli.Config.ExecRoot, "libcontainerd"), remoteOpt...)
-	if err != nil {
-		logrus.Error(err)
-	}
-	return containerdRemote
+	return opts
 }
