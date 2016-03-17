@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/runconfig"
 )
@@ -30,6 +29,7 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 	case libcontainerd.StateExit:
 		c.Lock()
 		defer c.Unlock()
+		c.Wait()
 		c.Reset(false)
 		c.SetStopped(platformConstructExitStatus(e))
 		attributes := map[string]string{
@@ -92,10 +92,8 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 func (daemon *Daemon) AttachStreams(id string, iop libcontainerd.IOPipe) error {
 	var s *runconfig.StreamConfig
 	c := daemon.containers.Get(id)
-	var ec *exec.Config
-	var err error
 	if c == nil {
-		ec, err = daemon.getExecConfig(id)
+		ec, err := daemon.getExecConfig(id)
 		if err != nil {
 			return fmt.Errorf("no such exec/container: %s", id)
 		}
@@ -121,22 +119,16 @@ func (daemon *Daemon) AttachStreams(id string, iop libcontainerd.IOPipe) error {
 			if iop.Stdin != nil {
 				iop.Stdin.Close()
 			}
-
 		}
 	}
 
 	copy := func(w io.Writer, r io.Reader) {
-		if ec != nil {
-			ec.Add(1)
-		}
+		s.Add(1)
 		go func() {
-			_, err := io.Copy(w, r)
-			if ec != nil {
-				ec.Done()
-			}
-			if err != nil {
+			if _, err := io.Copy(w, r); err != nil {
 				logrus.Errorf("%v stream copy error: %v", id, err)
 			}
+			s.Done()
 		}()
 	}
 

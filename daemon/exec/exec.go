@@ -12,7 +12,6 @@ import (
 // examined both during and after completion.
 type Config struct {
 	sync.Mutex
-	sync.WaitGroup
 	*runconfig.StreamConfig
 	ID          string
 	Running     bool
