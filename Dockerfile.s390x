@@ -186,7 +186,7 @@ RUN set -x \
 	&& make BUILDTAGS="seccomp apparmor selinux" && make install
 
 # Install containerd
-ENV CONTAINERD_COMMIT 6ba5767b7094c5c6afc2d4f9e284a7bbd3bb3a48
+ENV CONTAINERD_COMMIT 707555be47977b82f02e7ec15769ce60ad63a0f7
 RUN set -x \
 	&& export GOPATH="$(mktemp -d)" \
   && git clone git://github.com/docker/containerd.git "$GOPATH/src/github.com/docker/containerd" \
