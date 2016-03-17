@@ -250,10 +250,10 @@ RUN set -x \
 	&& rm -rf "$GOPATH"
 
 # Install runc
-ENV RUNC_COMMIT docker-containerd-integration-6
+ENV RUNC_COMMIT bbde9c426ff363d813b8722f0744115c13b408b6
 RUN set -x \
 	&& export GOPATH="$(mktemp -d)" \
-  && git clone git://github.com/tonistiigi/runc.git "$GOPATH/src/github.com/opencontainers/runc" \
+  && git clone git://github.com/opencontainers/runc.git "$GOPATH/src/github.com/opencontainers/runc" \
 	&& cd "$GOPATH/src/github.com/opencontainers/runc" \
 	&& git checkout -q "$RUNC_COMMIT" \
 	&& make BUILDTAGS="seccomp apparmor selinux" && make install
