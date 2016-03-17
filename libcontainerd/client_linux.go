@@ -322,7 +322,7 @@ func (clnt *client) Stats(containerID string) (*Stats, error) {
 
 func (clnt *client) Restore(containerID string, options ...CreateOption) error {
 	cont, err := clnt.getContainerdContainer(containerID)
-	if err == nil {
+	if err == nil && cont.Status != "stopped" {
 		if err := clnt.restore(cont, options...); err != nil {
 			logrus.Errorf("error restoring %s: %v", containerID, err)
 		}
