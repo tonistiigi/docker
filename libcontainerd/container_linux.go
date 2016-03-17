@@ -73,7 +73,6 @@ func (ctr *container) start() error {
 		return err
 	}
 
-	// FIXME: is there a race for closing stdin before container starts
 	if err := ctr.client.backend.AttachStreams(ctr.containerID, *iopipe); err != nil {
 		return err
 	}

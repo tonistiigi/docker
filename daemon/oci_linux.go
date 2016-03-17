@@ -489,7 +489,6 @@ func setMounts(daemon *Daemon, s *specs.Spec, c *container.Container, mounts []c
 		s.Mounts = append(s.Mounts, mt)
 	}
 
-	// FIXME(tonistiigi) mqueue never readonly
 	if s.Root.Readonly {
 		for i, m := range s.Mounts {
 			switch m.Destination {
