@@ -7,6 +7,6 @@ import (
 	"github.com/opencontainers/specs/specs-go"
 )
 
-func setSeccomp(daemon *Daemon, rs *specs.LinuxRuntimeSpec, c *container.Container) error {
+func setSeccomp(daemon *Daemon, rs *specs.Spec, c *container.Container) error {
 	return nil
 }
