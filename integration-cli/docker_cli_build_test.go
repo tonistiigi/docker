@@ -4717,9 +4717,8 @@ func (s *DockerSuite) TestBuildWithTabs(c *check.C) {
 	expected1 := `["/bin/sh","-c","echo\tone\t\ttwo"]`
 	expected2 := `["/bin/sh","-c","echo\u0009one\u0009\u0009two"]` // syntactically equivalent, and what Go 1.3 generates
 	if daemonPlatform == "windows" {
-		// Parsing on Windows expects tabs to act as argument separators.
-		expected1 = `["cmd","/S","/C","echo","one","two"]`
-		expected2 = expected1
+		expected1 = `["cmd","/S","/C","echo\tone\t\ttwo"]`
+		expected2 = `["cmd","/S","/C","echo\u0009one\u0009\u0009two"]` // syntactically equivalent, and what Go 1.3 generates
 	}
 	if res != expected1 && res != expected2 {
 		c.Fatalf("Missing tabs.\nGot: %s\nExp: %s or %s", res, expected1, expected2)
