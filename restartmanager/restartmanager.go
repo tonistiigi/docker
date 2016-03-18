@@ -3,7 +3,6 @@ package restartmanager
 import (
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/docker/engine-api/types/container"
@@ -21,11 +20,12 @@ type RestartManager interface {
 }
 
 type restartManager struct {
+	sync.Mutex
 	sync.Once
 	policy       container.RestartPolicy
 	failureCount int
 	timeout      time.Duration
-	active       int32
+	active       bool
 	cancel       chan struct{}
 	canceled     bool
 }
@@ -36,15 +36,26 @@ func New(policy container.RestartPolicy) RestartManager {
 }
 
 func (rm *restartManager) SetPolicy(policy container.RestartPolicy) {
-	rm.policy = policy // FIMXE(tonistiigi) fix cancel and reset race
+	rm.Lock()
+	rm.policy = policy
+	rm.Unlock()
 }
 
 func (rm *restartManager) ShouldRestart(exitCode uint32) (bool, chan error, error) {
-	if !atomic.CompareAndSwapInt32(&rm.active, 0, 1) {
-		return false, nil, fmt.Errorf("invalid call on active restartmanager")
-	}
+	rm.Lock()
+	unlockOnExit := true
+	defer func() {
+		if unlockOnExit {
+			rm.Unlock()
+		}
+	}()
+
 	if rm.canceled {
 		return false, nil, nil
+	}
+
+	if rm.active {
+		return false, nil, fmt.Errorf("invalid call on active restartmanager")
 	}
 
 	if exitCode != 0 {
@@ -71,9 +82,13 @@ func (rm *restartManager) ShouldRestart(exitCode uint32) (bool, chan error, erro
 	}
 
 	if !restart {
-		rm.active = 0
+		rm.active = false
 		return false, nil, nil
 	}
+
+	unlockOnExit = false
+	rm.active = true
+	rm.Unlock()
 
 	ch := make(chan error)
 	go func() {
@@ -82,9 +97,11 @@ func (rm *restartManager) ShouldRestart(exitCode uint32) (bool, chan error, erro
 			ch <- fmt.Errorf("restartmanager canceled")
 			close(ch)
 		case <-time.After(rm.timeout):
+			rm.Lock()
 			close(ch)
+			rm.active = false
+			rm.Unlock()
 		}
-		rm.active = 0
 	}()
 
 	return true, ch, nil
@@ -92,8 +109,10 @@ func (rm *restartManager) ShouldRestart(exitCode uint32) (bool, chan error, erro
 
 func (rm *restartManager) Cancel() error {
 	rm.Do(func() {
+		rm.Lock()
 		rm.canceled = true
 		close(rm.cancel)
+		rm.Unlock()
 	})
 	return nil
 }
