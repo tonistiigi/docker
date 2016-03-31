@@ -74,8 +74,7 @@ func sameFsTime(a, b time.Time) bool {
 }
 
 func sameFsTimeSpec(a, b syscall.Timespec) bool {
-	return a.Sec == b.Sec &&
-		(a.Nsec == b.Nsec || a.Nsec == 0 || b.Nsec == 0)
+	return a.Sec == b.Sec && a.Nsec == b.Nsec
 }
 
 // Changes walks the path rw and determines changes for the files in the path,
