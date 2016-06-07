@@ -14,7 +14,7 @@ var DockerCommandUsage = []Command{
 	{"events", "Get real time events from the server"},
 	{"exec", "Run a command in a running container"},
 	{"info", "Display system-wide information"},
-	{"inspect", "Return low-level information on a container or image"},
+	{"inspect", "Return low-level information on a container, image or task"},
 	{"load", "Load an image from a tar archive or STDIN"},
 	{"login", "Log in to a Docker registry"},
 	{"logout", "Log out from a Docker registry"},
