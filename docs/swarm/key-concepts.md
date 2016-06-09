@@ -45,7 +45,7 @@ Docker Swarm allows you to schedule service on nodes in the Swarm in the followi
 
 
 ### Load balancing
-Swarm uses *ingress* load balancing to expose the services you want to make available externally to the Swarm. Swarm can automatically assign the service a *SwarmPort* or you can configure a SwarmPort for the service in the 30000-32767 range. External components, such as cloud load balancers, can access the service on the SwarmPort of any node in the cluster, even if the node is not currently running the service.
+Swarm uses *ingress* load balancing to expose the services you want to make available externally to the Swarm. Swarm can automatically assign the service a *PublicPort* or you can configure a PublicPort for the service in the 30000-32767 range. External components, such as cloud load balancers, can access the service on the PublicPort of any node in the cluster, even if the node is not currently running the service.
 
 Swarm has an internal DNS component that automatically assigns each service in the Swarm DNS entry. Swarm uses *internal* load balancing distribute requests among services within the cluster based upon the services' DNS name.
 
