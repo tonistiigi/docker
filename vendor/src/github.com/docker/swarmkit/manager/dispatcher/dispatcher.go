@@ -562,7 +562,7 @@ func (d *Dispatcher) Tasks(r *api.TasksRequest, stream api.Dispatcher_TasksServe
 				tasks = append(tasks, t)
 			}
 		}
-
+		logrus.Debugf("send-tasks %v %v", len(tasksMap), tasks)
 		if err := stream.Send(&api.TasksMessage{Tasks: tasks}); err != nil {
 			return err
 		}
@@ -572,10 +572,13 @@ func (d *Dispatcher) Tasks(r *api.TasksRequest, stream api.Dispatcher_TasksServe
 			switch v := event.(type) {
 			case state.EventCreateTask:
 				tasksMap[v.Task.ID] = v.Task
+				logrus.Debugf("taskmap-create %v", v.Task.ID)
 			case state.EventUpdateTask:
 				tasksMap[v.Task.ID] = v.Task
+				logrus.Debugf("taskmap-update %v", v.Task.ID)
 			case state.EventDeleteTask:
 				delete(tasksMap, v.Task.ID)
+				logrus.Debugf("taskmap-delete %v", v.Task.ID)
 			}
 		case <-stream.Context().Done():
 			return stream.Context().Err()

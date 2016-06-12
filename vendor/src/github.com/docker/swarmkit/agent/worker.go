@@ -154,7 +154,7 @@ func (w *worker) Assign(ctx context.Context, tasks []*api.Task) error {
 			log.G(ctx).WithError(err).Error("error setting task assignment in database")
 			continue
 		}
-
+		logrus.Debugf("remove-taskmanager", id)
 		delete(w.taskManagers, id)
 
 		go func(tm *taskManager) {
@@ -208,11 +208,12 @@ func (w *worker) taskManager(ctx context.Context, tx *bolt.Tx, task *api.Task) (
 	if tm, ok := w.taskManagers[task.ID]; ok {
 		return tm, nil
 	}
-
+	logrus.Debugf("new-taskManager %v", task.ID)
 	tm, err := w.newTaskManager(ctx, tx, task)
 	if err != nil {
 		return nil, err
 	}
+	logrus.Debugf("set-taskManager %v", task.ID)
 	w.taskManagers[task.ID] = tm
 	return tm, nil
 }

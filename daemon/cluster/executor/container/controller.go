@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Sirupsen/logrus"
 	executorpkg "github.com/docker/docker/daemon/cluster/executor"
 	"github.com/docker/engine-api/types"
 	"github.com/docker/swarmkit/agent/exec"
@@ -23,12 +24,16 @@ type controller struct {
 	adapter *containerAdapter
 	closed  chan struct{}
 	err     error
+	id      int
 }
+
+var _id = 0
 
 var _ exec.Controller = &controller{}
 
 // NewController returns a dockerexec runner for the provided task.
 func newController(b executorpkg.Backend, task *api.Task) (*controller, error) {
+	_id += 1
 	adapter, err := newContainerAdapter(b, task)
 	if err != nil {
 		return nil, err
@@ -39,6 +44,7 @@ func newController(b executorpkg.Backend, task *api.Task) (*controller, error) {
 		task:    task,
 		adapter: adapter,
 		closed:  make(chan struct{}),
+		id:      _id,
 	}, nil
 }
 
@@ -71,6 +77,14 @@ func (r *controller) Update(ctx context.Context, t *api.Task) error {
 //
 // If the container has already be created, exec.ErrTaskPrepared is returned.
 func (r *controller) Prepare(ctx context.Context) error {
+	logrus.Debugf("> Prepare %v %v", r.task.ID, r.id)
+	logrus.Debugf("< Prepare %v %v", r.task.ID, r.id)
+
+	go func() {
+		<-ctx.Done()
+		logrus.Debugf("-prep.ctx %v", r.id)
+	}()
+
 	if err := r.checkClosed(); err != nil {
 		return err
 	}
@@ -92,6 +106,7 @@ func (r *controller) Prepare(ctx context.Context) error {
 		if err := r.adapter.create(ctx, r.backend); err != nil {
 			if isContainerCreateNameConflict(err) {
 				if _, err := r.adapter.inspect(ctx); err != nil {
+					logrus.Debugf("inspecterr %v %v", err, r.task.ID)
 					return err
 				}
 
