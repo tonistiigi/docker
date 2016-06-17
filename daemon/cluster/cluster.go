@@ -678,6 +678,15 @@ func (c *Cluster) UpdateService(serviceID string, version uint64, spec types.Ser
 
 	if encodedAuth != "" {
 		serviceSpec.Task.Runtime.(*swarmapi.TaskSpec_Container).Container.PullOptions = &swarmapi.ContainerSpec_PullOptions{RegistryAuth: encodedAuth}
+	} else {
+		currentService, err := getService(c.getRequestContext(), c.client, serviceID)
+		if err != nil {
+			return err
+		}
+		c := currentService.Spec.Task.Runtime.(*swarmapi.TaskSpec_Container).Container
+		if c.PullOptions != nil {
+			serviceSpec.Task.Runtime.(*swarmapi.TaskSpec_Container).Container.PullOptions = cnt.PullOptions
+		}
 	}
 
 	_, err = c.client.UpdateService(

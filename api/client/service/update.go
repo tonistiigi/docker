@@ -42,20 +42,21 @@ func runUpdate(dockerCli *client.DockerCli, flags *pflag.FlagSet, serviceID stri
 	ctx := context.Background()
 	headers := map[string][]string{}
 
-	// TODO(nishanttotla): Is this the best way to get the new image?
-	image, err := flags.GetString("image")
-	if err != nil {
-		return err
-	}
-	if image != "" {
-		// Retrieve encoded auth token from the image reference
-		// only do this if a new image has been provided as part of the udpate
-		encodedAuth, err := dockerCli.RetrieveAuthTokenFromImage(ctx, image)
+	if flags.Changed("image") {
+		image, err := flags.GetString("image")
 		if err != nil {
 			return err
 		}
-		headers = map[string][]string{
-			"X-Registry-Auth": {encodedAuth},
+		if image != "" {
+			// Retrieve encoded auth token from the image reference
+			// only do this if a new image has been provided as part of the udpate
+			encodedAuth, err := dockerCli.RetrieveAuthTokenFromImage(ctx, image)
+			if err != nil {
+				return err
+			}
+			headers = map[string][]string{
+				"X-Registry-Auth": {encodedAuth},
+			}
 		}
 	}
 
