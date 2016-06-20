@@ -686,6 +686,56 @@ loop0:
 	}
 }
 
+func (s *DockerSwarmSuite) TestApiSwarmForceNewCluster(c *check.C) {
+	d1 := s.AddDaemon(c, true, true)
+	d2 := s.AddDaemon(c, true, true)
+
+	instances := 2
+	id := d1.createService(c, simpleTestService, setInstances(instances))
+	waitAndAssert(c, defaultReconciliationTimeout, reducedCheck(sumAsIntegers, d1.checkActiveContainerCount, d2.checkActiveContainerCount), checker.Equals, instances)
+
+	c.Assert(d2.Stop(), checker.IsNil)
+
+	time.Sleep(5 * time.Second)
+
+	c.Assert(d1.Init(swarm.InitRequest{
+		ForceNewCluster: true,
+		Spec: swarm.Spec{
+			AcceptancePolicy: swarm.AcceptancePolicy{
+				Policies: []swarm.Policy{
+					{Role: swarm.NodeRoleWorker},
+					{Role: swarm.NodeRoleManager},
+				},
+			},
+		},
+	}), checker.IsNil)
+
+	waitAndAssert(c, defaultReconciliationTimeout, d1.checkActiveContainerCount, checker.Equals, instances)
+
+	c.Assert(d2.Start(), checker.IsNil)
+
+	for i := 0; ; i++ {
+		info, err := d2.info()
+		c.Assert(err, checker.IsNil)
+		c.Logf("info %v %v", info.ControlAvailable, info.LocalNodeState)
+
+		if info.LocalNodeState == swarm.LocalNodeStateActive && i > 3 { // debug wip: show how state changes
+			break
+		}
+		if i > 10 {
+			c.Fatalf("node did not go to active")
+		}
+		time.Sleep(1 * time.Second)
+		// c.Assert(info.ControlAvailable, checker.Equals, true)
+		// c.Assert(info.LocalNodeState, checker.Equals, swarm.LocalNodeStateActive)
+	}
+
+	instances = 4
+	d2.updateService(c, d2.getService(c, id), setInstances(instances))
+
+	waitAndAssert(c, defaultReconciliationTimeout, reducedCheck(sumAsIntegers, d1.checkActiveContainerCount, d2.checkActiveContainerCount), checker.Equals, instances)
+}
+
 func simpleTestService(s *swarm.Service) {
 	var ureplicas uint64
 	ureplicas = 1

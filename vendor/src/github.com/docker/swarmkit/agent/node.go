@@ -621,7 +621,8 @@ func (n *Node) runManager(ctx context.Context, securityConfig *ca.SecurityConfig
 			}
 			done := make(chan struct{})
 			go func() {
-				m.Run(context.Background()) // todo: store error
+				err = m.Run(context.Background())
+				logrus.Debugf("managererr0 %v", err)
 				close(done)
 			}()
 
@@ -657,7 +658,7 @@ func (n *Node) runManager(ctx context.Context, securityConfig *ca.SecurityConfig
 			}
 			n.Unlock()
 
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || err != nil {
 				return err
 			}
 		}

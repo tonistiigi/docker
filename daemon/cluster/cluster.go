@@ -249,10 +249,11 @@ func (c *Cluster) startNewNode(forceNewCluster bool, listenAddr, joinAddr, secre
 		for conn := range node.ListenControlSocket(ctx) {
 			c.Lock()
 			if c.conn != conn {
-				c.client = swarmapi.NewControlClient(conn)
-			}
-			if c.conn != nil {
-				c.client = nil
+				if conn == nil {
+					c.client = nil
+				} else {
+					c.client = swarmapi.NewControlClient(conn)
+				}
 			}
 			c.conn = conn
 			c.Unlock()
@@ -277,6 +278,7 @@ func (c *Cluster) Init(req types.InitRequest) (string, error) {
 		if err := c.node.Stop(ctx); err != nil && !strings.Contains(err.Error(), "context canceled") {
 			return "", err
 		}
+		time.Sleep(1 * time.Second) // TODO: FIX!!!
 		c.Lock()
 		c.node = nil
 		c.conn = nil
@@ -1010,6 +1012,7 @@ func (c *Cluster) Cleanup() {
 
 func (c *Cluster) managerStats() (current bool, reachable int, unreachable int, err error) {
 	ctx, _ := context.WithTimeout(context.Background(), 3*time.Second)
+	logrus.Debugf("listnodes %v %v %v", c.conn, c.node, c.client)
 	nodes, err := c.client.ListNodes(ctx, &swarmapi.ListNodesRequest{})
 	if err != nil {
 		return false, 0, 0, err
