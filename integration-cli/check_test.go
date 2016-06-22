@@ -37,6 +37,9 @@ func (s *DockerSuite) TearDownTest(c *check.C) {
 	deleteAllImages()
 	deleteAllVolumes()
 	deleteAllNetworks()
+
+	b, err := exec.Command("ps", "aux").CombinedOutput()
+	c.Logf("processes: %v %v", string(b), err)
 }
 
 func init() {
@@ -182,10 +185,6 @@ func (s *DockerDaemonSuite) TearDownTest(c *check.C) {
 	if s.d != nil {
 		s.d.Stop()
 	}
-
-	b, err := exec.Command("ps", "aux").CombinedOutput()
-	c.Logf("processes: %v %v", string(b), err)
-
 	s.ds.TearDownTest(c)
 }
 
@@ -240,10 +239,6 @@ func (s *DockerSwarmSuite) TearDownTest(c *check.C) {
 	}
 	s.daemons = nil
 	s.portIndex = 0
-
-	b, err := exec.Command("ps", "aux").CombinedOutput()
-	c.Logf("processes: %v %v", string(b), err)
-
 	s.ds.TearDownTest(c)
 }
 
