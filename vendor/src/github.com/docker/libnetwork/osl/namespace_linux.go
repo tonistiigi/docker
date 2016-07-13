@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -21,7 +22,7 @@ import (
 	"github.com/vishvananda/netns"
 )
 
-const prefix = "/var/run/docker/netns"
+const defaultPrefix = "/var/run/docker/netns"
 
 var (
 	once             sync.Once
@@ -52,8 +53,16 @@ func init() {
 	reexec.Register("netns-create", reexecCreateNamespace)
 }
 
+func basePath() string {
+	path := ns.BasePath()
+	if path == "" {
+		return defaultPrefix
+	}
+	return filepath.Join(path, "netns")
+}
+
 func createBasePath() {
-	err := os.MkdirAll(prefix, 0755)
+	err := os.MkdirAll(basePath(), 0755)
 	if err != nil {
 		panic("Could not create net namespace path directory")
 	}
@@ -142,7 +151,7 @@ func GenerateKey(containerID string) string {
 			indexStr string
 			tmpkey   string
 		)
-		dir, err := ioutil.ReadDir(prefix)
+		dir, err := ioutil.ReadDir(basePath())
 		if err != nil {
 			return ""
 		}
@@ -172,7 +181,7 @@ func GenerateKey(containerID string) string {
 		maxLen = len(containerID)
 	}
 
-	return prefix + "/" + containerID[:maxLen]
+	return basePath() + "/" + containerID[:maxLen]
 }
 
 // NewSandbox provides a new sandbox instance created in an os specific way
