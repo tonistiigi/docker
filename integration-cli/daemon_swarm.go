@@ -18,8 +18,7 @@ import (
 type SwarmDaemon struct {
 	*Daemon
 	swarm.Info
-	port       int
-	listenAddr string
+	port int
 }
 
 // default policy in tests is allow-all
@@ -33,7 +32,7 @@ var autoAcceptPolicy = swarm.AcceptancePolicy{
 // Init initializes a new swarm cluster.
 func (d *SwarmDaemon) Init(req swarm.InitRequest) error {
 	if req.ListenAddr == "" {
-		req.ListenAddr = d.listenAddr
+		req.ListenAddr = d.defaultListenAddress()
 	}
 	status, out, err := d.SockRequest("POST", "/swarm/init", req)
 	if status != http.StatusOK {
@@ -53,7 +52,7 @@ func (d *SwarmDaemon) Init(req swarm.InitRequest) error {
 // Join joins a daemon to an existing cluster.
 func (d *SwarmDaemon) Join(req swarm.JoinRequest) error {
 	if req.ListenAddr == "" {
-		req.ListenAddr = d.listenAddr
+		req.ListenAddr = d.defaultListenAddress()
 	}
 	status, out, err := d.SockRequest("POST", "/swarm/join", req)
 	if status != http.StatusOK {
@@ -84,6 +83,10 @@ func (d *SwarmDaemon) Leave(force bool) error {
 		err = fmt.Errorf("leaving swarm: %v", err)
 	}
 	return err
+}
+
+func (d *SwarmDaemon) defaultListenAddress() string {
+	return d.ip + ":2377"
 }
 
 func (d *SwarmDaemon) info() (swarm.Info, error) {

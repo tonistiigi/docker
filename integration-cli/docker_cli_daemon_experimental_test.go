@@ -125,7 +125,7 @@ func (s *DockerDaemonSuite) TestDaemonShutdownWithPlugins(c *check.C) {
 		}
 	}()
 
-	if err := s.d.cmd.Process.Signal(os.Interrupt); err != nil {
+	if err := s.d.Signal(syscall.SIGINT); err != nil {
 		c.Fatalf("Could not kill daemon: %v", err)
 	}
 
