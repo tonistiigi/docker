@@ -130,7 +130,7 @@ func (s *DockerDaemonSuite) TestDaemonShutdownWithPlugins(c *check.C) {
 	}
 
 	for {
-		if err := syscall.Kill(s.d.cmd.Process.Pid, 0); err == syscall.ESRCH {
+		if _, err := s.d.getDockerdPID(); err != nil {
 			break
 		}
 	}

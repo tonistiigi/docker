@@ -38,6 +38,7 @@ func (s *DockerSuite) TearDownTest(c *check.C) {
 	deleteAllImages()
 	deleteAllVolumes()
 	deleteAllNetworks()
+	dockerCmd(c, "run", "busybox", "nslookup", "google.com")
 }
 
 func init() {
