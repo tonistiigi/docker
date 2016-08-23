@@ -44,6 +44,15 @@ func ChanOutput(progressChan chan<- Progress) Output {
 	return chanOutput(progressChan)
 }
 
+// Discard discards all progress data.
+var Discard = &discard{}
+
+type discard struct{}
+
+func (d *discard) WriteProgress(p Progress) error {
+	return nil
+}
+
 // Update is a convenience function to write a progress update to the channel.
 func Update(out Output, id, action string) {
 	out.WriteProgress(Progress{ID: id, Action: action})

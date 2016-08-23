@@ -78,7 +78,7 @@ func runPull(dockerCli *command.DockerCli, opts pullOptions) error {
 
 	if command.IsTrusted() && !registryRef.HasDigest() {
 		// Check if tag is digest
-		err = trustedPull(ctx, dockerCli, repoInfo, registryRef, authConfig, requestPrivilege)
+		err = TrustedPull(ctx, dockerCli, repoInfo, registryRef, authConfig, requestPrivilege)
 	} else {
 		err = imagePullPrivileged(ctx, dockerCli, authConfig, distributionRef.String(), requestPrivilege, opts.all)
 	}

@@ -87,7 +87,7 @@ func (daemon *Daemon) pullImageWithReference(ctx context.Context, ref reference.
 		close(writesDone)
 	}()
 
-	imagePullConfig := &distribution.ImagePullConfig{
+	pullConfig := &distribution.PullConfig{
 		MetaHeaders:      metaHeaders,
 		AuthConfig:       authConfig,
 		ProgressOutput:   progress.ChanOutput(progressChan),
@@ -99,7 +99,7 @@ func (daemon *Daemon) pullImageWithReference(ctx context.Context, ref reference.
 		DownloadManager:  daemon.downloadManager,
 	}
 
-	err := distribution.Pull(ctx, ref, imagePullConfig)
+	err := distribution.Pull(ctx, ref, pullConfig)
 	close(progressChan)
 	<-writesDone
 	return err

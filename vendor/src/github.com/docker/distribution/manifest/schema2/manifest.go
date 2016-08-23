@@ -14,8 +14,12 @@ const (
 	// MediaTypeManifest specifies the mediaType for the current version.
 	MediaTypeManifest = "application/vnd.docker.distribution.manifest.v2+json"
 
+	// TODO(tonistiigi): MediaTypeImageConfig
 	// MediaTypeConfig specifies the mediaType for the image configuration.
 	MediaTypeConfig = "application/vnd.docker.container.image.v1+json"
+
+	// MediaTypeBundleConfig specifies the mediaType for the bundle configuration.
+	MediaTypeBundleConfig = "application/vnd.docker.container.bundle.v1+json"
 
 	// MediaTypePluginConfig specifies the mediaType for plugin configuration.
 	MediaTypePluginConfig = "application/vnd.docker.plugin.v0+json"
@@ -64,7 +68,9 @@ type Manifest struct {
 
 	// Layers lists descriptors for the layers referenced by the
 	// configuration.
-	Layers []distribution.Descriptor `json:"layers"`
+	Layers []distribution.Descriptor `json:"layers,omitempty"`
+
+	Blobs []distribution.Descriptor `json:"blobs,omitempty"`
 }
 
 // References returnes the descriptors of this manifests references.

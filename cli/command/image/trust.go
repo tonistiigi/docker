@@ -49,8 +49,9 @@ type target struct {
 	size      int64
 }
 
-// trustedPush handles content trust pushing of an image
-func trustedPush(ctx context.Context, cli *command.DockerCli, repoInfo *registry.RepositoryInfo, ref reference.Named, authConfig types.AuthConfig, requestPrivilege types.RequestPrivilegeFunc) error {
+// TrustedPush handles content trust pushing of an image
+// TODO: move to distribution package
+func TrustedPush(ctx context.Context, cli *command.DockerCli, repoInfo *registry.RepositoryInfo, ref reference.Named, authConfig types.AuthConfig, requestPrivilege types.RequestPrivilegeFunc) error {
 	responseBody, err := imagePushPrivileged(ctx, cli, authConfig, ref.String(), requestPrivilege)
 	if err != nil {
 		return err
@@ -231,8 +232,9 @@ func imagePushPrivileged(ctx context.Context, cli *command.DockerCli, authConfig
 	return cli.Client().ImagePush(ctx, ref, options)
 }
 
-// trustedPull handles content trust pulling of an image
-func trustedPull(ctx context.Context, cli *command.DockerCli, repoInfo *registry.RepositoryInfo, ref registry.Reference, authConfig types.AuthConfig, requestPrivilege types.RequestPrivilegeFunc) error {
+// TrustedPull handles content trust pulling of an image
+// TODO: move to distribution package
+func TrustedPull(ctx context.Context, cli *command.DockerCli, repoInfo *registry.RepositoryInfo, ref registry.Reference, authConfig types.AuthConfig, requestPrivilege types.RequestPrivilegeFunc) error {
 	var refs []target
 
 	notaryRepo, err := GetNotaryRepository(cli, repoInfo, authConfig, "pull")

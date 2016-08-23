@@ -19,8 +19,10 @@ type CommonAPIClient interface {
 	ContainerAPIClient
 	ImageAPIClient
 	NodeAPIClient
+	BundleAPIClient
 	NetworkAPIClient
 	ServiceAPIClient
+	StackAPIClient
 	SwarmAPIClient
 	SystemAPIClient
 	VolumeAPIClient
@@ -80,6 +82,16 @@ type ImageAPIClient interface {
 	ImageTag(ctx context.Context, image, ref string) error
 }
 
+// BundleAPIClient defines API client methods for bundles
+type BundleAPIClient interface {
+	BundleList(ctx context.Context, options types.BundleListOptions) ([]types.Bundle, error)
+	BundleRemove(ctx context.Context, bundleID string, options types.BundleRemoveOptions) ([]types.BundleDelete, error)
+	BundlePush(ctx context.Context, ref string, options types.BundlePushOptions) (io.ReadCloser, error)
+	BundlePull(ctx context.Context, ref string, options types.BundlePullOptions) (io.ReadCloser, error)
+	BundleTag(ctx context.Context, bundleID, ref string) error
+	BundleInspectWithRaw(ctx context.Context, bundleID string) (types.BundleInspect, []byte, error)
+}
+
 // NetworkAPIClient defines API client methods for the networks
 type NetworkAPIClient interface {
 	NetworkConnect(ctx context.Context, networkID, container string, config *network.EndpointSettings) error
@@ -108,6 +120,11 @@ type ServiceAPIClient interface {
 	ServiceUpdate(ctx context.Context, serviceID string, version swarm.Version, service swarm.ServiceSpec, options types.ServiceUpdateOptions) error
 	TaskInspectWithRaw(ctx context.Context, taskID string) (swarm.Task, []byte, error)
 	TaskList(ctx context.Context, options types.TaskListOptions) ([]swarm.Task, error)
+}
+
+//StackAPIClient defines the API client methods for stacks
+type StackAPIClient interface {
+	StackCreate(context.Context, types.StackCreateOptions) (swarm.StackCreateResponse, error)
 }
 
 // SwarmAPIClient defines API client methods for the swarm

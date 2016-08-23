@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/image/bundle"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
@@ -40,7 +41,7 @@ type v2Pusher struct {
 	ref               reference.Named
 	endpoint          registry.APIEndpoint
 	repoInfo          *registry.RepositoryInfo
-	config            *ImagePushConfig
+	config            *PushConfig
 	repo              distribution.Repository
 
 	// pushState is state built by the Upload functions.
@@ -87,7 +88,8 @@ func (p *v2Pusher) pushV2Repository(ctx context.Context) (err error) {
 			return fmt.Errorf("tag does not exist: %s", p.ref.String())
 		}
 
-		return p.pushV2Tag(ctx, namedTagged, imageID)
+		_, err = p.pushV2Tag(ctx, namedTagged, imageID)
+		return err
 	}
 
 	if !reference.IsNameOnly(p.ref) {
@@ -99,7 +101,7 @@ func (p *v2Pusher) pushV2Repository(ctx context.Context) (err error) {
 	for _, association := range p.config.ReferenceStore.ReferencesByName(p.ref) {
 		if namedTagged, isNamedTagged := association.Ref.(reference.NamedTagged); isNamedTagged {
 			pushed++
-			if err := p.pushV2Tag(ctx, namedTagged, association.ID); err != nil {
+			if _, err := p.pushV2Tag(ctx, namedTagged, association.ID); err != nil {
 				return err
 			}
 		}
@@ -112,12 +114,111 @@ func (p *v2Pusher) pushV2Repository(ctx context.Context) (err error) {
 	return nil
 }
 
-func (p *v2Pusher) pushV2Tag(ctx context.Context, ref reference.NamedTagged, id digest.Digest) error {
-	logrus.Debugf("Pushing repository: %s", ref.String())
-
-	img, err := p.config.ImageStore.Get(image.IDFromDigest(id))
+func (p *v2Pusher) pushV2BundleTag(ctx context.Context, ref reference.NamedTagged, id digest.Digest) (distribution.Describable, error) {
+	bundle, err := p.config.BundleStore.Get(bundle.ID(id))
 	if err != nil {
-		return fmt.Errorf("could not find image from tag %s: %v", ref.String(), err)
+		return nil, fmt.Errorf("could not find bundle from tag %s: %v", ref.String(), err)
+	}
+
+	var descriptors []distribution.Descriptor
+	p.config.BundleStore = nil // todo: make into var
+	for _, s := range bundle.Services {
+		d, err := p.pushV2Tag(ctx, nil, s.Image.Digest())
+		if err != nil {
+			return nil, err
+		}
+		descriptors = append(descriptors, d.Descriptor())
+	}
+
+	manifest, err := p.buildBundleManifest(ctx, bundle.RawJSON(), descriptors)
+
+	manSvc, err := p.repo.Manifests(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var canonicalManifest []byte
+	putOptions := []distribution.ManifestServiceOption{}
+	if ref != nil {
+		putOptions = append(putOptions, distribution.WithTag(ref.Tag()))
+	}
+	if _, err = manSvc.Put(ctx, manifest, putOptions...); err != nil {
+		return nil, err
+	}
+	schema2Manifest, ok := manifest.(*schema2.DeserializedManifest)
+	if !ok {
+		return nil, fmt.Errorf("invalid manifest type")
+	}
+
+	_, canonicalManifest, err = schema2Manifest.Payload()
+	if err != nil {
+		return nil, err
+	}
+
+	manifestDigest := digest.FromBytes(canonicalManifest)
+
+	// Signal digest to the trust client so it can sign the
+	// push, if appropriate.
+	progress.Aux(p.config.ProgressOutput, PushResult{Tag: ref.Tag(), Digest: manifestDigest, Size: len(canonicalManifest)})
+
+	logrus.Debugf("manifest: %q", string(canonicalManifest))
+
+	return &distribution.Descriptor{
+		Size:      int64(len(canonicalManifest)),
+		Digest:    manifestDigest,
+		MediaType: schema2.MediaTypeManifest,
+	}, nil
+
+}
+
+// TODO: Fix ManifestBuilder content-type interface{RawJSON()}, MediaType
+func (p *v2Pusher) buildBundleManifest(ctx context.Context, config []byte, descriptors []distribution.Descriptor) (distribution.Manifest, error) {
+	m := schema2.Manifest{
+		Versioned: schema2.SchemaVersion,
+		Blobs:     descriptors,
+	}
+
+	bs := p.repo.Blobs(ctx)
+
+	configDigest := digest.FromBytes(config)
+	var err error
+	m.Config, err = bs.Stat(ctx, configDigest)
+	switch err {
+	case nil:
+		// Override MediaType, since Put always replaces the specified media
+		// type with application/octet-stream in the descriptor it returns.
+		m.Config.MediaType = schema2.MediaTypeBundleConfig
+		return schema2.FromStruct(m)
+	case distribution.ErrBlobUnknown:
+		// nop
+	default:
+		return nil, err
+	}
+
+	// Add config to the blob store
+	m.Config, err = bs.Put(ctx, schema2.MediaTypeBundleConfig, config)
+	// Override MediaType, since Put always replaces the specified media
+	// type with application/octet-stream in the descriptor it returns.
+	m.Config.MediaType = schema2.MediaTypeBundleConfig
+	if err != nil {
+		return nil, err
+	}
+
+	return schema2.FromStruct(m)
+}
+
+func (p *v2Pusher) pushV2Tag(ctx context.Context, ref reference.NamedTagged, id digest.Digest) (distribution.Describable, error) {
+	if ref != nil {
+		logrus.Debugf("Pushing repository: %s", ref.String())
+	}
+
+	if p.config.BundleStore != nil {
+		return p.pushV2BundleTag(ctx, ref, id)
+	}
+
+	img, err := p.config.ImageStore.Get(image.ID(id))
+	if err != nil {
+		return nil, fmt.Errorf("could not find image from tag %s: %v", ref.String(), err)
 	}
 
 	var l layer.Layer
@@ -128,7 +229,7 @@ func (p *v2Pusher) pushV2Tag(ctx context.Context, ref reference.NamedTagged, id 
 	} else {
 		l, err = p.config.LayerStore.Get(topLayerID)
 		if err != nil {
-			return fmt.Errorf("failed to get top layer from image: %v", err)
+			return nil, fmt.Errorf("failed to get top layer from image: %v", err)
 		}
 		defer layer.ReleaseAndLog(p.config.LayerStore, l)
 	}
@@ -153,42 +254,45 @@ func (p *v2Pusher) pushV2Tag(ctx context.Context, ref reference.NamedTagged, id 
 	}
 
 	if err := p.config.UploadManager.Upload(ctx, descriptors, p.config.ProgressOutput); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Try schema2 first
 	builder := schema2.NewManifestBuilder(p.repo.Blobs(ctx), img.RawJSON())
 	manifest, err := manifestFromBuilder(ctx, builder, descriptors)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	manSvc, err := p.repo.Manifests(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	putOptions := []distribution.ManifestServiceOption{distribution.WithTag(ref.Tag())}
+	putOptions := []distribution.ManifestServiceOption{}
+	if ref != nil {
+		putOptions = append(putOptions, distribution.WithTag(ref.Tag()))
+	}
 	if _, err = manSvc.Put(ctx, manifest, putOptions...); err != nil {
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == "windows" || p.config.requireSchema2 || ref == nil {
 			logrus.Warnf("failed to upload schema2 manifest: %v", err)
-			return err
+			return nil, err
 		}
 
 		logrus.Warnf("failed to upload schema2 manifest: %v - falling back to schema1", err)
 
 		manifestRef, err := distreference.WithTag(p.repo.Named(), ref.Tag())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		builder = schema1.NewConfigManifestBuilder(p.repo.Blobs(ctx), p.config.TrustKey, manifestRef, img.RawJSON())
 		manifest, err = manifestFromBuilder(ctx, builder, descriptors)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if _, err = manSvc.Put(ctx, manifest, putOptions...); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -200,22 +304,28 @@ func (p *v2Pusher) pushV2Tag(ctx context.Context, ref reference.NamedTagged, id 
 	case *schema2.DeserializedManifest:
 		_, canonicalManifest, err = v.Payload()
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	manifestDigest := digest.FromBytes(canonicalManifest)
-	progress.Messagef(p.config.ProgressOutput, "", "%s: digest: %s size: %d", ref.Tag(), manifestDigest, len(canonicalManifest))
+	if ref != nil {
+		progress.Messagef(p.config.ProgressOutput, "", "%s: digest: %s size: %d", ref.Tag(), manifestDigest, len(canonicalManifest))
 
-	if err := addDigestReference(p.config.ReferenceStore, ref, manifestDigest, id); err != nil {
-		return err
+		if err := addDigestReference(p.config.ReferenceStore, ref, manifestDigest, id); err != nil {
+			return nil, err
+		}
+
+		// Signal digest to the trust client so it can sign the
+		// push, if appropriate.
+		progress.Aux(p.config.ProgressOutput, PushResult{Tag: ref.Tag(), Digest: manifestDigest, Size: len(canonicalManifest)})
 	}
 
-	// Signal digest to the trust client so it can sign the
-	// push, if appropriate.
-	progress.Aux(p.config.ProgressOutput, PushResult{Tag: ref.Tag(), Digest: manifestDigest, Size: len(canonicalManifest)})
-
-	return nil
+	return &distribution.Descriptor{
+		Size:      int64(len(canonicalManifest)),
+		Digest:    manifestDigest,
+		MediaType: schema2.MediaTypeManifest,
+	}, nil
 }
 
 func manifestFromBuilder(ctx context.Context, builder distribution.ManifestBuilder, descriptors []xfer.UploadDescriptor) (distribution.Manifest, error) {

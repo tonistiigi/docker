@@ -432,7 +432,7 @@ func (daemon *Daemon) transformContainer(container *container.Container, ctx *li
 	image := container.Config.Image // if possible keep the original ref
 	if image != container.ImageID.String() {
 		id, err := daemon.GetImageID(image)
-		if _, isDNE := err.(ErrImageDoesNotExist); err != nil && !isDNE {
+		if _, isDNE := err.(ErrRefDoesNotExist); err != nil && !isDNE {
 			return nil, err
 		}
 		if err != nil || id != container.ImageID {

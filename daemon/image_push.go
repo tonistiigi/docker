@@ -37,7 +37,7 @@ func (daemon *Daemon) PushImage(ctx context.Context, image, tag string, metaHead
 		close(writesDone)
 	}()
 
-	imagePushConfig := &distribution.ImagePushConfig{
+	imagePushConfig := &distribution.PushConfig{
 		MetaHeaders:      metaHeaders,
 		AuthConfig:       authConfig,
 		ProgressOutput:   progress.ChanOutput(progressChan),

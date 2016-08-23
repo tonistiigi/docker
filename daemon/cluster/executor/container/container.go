@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	clustertypes "github.com/docker/docker/daemon/cluster/provider"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/reference"
 	"github.com/docker/swarmkit/agent/exec"
 	"github.com/docker/swarmkit/api"
@@ -34,6 +35,7 @@ const (
 type containerConfig struct {
 	task                *api.Task
 	networksAttachments map[string]*api.NetworkAttachment
+	imageID             image.ID
 }
 
 // newContainerConfig returns a validated container config. No methods should
@@ -109,6 +111,9 @@ func (c *containerConfig) name() string {
 }
 
 func (c *containerConfig) image() string {
+	if c.imageID != "" {
+		return c.imageID.String()
+	}
 	raw := c.spec().Image
 	ref, err := reference.ParseNamed(raw)
 	if err != nil {

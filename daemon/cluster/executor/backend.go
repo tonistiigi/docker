@@ -10,6 +10,8 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	clustertypes "github.com/docker/docker/daemon/cluster/provider"
+	"github.com/docker/docker/image"
+	"github.com/docker/docker/image/bundle"
 	"github.com/docker/libnetwork"
 	"github.com/docker/libnetwork/cluster"
 	networktypes "github.com/docker/libnetwork/types"
@@ -42,4 +44,6 @@ type Backend interface {
 	UnsubscribeFromEvents(listener chan interface{})
 	UpdateAttachment(string, string, string, *network.NetworkingConfig) error
 	WaitForDetachment(context.Context, string, string, string, string) error
+	ResolveBundleManifest(bundleRef string) (*bundle.Bundle, error)
+	PullBundleImage(ctx context.Context, bundleRef, imageName string, metaHeaders map[string][]string, authConfig *types.AuthConfig, outStream io.Writer) (image.ID, error)
 }
