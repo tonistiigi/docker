@@ -47,16 +47,30 @@ only clutter the discussion, and don't help resolving it. However, if you
 have ways to reproduce the issue or have additional information that may help
 resolving the issue, please leave a comment.
 
+If you have trouble identifying whether the found isssue covers your problem or
+if the issue you found seems too old to be relevant it is better to open a
+new issue, link to your findings and let the maintainers decide if they should
+be combined or not.
+
 When reporting issues, always include:
 
 * The output of `docker version`.
 * The output of `docker info`.
 
 Also include the steps required to reproduce the problem if possible and
-applicable. This information will help us review and fix your issue faster.
+applicable. Docker daemon logs are very helpful for debugging most of the 
+issues and can be enabled with `-D` option. If you experience any hanging or 
+resource leaking behavior it is good idea to send us daemon stacktrace that can 
+be produced by sending `SIGUSR1` signal to to daemon process. This information 
+will greatly help us review and fix your issue faster.
 When sending lengthy log-files, consider posting them as a gist (https://gist.github.com).
 Don't forget to remove sensitive data from your logfiles before posting (you can
 replace those parts with "REDACTED").
+
+If you feel like the issue you have submitted has not been properly triaged
+(given appropriate labels, milestone and priority) in a meaningful time, feel
+free to ping active maintainers in that area. If the issue has been confirmed
+you can request a maintainer to be assigned on it.
 
 ## Quick contribution tips and guidelines
 
