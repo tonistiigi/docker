@@ -76,7 +76,7 @@ type Builder struct {
 	// TODO: remove once docker.Commit can receive a tag
 	id string
 
-	imageCacheForBuild builder.ImageCacheForBuild
+	imageCache builder.ImageCache
 }
 
 // BuildManager implements builder.Backend and is shared across all Builder objects.
@@ -121,12 +121,6 @@ func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, back
 		config.BuildArgs = make(map[string]string)
 	}
 	ctx, cancel := context.WithCancel(clientCtx)
-
-	// If no backend is provided, there will be no caching
-	var imageCacheForBuild builder.ImageCacheForBuild
-	if backend != nil {
-		imageCacheForBuild = backend.(builder.ImageCache).MakeImageCacheForBuild(config.CacheFrom)
-	}
 	b = &Builder{
 		clientCtx:        ctx,
 		cancel:           cancel,
@@ -143,8 +137,11 @@ func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, back
 			EscapeSeen:           false,
 			LookingForDirectives: true,
 		},
-		imageCacheForBuild: imageCacheForBuild,
 	}
+	if icb, ok := backend.(builder.ImageCacheBuilder); ok {
+		b.imageCache = icb.MakeImageCache(config.CacheFrom)
+	}
+
 	parser.SetEscapeToken(parser.DefaultEscapeToken, &b.directive) // Assume the default token for escape
 
 	if dockerfile != nil {
