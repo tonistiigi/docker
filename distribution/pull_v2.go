@@ -529,7 +529,7 @@ func (p *v2Puller) pullBundleSchema2(ctx context.Context, ref reference.Named, m
 		return "", "", err
 	}
 
-	if len(b.Services) != len(mfst.Blobs) {
+	if len(b.Services) != len(mfst.Dependencies) {
 		return "", "", fmt.Errorf("invalid manifest: incorrect number of services")
 	}
 
@@ -549,7 +549,7 @@ func (p *v2Puller) pullBundleSchema2(ctx context.Context, ref reference.Named, m
 		if err != nil {
 			return "", "", err
 		}
-		if r, err = reference.WithDigest(r, mfst.Blobs[i].Digest); err != nil {
+		if r, err = reference.WithDigest(r, mfst.Dependencies[i].Digest); err != nil {
 			return "", "", err
 		}
 		if _, err := p.pullV2Tag(ctx, r, imgID); err != nil {
