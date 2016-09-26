@@ -370,12 +370,6 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, validateI
 		}
 	}
 
-	if p.config.requireSchema2 { // todo: handle manifestlist?
-		if _, ok := manifest.(*schema2.DeserializedManifest); !ok {
-			return false, fmt.Errorf("invalid manifest: not schema2")
-		}
-	}
-
 	// If manSvc.Get succeeded, we can be confident that the registry on
 	// the other side speaks the v2 protocol.
 	p.confirmedV2 = true
@@ -390,6 +384,9 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, validateI
 
 	switch v := manifest.(type) {
 	case *schema1.SignedManifest:
+		if p.config.requireSchema2 {
+			return false, fmt.Errorf("invalid manifest: not schema2")
+		}
 		id, manifestDigest, err = p.pullSchema1(ctx, ref, v)
 		if err != nil {
 			return false, err

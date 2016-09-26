@@ -40,8 +40,8 @@ type PullConfig struct {
 	// RegistryService is the registry service to use for TLS configuration
 	// and endpoint lookup.
 	RegistryService registry.Service
-	// ImageEventLogger notifies events for a given image
-	ImageEventLogger func(id, name, action string)
+	// EventLogger notifies events for a given pull
+	EventLogger func(id, name, action string)
 	// MetadataStore is the storage backend for distribution-specific
 	// metadata.
 	MetadataStore metadata.Store
@@ -195,7 +195,7 @@ func Pull(ctx context.Context, ref reference.Named, pullConfig *PullConfig) erro
 			return err
 		}
 
-		pullConfig.ImageEventLogger(ref.String(), repoInfo.Name(), "pull")
+		pullConfig.EventLogger(ref.String(), repoInfo.Name(), "pull")
 		return nil
 	}
 

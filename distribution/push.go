@@ -19,8 +19,6 @@ import (
 	"golang.org/x/net/context"
 )
 
-// TODO(tonistiigi): needs more renames from images
-
 // PushConfig stores push configuration.
 type PushConfig struct {
 	// MetaHeaders store HTTP headers with metadata about the image
@@ -34,8 +32,8 @@ type PushConfig struct {
 	// RegistryService is the registry service to use for TLS configuration
 	// and endpoint lookup.
 	RegistryService registry.Service
-	// ImageEventLogger notifies events for a given image
-	ImageEventLogger func(id, name, action string)
+	// EventLogger notifies events for a given push
+	EventLogger func(id, name, action string)
 	// MetadataStore is the storage backend for distribution-specific
 	// metadata.
 	MetadataStore metadata.Store
@@ -179,7 +177,7 @@ func Push(ctx context.Context, ref reference.Named, imagePushConfig *PushConfig)
 			return err
 		}
 
-		imagePushConfig.ImageEventLogger(ref.String(), repoInfo.Name(), "push")
+		imagePushConfig.EventLogger(ref.String(), repoInfo.Name(), "push")
 		return nil
 	}
 

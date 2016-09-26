@@ -399,18 +399,18 @@ func (daemon *Daemon) PushBundle(ctx context.Context, repo, tag string, metaHead
 	}()
 
 	pushConfig := &distribution.PushConfig{
-		MetaHeaders:      metaHeaders,
-		AuthConfig:       authConfig,
-		ProgressOutput:   progress.ChanOutput(progressChan),
-		RegistryService:  daemon.RegistryService,
-		ImageEventLogger: daemon.LogImageEvent,
-		MetadataStore:    daemon.distributionMetadataStore,
-		LayerStore:       daemon.layerStore,
-		ImageStore:       daemon.imageStore,
-		ReferenceStore:   daemon.bundleReferenceStore,
-		TrustKey:         daemon.trustKey,
-		UploadManager:    daemon.uploadManager,
-		BundleStore:      daemon.bundleStore,
+		MetaHeaders:     metaHeaders,
+		AuthConfig:      authConfig,
+		ProgressOutput:  progress.ChanOutput(progressChan),
+		RegistryService: daemon.RegistryService,
+		EventLogger:     daemon.logBundleEvent,
+		MetadataStore:   daemon.distributionMetadataStore,
+		LayerStore:      daemon.layerStore,
+		ImageStore:      daemon.imageStore,
+		ReferenceStore:  daemon.bundleReferenceStore,
+		TrustKey:        daemon.trustKey,
+		UploadManager:   daemon.uploadManager,
+		BundleStore:     daemon.bundleStore,
 	}
 
 	err = distribution.Push(ctx, ref, pushConfig)
@@ -474,16 +474,16 @@ func (daemon *Daemon) PullBundle(ctx context.Context, bundle, tag string, metaHe
 	}()
 
 	pullConfig := &distribution.PullConfig{
-		MetaHeaders:      metaHeaders,
-		AuthConfig:       authConfig,
-		ProgressOutput:   progress.ChanOutput(progressChan),
-		RegistryService:  daemon.RegistryService,
-		ImageEventLogger: daemon.LogImageEvent,
-		MetadataStore:    daemon.distributionMetadataStore,
-		ImageStore:       daemon.imageStore,
-		BundleStore:      daemon.bundleStore,
-		ReferenceStore:   daemon.bundleReferenceStore,
-		DownloadManager:  daemon.downloadManager,
+		MetaHeaders:     metaHeaders,
+		AuthConfig:      authConfig,
+		ProgressOutput:  progress.ChanOutput(progressChan),
+		RegistryService: daemon.RegistryService,
+		EventLogger:     daemon.logBundleEvent,
+		MetadataStore:   daemon.distributionMetadataStore,
+		ImageStore:      daemon.imageStore,
+		BundleStore:     daemon.bundleStore,
+		ReferenceStore:  daemon.bundleReferenceStore,
+		DownloadManager: daemon.downloadManager,
 	}
 
 	err = distribution.Pull(ctx, ref, pullConfig)
@@ -509,7 +509,7 @@ func (daemon *Daemon) ResolveBundleManifest(bundleRef string) (*bundle.Bundle, e
 		AuthConfig:          authConfig,
 		ProgressOutput:      progress.Discard,
 		RegistryService:     daemon.RegistryService,
-		ImageEventLogger:    daemon.LogImageEvent,
+		EventLogger:         daemon.logBundleEvent,
 		MetadataStore:       daemon.distributionMetadataStore,
 		ImageStore:          daemon.imageStore,
 		BundleStore:         selector,
@@ -558,7 +558,7 @@ func (daemon *Daemon) PullBundleImage(ctx context.Context, bundleRef, imageName 
 		AuthConfig:          authConfig,
 		ProgressOutput:      progress.ChanOutput(progressChan),
 		RegistryService:     daemon.RegistryService,
-		ImageEventLogger:    daemon.LogImageEvent,
+		EventLogger:         daemon.logBundleEvent,
 		MetadataStore:       daemon.distributionMetadataStore,
 		ImageStore:          daemon.imageStore,
 		BundleStore:         selector,
