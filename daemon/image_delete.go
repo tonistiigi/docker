@@ -19,7 +19,8 @@ const (
 	conflictRunningContainer
 	conflictActiveReference
 	conflictStoppedContainer
-	conflictHard = conflictDependentChild | conflictRunningContainer
+	conflictDependentBundle
+	conflictHard = conflictDependentChild | conflictRunningContainer | conflictDependentBundle
 	conflictSoft = conflictActiveReference | conflictStoppedContainer
 )
 
@@ -367,6 +368,18 @@ func (daemon *Daemon) checkImageDeleteConflict(imgID image.ID, mask conflictType
 				hard:    true,
 				used:    true,
 				message: fmt.Sprintf("image is being used by running container %s", stringid.TruncateID(container.ID)),
+			}
+		}
+	}
+
+	if mask&conflictDependentBundle != 0 {
+		bundles := daemon.bundleStore.BundlesByImage(imgID)
+		if len(bundles[0]) > 0 {
+			return &imageDeleteConflict{
+				imgID:   imgID,
+				hard:    true,
+				used:    true,
+				message: fmt.Sprintf("image is being used by a local bundle %s", stringid.TruncateID(bundles[0].String())),
 			}
 		}
 	}

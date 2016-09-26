@@ -17,6 +17,7 @@ type Store interface {
 	Delete(id ID) ([]layer.Metadata, error)
 	Search(partialID string) (ID, error)
 	Map() map[ID]*Bundle
+	BundlesByImage(image.ID) []ID
 }
 
 // LayerGetReleaser is a minimal interface for getting and releasing images.
@@ -25,15 +26,11 @@ type LayerGetReleaser interface {
 	Release(layer.Layer) ([]layer.Metadata, error)
 }
 
-type imageMeta struct {
-	layer    layer.Layer
-	children map[ID]struct{}
-}
-
 type store struct {
 	mu        sync.RWMutex
 	is        image.Store
 	bundles   map[ID]struct{}
+	images    map[image.ID]map[ID]struct{}
 	fs        image.StoreBackend
 	digestSet *digest.Set
 }
@@ -43,6 +40,7 @@ func NewBundleStore(fs image.StoreBackend, is image.Store) (Store, error) {
 	bs := &store{
 		is:        is,
 		bundles:   make(map[ID]struct{}),
+		images:    make(map[image.ID]map[ID]struct{}),
 		fs:        fs,
 		digestSet: digest.NewSet(),
 	}
@@ -57,7 +55,8 @@ func NewBundleStore(fs image.StoreBackend, is image.Store) (Store, error) {
 
 func (bs *store) restore() error {
 	err := bs.fs.Walk(func(dgst digest.Digest) error {
-		bundle, err := bs.Get(IDFromDigest(dgst))
+		id := IDFromDigest(dgst)
+		bundle, err := bs.Get(id)
 		if err != nil {
 			logrus.Errorf("invalid bundle %v, %v", dgst, err)
 			return nil
@@ -66,6 +65,7 @@ func (bs *store) restore() error {
 			if _, err := bs.is.Get(s.Image); err != nil {
 				return err
 			}
+			bs.addImageRef(id, s.Image)
 		}
 		if err := bs.digestSet.Add(dgst); err != nil {
 			return err
@@ -107,6 +107,10 @@ func (bs *store) Create(config []byte) (ID, error) {
 	if err := bs.digestSet.Add(bundleID.Digest()); err != nil {
 		delete(bs.bundles, bundleID)
 		return "", err
+	}
+
+	for _, s := range bundle.Services {
+		bs.addImageRef(bundleID, s.Image)
 	}
 
 	return bundleID, nil
@@ -153,7 +157,12 @@ func (bs *store) Delete(id ID) ([]layer.Metadata, error) {
 	delete(bs.bundles, id)
 	bs.fs.Delete(id.Digest())
 
-	// todo: unreference images
+	for imageID := range bs.images {
+		delete(bs.images[imageID], id)
+		if len(bs.images[imageID]) == 0 {
+			delete(bs.images, imageID)
+		}
+	}
 
 	return nil, nil
 }
@@ -173,4 +182,22 @@ func (bs *store) Map() map[ID]*Bundle {
 		bundles[id] = bundle
 	}
 	return bundles
+}
+
+// BundlesByImage looks up bundles that bundles that use specific image ID.
+// Optimization to not do full scan.
+func (bs *store) BundlesByImage(imageID image.ID) (bundles []ID) {
+	if img, ok := bs.images[imageID]; ok {
+		for b := range img {
+			bundles = append(bundles, b)
+		}
+	}
+	return
+}
+
+func (bs *store) addImageRef(bundleID ID, imageID image.ID) {
+	if _, ok := bs.images[imageID]; !ok {
+		bs.images[imageID] = make(map[ID]struct{})
+	}
+	bs.images[imageID][bundleID] = struct{}{}
 }
