@@ -111,7 +111,7 @@ func (c *containerConfig) name() string {
 }
 
 func (c *containerConfig) image() string {
-	if c.imageID != "" {
+	if c.imageID != "" { // pull has set imageID, use it to start a container
 		return c.imageID.String()
 	}
 	raw := c.spec().Image

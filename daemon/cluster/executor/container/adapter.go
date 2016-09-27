@@ -63,14 +63,12 @@ func (c *containerAdapter) pullImage(ctx context.Context) error {
 	metaHeaders := map[string][]string{}
 	go func() {
 		var err error
-		var id image.ID
-		logrus.Debugf("pullImage %#v", c.container.spec())
 		if c.container.spec().Bundle != "" {
+			var id image.ID
 			id, err = c.backend.ResolveBundleImage(ctx, c.container.spec().Bundle, c.container.spec().Image, metaHeaders, authConfig, pw)
 			if err == nil {
-				c.container.imageID = id
+				c.container.imageID = id // set imageID used to start container
 			}
-			logrus.Debugf("pulled: %v %v", id, err)
 		} else {
 			err = c.backend.PullImage(ctx, c.container.image(), "", metaHeaders, authConfig, pw)
 		}

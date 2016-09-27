@@ -167,8 +167,6 @@ func (p *v2Pusher) pushV2BundleTag(ctx context.Context, ref reference.NamedTagge
 	// push, if appropriate.
 	progress.Aux(p.config.ProgressOutput, PushResult{Tag: ref.Tag(), Digest: manifestDigest, Size: len(canonicalManifest)})
 
-	logrus.Debugf("manifest: %q", string(canonicalManifest))
-
 	return &distribution.Descriptor{
 		Size:      int64(len(canonicalManifest)),
 		Digest:    manifestDigest,
@@ -176,42 +174,6 @@ func (p *v2Pusher) pushV2BundleTag(ctx context.Context, ref reference.NamedTagge
 	}, nil
 
 }
-
-// // TODO: Fix ManifestBuilder content-type interface{RawJSON()}, MediaType
-// func (p *v2Pusher) buildBundleManifest(ctx context.Context, config []byte, descriptors []distribution.Descriptor) (distribution.Manifest, error) {
-// 	m := schema2.Manifest{
-// 		Versioned:    schema2.SchemaVersion,
-// 		Dependencies: descriptors,
-// 	}
-//
-// 	bs := p.repo.Blobs(ctx)
-//
-// 	configDigest := digest.FromBytes(config)
-// 	var err error
-// 	m.Config, err = bs.Stat(ctx, configDigest)
-// 	switch err {
-// 	case nil:
-// 		// Override MediaType, since Put always replaces the specified media
-// 		// type with application/octet-stream in the descriptor it returns.
-// 		m.Config.MediaType = schema2.MediaTypeBundleConfig
-// 		return schema2.FromStruct(m)
-// 	case distribution.ErrBlobUnknown:
-// 		// nop
-// 	default:
-// 		return nil, err
-// 	}
-//
-// 	// Add config to the blob store
-// 	m.Config, err = bs.Put(ctx, schema2.MediaTypeBundleConfig, config)
-// 	// Override MediaType, since Put always replaces the specified media
-// 	// type with application/octet-stream in the descriptor it returns.
-// 	m.Config.MediaType = schema2.MediaTypeBundleConfig
-// 	if err != nil {
-// 		return nil, err
-// 	}
-//
-// 	return schema2.FromStruct(m)
-// }
 
 func (p *v2Pusher) pushV2Tag(ctx context.Context, ref reference.NamedTagged, id digest.Digest) (distribution.Describable, error) {
 	if ref != nil {

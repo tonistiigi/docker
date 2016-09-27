@@ -77,12 +77,12 @@ func (c *Cluster) CreateStack(name, bundleRef, encodedAuth string) (*types.Stack
 			},
 		})
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "failed to create service spec")
 		}
 
 		ctnr := serviceSpec.Task.GetContainer()
 		if ctnr == nil {
-			return nil, fmt.Errorf("service does not use container tasks")
+			return nil, errors.New("service does not use container tasks")
 		}
 		ctnr.Bundle = bundleRef
 		ctnr.PullOptions = &swarmapi.ContainerSpec_PullOptions{RegistryAuth: encodedAuth}
@@ -91,7 +91,7 @@ func (c *Cluster) CreateStack(name, bundleRef, encodedAuth string) (*types.Stack
 		defer cancel()
 		r, err := c.client.CreateService(ctx, &swarmapi.CreateServiceRequest{Spec: &serviceSpec})
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "failed to create service")
 		}
 
 		resp.ServiceIDs = append(resp.ServiceIDs, r.Service.ID)

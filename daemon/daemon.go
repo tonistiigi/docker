@@ -29,6 +29,7 @@ import (
 	"github.com/docker/docker/daemon/events"
 	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/libnetwork/cluster"
+	"github.com/pkg/errors"
 	// register graph drivers
 	_ "github.com/docker/docker/daemon/graphdriver/register"
 	dmetadata "github.com/docker/docker/distribution/metadata"
@@ -592,13 +593,14 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 		return nil, err
 	}
 
-	bfs, err := image.NewFSStoreBackend(filepath.Join(imageRoot, "bundledb"))
+	fn := filepath.Join(imageRoot, "bundledb")
+	bfs, err := image.NewFSStoreBackend(fn)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to create backing store for bundles at %v", fn)
 	}
 	d.bundleStore, err = bundle.NewBundleStore(bfs, d.imageStore)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to create bundle store")
 	}
 
 	// Configure the volumes driver
@@ -630,9 +632,10 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 		return nil, fmt.Errorf("Couldn't create Tag store repositories: %s", err)
 	}
 
-	bundleReferenceStore, err := reference.NewReferenceStore(filepath.Join(imageRoot, "bundles.json"))
+	fn = filepath.Join(imageRoot, "bundles.json")
+	bundleReferenceStore, err := reference.NewReferenceStore(fn)
 	if err != nil {
-		return nil, fmt.Errorf("Couldn't create Tag store repositories: %s", err)
+		return nil, errors.Wrapf(err, "failed to create referencestore at %v", fn)
 	}
 
 	migrationStart := time.Now()

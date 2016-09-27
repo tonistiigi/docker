@@ -31,6 +31,6 @@ func (r *stackRouter) initRoutes() {
 		// POST
 		router.NewPostRoute("/stacks/create", r.postStackCreate),
 		// DELETE
-		router.NewDeleteRoute("/stacks/{name:.*}", r.deleteStacks),
+		// router.NewDeleteRoute("/stacks/{name:.*}", r.deleteStacks),
 	}
 }
