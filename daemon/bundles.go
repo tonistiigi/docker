@@ -413,11 +413,7 @@ func (daemon *Daemon) BundleDelete(bundleRef string, force, prune bool) ([]types
 	repoTags, _ := splitReferencesByType(repoRefs)
 
 	if len(repoTags) > 1 && !force {
-		ref, err := reference.ParseNamed(bundleRef)
-		if err != nil {
-			return nil, errors.Errorf("failed to remove bundle with multiple references")
-		}
-		repoRefs = []reference.Named{ref}
+		return nil, errors.New("failed to remove bundle with multiple references without force")
 	}
 
 	for _, r := range repoRefs {
