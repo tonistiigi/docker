@@ -75,15 +75,12 @@ func (img *Bundle) ID() ID {
 // NewFromJSON creates a bundle configuration from json.
 func NewFromJSON(src []byte) (*Bundle, error) {
 	bundle := &Bundle{}
-
 	if err := json.Unmarshal(src, bundle); err != nil {
 		return nil, err
 	}
 	if len(bundle.Services) == 0 {
 		return nil, errors.New("Invalid bundle JSON, no services specified.")
 	}
-
 	bundle.rawJSON = src
-
 	return bundle, nil
 }

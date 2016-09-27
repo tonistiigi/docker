@@ -2,7 +2,6 @@ package distribution
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -30,6 +29,7 @@ import (
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
 
@@ -523,11 +523,11 @@ func (p *v2Puller) pullBundleSchema2(ctx context.Context, ref reference.Named, m
 
 	b, err := bundle.NewFromJSON(configJSON)
 	if err != nil {
-		return "", "", err
+		return "", "", errors.Wrapf(err, "failed to create bundle from json: %v", string(configJSON))
 	}
 
 	if len(b.Services) != len(mfst.Dependencies) {
-		return "", "", fmt.Errorf("invalid manifest: incorrect number of services")
+		return "", "", errors.New("invalid manifest: incorrect number of services")
 	}
 
 	for i, s := range b.Services {
@@ -537,26 +537,26 @@ func (p *v2Puller) pullBundleSchema2(ctx context.Context, ref reference.Named, m
 
 		imgID, err := digest.ParseDigest(string(s.Image))
 		if err != nil {
-			return "", "", err
+			return "", "", errors.Wrapf(err, "failed to parse image ID %v", s.Image)
 		}
 		if imgID.Algorithm() != digest.SHA256 {
-			return "", "", fmt.Errorf("invlid image ID: %v", s)
+			return "", "", errors.Errorf("invalid image ID: %v", imgID)
 		}
 		r, err := reference.WithName(ref.Name())
 		if err != nil {
-			return "", "", err
+			return "", "", errors.Wrapf(err, "failed to create named reference from %v", ref.Name())
 		}
 		if r, err = reference.WithDigest(r, mfst.Dependencies[i].Digest); err != nil {
-			return "", "", err
+			return "", "", errors.Wrapf(err, "failed to create digest reference %v %v", r, mfst.Dependencies[i].Digest)
 		}
 		if _, err := p.pullV2Tag(ctx, r, imgID); err != nil {
-			return "", "", err
+			return "", "", errors.Wrapf(err, "failed to pull child image %v", r)
 		}
 	}
 
 	bundleID, err := p.config.BundleStore.Create(configJSON)
 	if err != nil {
-		return "", "", err
+		return "", "", errors.Wrapf(err, "failed to create bundle: %v", string(configJSON))
 	}
 
 	return bundleID.Digest(), manifestDigest, nil

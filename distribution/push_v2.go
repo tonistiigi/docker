@@ -1,7 +1,6 @@
 package distribution
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"runtime"
@@ -24,6 +23,7 @@ import (
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
 
@@ -117,30 +117,30 @@ func (p *v2Pusher) pushV2Repository(ctx context.Context) (err error) {
 func (p *v2Pusher) pushV2BundleTag(ctx context.Context, ref reference.NamedTagged, id digest.Digest) (distribution.Describable, error) {
 	bundle, err := p.config.BundleStore.Get(bundle.ID(id))
 	if err != nil {
-		return nil, fmt.Errorf("could not find bundle from tag %s: %v", ref.String(), err)
+		return nil, errors.Wrapf(err, "could not find bundle %s: %v", ref)
 	}
 
 	builder := schema2.NewManifestBuilder(p.repo.Blobs(ctx), schema2.MediaTypeBundleConfig, bundle.RawJSON())
 
-	p.config.BundleStore = nil // todo: make into var
+	p.config.BundleStore = nil
 	for _, s := range bundle.Services {
 		d, err := p.pushV2Tag(ctx, nil, s.Image.Digest())
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to push image %v", s.Image.Digest())
 		}
 		if err := builder.AppendReference(d.Descriptor()); err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "failed to append to manifest")
 		}
 	}
 
 	manifest, err := builder.Build(ctx)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to build manifest")
 	}
 
 	manSvc, err := p.repo.Manifests(ctx)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to get manifest service")
 	}
 
 	var canonicalManifest []byte
@@ -149,16 +149,16 @@ func (p *v2Pusher) pushV2BundleTag(ctx context.Context, ref reference.NamedTagge
 		putOptions = append(putOptions, distribution.WithTag(ref.Tag()))
 	}
 	if _, err = manSvc.Put(ctx, manifest, putOptions...); err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to upload manifest")
 	}
 	schema2Manifest, ok := manifest.(*schema2.DeserializedManifest)
 	if !ok {
-		return nil, fmt.Errorf("invalid manifest type")
+		return nil, errors.Errorf("invalid manifest type")
 	}
 
 	_, canonicalManifest, err = schema2Manifest.Payload()
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to get manifest payload")
 	}
 
 	manifestDigest := digest.FromBytes(canonicalManifest)
