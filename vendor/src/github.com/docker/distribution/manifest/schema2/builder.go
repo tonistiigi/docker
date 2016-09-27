@@ -11,7 +11,7 @@ type builder struct {
 	// bs is a BlobService used to publish the configuration blob.
 	bs distribution.BlobService
 
-	// configMediaType is media type used to decribe configuration
+	// configMediaType is media type used to describe configuration
 	configMediaType string
 
 	// configJSON references

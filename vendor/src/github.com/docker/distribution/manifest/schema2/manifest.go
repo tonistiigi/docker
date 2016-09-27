@@ -18,7 +18,7 @@ const (
 	MediaTypeImageConfig = "application/vnd.docker.container.image.v1+json"
 
 	// MediaTypeBundleConfig specifies the mediaType for the bundle configuration.
-	MediaTypeBundleConfig = "application/vnd.docker.bundle.v1+json"
+	MediaTypeBundleConfig = "application/vnd.docker.service.bundle.v1+json"
 
 	// MediaTypePluginConfig specifies the mediaType for plugin configuration.
 	MediaTypePluginConfig = "application/vnd.docker.plugin.image.v0+json"
