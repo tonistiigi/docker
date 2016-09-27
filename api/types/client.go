@@ -320,9 +320,10 @@ type BundlePullOptions struct {
 	PrivilegeFunc RequestPrivilegeFunc
 }
 
-//ImagePushOptions holds information to push bundles.
+// BundlePushOptions holds information to push bundles.
 type BundlePushOptions BundlePullOptions
 
+// StackCreateOptions describes a request for creating a new stack
 type StackCreateOptions struct {
 	Bundle string
 	Name   string

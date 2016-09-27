@@ -55,7 +55,7 @@ func (daemon *Daemon) Bundles(filterArgs, filter string) ([]*types.Bundle, error
 		return nil, errors.Wrapf(err, "failed to validate filters: %v", bundleFilters)
 	}
 
-	bundles := make([]*types.Bundle, 0)
+	var bundles []*types.Bundle
 
 	var beforeFilter, sinceFilter *bundle.Bundle
 	err = bundleFilters.WalkValues("before", func(value string) error {
@@ -510,7 +510,7 @@ func (daemon *Daemon) ResolveBundleManifest(bundleRef string, authConfig *types.
 	}
 
 	err = distribution.Pull(context.Background(), ref, pullConfig)
-	if errors.Cause(err) != bundleStopAfterPull {
+	if errors.Cause(err) != errBundleStopAfterPull {
 		dgst, err := daemon.bundleReferenceStore.Get(ref)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get bundle by reference %v", ref)
@@ -564,7 +564,7 @@ func (daemon *Daemon) ResolveBundleImage(ctx context.Context, bundleRef, imageNa
 	err = distribution.Pull(ctx, ref, pullConfig)
 	close(progressChan)
 	<-writesDone
-	if errors.Cause(err) != bundleStopAfterPull {
+	if errors.Cause(err) != errBundleStopAfterPull {
 		// find bundle locally
 		select {
 		case <-ctx.Done():
@@ -592,7 +592,7 @@ func (daemon *Daemon) ResolveBundleImage(ctx context.Context, bundleRef, imageNa
 	return selector.pulled[0], nil
 }
 
-var bundleStopAfterPull = errors.New("pulling stopped after config")
+var errBundleStopAfterPull = errors.New("pulling stopped after config")
 
 type bundleImageSelector struct {
 	config []byte
@@ -602,7 +602,7 @@ type bundleImageSelector struct {
 
 func (b *bundleImageSelector) Create(config []byte) (bundle.ID, error) {
 	b.config = config
-	return "", bundleStopAfterPull
+	return "", errBundleStopAfterPull
 }
 func (b *bundleImageSelector) Get(id bundle.ID) (*bundle.Bundle, error) {
 	return nil, errors.Errorf("bundle %v not found", id)

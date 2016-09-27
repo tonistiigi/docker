@@ -533,6 +533,7 @@ type BundleDelete struct {
 	Deleted  string `json:",omitempty"`
 }
 
+// BundleInspect is the API response for inspecting a bundle
 type BundleInspect struct {
 	ID            string `json:"Id"`
 	RepoTags      []string
@@ -541,6 +542,9 @@ type BundleInspect struct {
 	DockerVersion string
 	Services      []*BundleService
 }
+
+// Bundle contains response of Remote API:
+// GET "/bundles/json"
 type Bundle struct {
 	ID          string `json:"Id"`
 	RepoTags    []string
@@ -548,7 +552,9 @@ type Bundle struct {
 	Created     int64
 	Labels      map[string]string
 }
-type BundleService struct { // POC
+
+// BundleService describes a service included in a bundle
+type BundleService struct { // todo: expose more fields here
 	Image *ImageInspect
 	Name  string
 }

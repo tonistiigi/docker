@@ -16,10 +16,12 @@ func (id ID) String() string {
 	return id.Digest().String()
 }
 
+// Digest converts ID into a digest
 func (id ID) Digest() digest.Digest {
 	return digest.Digest(id)
 }
 
+// IDFromDigest creates an ID from a digest
 func IDFromDigest(digest digest.Digest) ID {
 	return ID(digest)
 }

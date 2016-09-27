@@ -17,6 +17,7 @@ const labelNamespace = "com.docker.stack.namespace"
 
 // TODO: add config
 
+// CreateStack creates a new stack from a bundle
 func (c *Cluster) CreateStack(name, bundleRef, encodedAuth string) (*types.StackCreateResponse, error) {
 	c.RLock()
 	defer c.RUnlock()
