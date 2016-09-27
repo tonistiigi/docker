@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -24,6 +23,7 @@ import (
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/reference"
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
 
@@ -49,10 +49,10 @@ func (r bundleByCreated) Less(i, j int) bool { return r[i].Created < r[j].Create
 func (daemon *Daemon) Bundles(filterArgs, filter string) ([]*types.Bundle, error) {
 	bundleFilters, err := filters.FromParam(filterArgs)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to parse filterArgs: %v", filterArgs)
 	}
 	if err := bundleFilters.Validate(acceptedBundleFilterTags); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to validate filters: %v", bundleFilters)
 	}
 
 	bundles := make([]*types.Bundle, 0)
@@ -60,7 +60,7 @@ func (daemon *Daemon) Bundles(filterArgs, filter string) ([]*types.Bundle, error
 	var beforeFilter, sinceFilter *bundle.Bundle
 	err = bundleFilters.WalkValues("before", func(value string) error {
 		beforeFilter, err = daemon.GetBundle(value)
-		return err
+		return errors.Wrapf(err, "failed to get bundle for before filter: %v", value)
 	})
 	if err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func (daemon *Daemon) Bundles(filterArgs, filter string) ([]*types.Bundle, error
 
 	err = bundleFilters.WalkValues("since", func(value string) error {
 		sinceFilter, err = daemon.GetBundle(value)
-		return err
+		return errors.Wrapf(err, "failed to get bundle for since filter: %v", value)
 	})
 	if err != nil {
 		return nil, err
@@ -144,7 +144,7 @@ func newAPIBundle(bundle *bundle.Bundle) *types.Bundle {
 func (daemon *Daemon) GetBundleID(refOrID string) (bundle.ID, error) {
 	id, ref, err := reference.ParseIDOrReference(refOrID)
 	if err != nil {
-		return "", err
+		return "", errors.Wrapf(err, "failed to parse ID or reference: %v", refOrID)
 	}
 	if id != "" {
 		if _, err := daemon.bundleStore.Get(bundle.ID(id)); err != nil {
@@ -191,18 +191,7 @@ func (daemon *Daemon) LookupBundle(name string) (*types.BundleInspect, error) {
 		return nil, fmt.Errorf("no such bundle: %s", name)
 	}
 
-	// todo(tonistiigi): separate to func
-	refs := daemon.bundleReferenceStore.References(bundle.ID().Digest())
-	repoTags := []string{}
-	repoDigests := []string{}
-	for _, ref := range refs {
-		switch ref.(type) {
-		case reference.NamedTagged:
-			repoTags = append(repoTags, ref.String())
-		case reference.Canonical:
-			repoDigests = append(repoDigests, ref.String())
-		}
-	}
+	repoTags, repoDigests := splitReferencesByType(daemon.bundleReferenceStore.References(bundle.ID().Digest()))
 
 	bundleInspect := &types.BundleInspect{
 		ID:            bundle.ID().String(),
@@ -227,6 +216,7 @@ func (daemon *Daemon) LookupBundle(name string) (*types.BundleInspect, error) {
 	return bundleInspect, nil
 }
 
+// CreateBundle creates a new bundle from a configuration. Configuration may come from external source.
 func (daemon *Daemon) CreateBundle(src, repository, tag string, inConfig io.ReadCloser, outStream io.Writer) error {
 	var (
 		sf     = streamformatter.NewJSONStreamFormatter()
@@ -239,7 +229,7 @@ func (daemon *Daemon) CreateBundle(src, repository, tag string, inConfig io.Read
 		var err error
 		newRef, err = reference.ParseNamed(repository)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "failed to parse %v", repository)
 		}
 
 		if _, isCanonical := newRef.(reference.Canonical); isCanonical {
@@ -249,7 +239,7 @@ func (daemon *Daemon) CreateBundle(src, repository, tag string, inConfig io.Read
 		if tag != "" {
 			newRef, err = reference.WithTag(newRef, tag)
 			if err != nil {
-				return err
+				return errors.Wrapf(err, "failed to create a tag reference %v %v", newRef, tag)
 			}
 		}
 	}
@@ -270,7 +260,7 @@ func (daemon *Daemon) CreateBundle(src, repository, tag string, inConfig io.Read
 		outStream.Write(sf.FormatStatus("", "Downloading from %s", u))
 		resp, err = httputils.Download(u.String())
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "failed to download config from %v", u.String())
 		}
 		progressOutput := sf.NewProgressOutput(outStream, true)
 		rc = progress.NewProgressReader(resp.Body, progressOutput, resp.ContentLength, "", "Importing")
@@ -279,23 +269,22 @@ func (daemon *Daemon) CreateBundle(src, repository, tag string, inConfig io.Read
 
 	inflatedData, err := archive.DecompressStream(rc)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to depcompress config")
 	}
 
 	config, err := ioutil.ReadAll(inflatedData)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to read config data")
 	}
 
 	b, err := bundle.NewFromJSON(config)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to parse bundle config %v", string(config))
 	}
 
 	for _, s := range b.Services {
-		_, err := daemon.imageStore.Get(s.Image)
-		if err != nil {
-			return err
+		if _, err := daemon.imageStore.Get(s.Image); err != nil {
+			return errors.Wrapf(err, "failed to get image %v referenced by bundle configuration", s.Image)
 		}
 	}
 
@@ -314,13 +303,13 @@ func (daemon *Daemon) CreateBundle(src, repository, tag string, inConfig io.Read
 	if remarshal {
 		config, err = json.Marshal(b)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "failed to remarshal bundle config")
 		}
 	}
 
 	id, err := daemon.bundleStore.Create(config)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to create bundle: %v", string(config))
 	}
 
 	if newRef != nil {
@@ -344,11 +333,11 @@ func (daemon *Daemon) TagBundle(bundleName, repository, tag string) error {
 
 	newTag, err := reference.WithName(repository)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to create reference from name: %v", repository)
 	}
 	if tag != "" {
 		if newTag, err = reference.WithTag(newTag, tag); err != nil {
-			return err
+			return errors.Wrapf(err, "failed to create a tag reference from %v %v", newTag, tag)
 		}
 	}
 
@@ -358,22 +347,23 @@ func (daemon *Daemon) TagBundle(bundleName, repository, tag string) error {
 // TagBundleWithReference adds the given reference to the bundle ID provided.
 func (daemon *Daemon) TagBundleWithReference(bundleID bundle.ID, newTag reference.Named) error {
 	if err := daemon.bundleReferenceStore.AddTag(newTag, bundleID.Digest(), true); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to tag a bundle %v to %v", bundleID, newTag)
 	}
 
 	return nil
 }
 
+// PushBundle pushes bundle to the registry.
 func (daemon *Daemon) PushBundle(ctx context.Context, repo, tag string, metaHeaders map[string][]string, authConfig *types.AuthConfig, outStream io.Writer) error {
 	ref, err := reference.ParseNamed(repo)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to create reference from name: %v", repo)
 	}
 	if tag != "" {
 		// Push by digest is not supported, so only tags are supported.
 		ref, err = reference.WithTag(ref, tag)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "failed to create a tag reference from %v %v", ref, tag)
 		}
 	}
 
@@ -410,24 +400,35 @@ func (daemon *Daemon) PushBundle(ctx context.Context, repo, tag string, metaHead
 	<-writesDone
 	return err
 }
-func (daemon *Daemon) BundleDelete(bundleRef string, force, prune bool) ([]types.BundleDelete, error) {
-	// This is WIP, always delete, no reference checking, no image delete
 
+// BundleDelete deletes bundle. On deletion by reference, if bundle has multiple
+// references, only the reference is untagged
+func (daemon *Daemon) BundleDelete(bundleRef string, force, prune bool) ([]types.BundleDelete, error) {
 	bundleID, err := daemon.GetBundleID(bundleRef)
 	if err != nil {
 		return nil, daemon.refNotExistToErrcode("bundle", err)
 	}
 
 	repoRefs := daemon.bundleReferenceStore.References(bundleID.Digest())
+	repoTags, _ := splitReferencesByType(repoRefs)
+
+	if len(repoTags) > 1 && !force {
+		ref, err := reference.ParseNamed(bundleRef)
+		if err != nil {
+			return nil, errors.Errorf("failed to remove bundle with multiple references")
+		}
+		repoRefs = []reference.Named{ref}
+	}
 
 	for _, r := range repoRefs {
 		if _, err := daemon.bundleReferenceStore.Delete(r); err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to untag %v", r)
 		}
 	}
 
 	_, err = daemon.bundleStore.Delete(bundleID)
-	return nil, err
+	// todo: delete unreferences images here?
+	return nil, errors.Wrapf(err, "failed to remove bundle %v", bundleID)
 }
 
 // PullBundle initiates a pull operation. bundle is the repository name to pull, and
@@ -484,13 +485,15 @@ func (daemon *Daemon) PullBundle(ctx context.Context, bundle, tag string, metaHe
 	return err
 }
 
+// ResolveBundleManifest returnes a bundle by a reference. Reference is first
+// pulled from registry, if this fails local bundle definition will be returned.
 func (daemon *Daemon) ResolveBundleManifest(bundleRef string, authConfig *types.AuthConfig) (*bundle.Bundle, error) {
 	ref, err := reference.ParseNamed(bundleRef)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to parse reference %v", bundleRef)
 	}
 
-	selector := &bundleImageSelector{} // don't pull images
+	selector := &bundleImageSelector{} // only pull manifest
 
 	pullConfig := &distribution.PullConfig{
 		MetaHeaders:         make(map[string][]string),
@@ -507,10 +510,10 @@ func (daemon *Daemon) ResolveBundleManifest(bundleRef string, authConfig *types.
 	}
 
 	err = distribution.Pull(context.Background(), ref, pullConfig)
-	if err != bundleConfigStopPull {
+	if errors.Cause(err) != bundleStopAfterPull {
 		dgst, err := daemon.bundleReferenceStore.Get(ref)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to get bundle by reference %v", ref)
 		}
 		return daemon.bundleStore.Get(bundle.IDFromDigest(dgst))
 	}
@@ -518,10 +521,13 @@ func (daemon *Daemon) ResolveBundleManifest(bundleRef string, authConfig *types.
 	return bundle.NewFromJSON(selector.config)
 }
 
-func (daemon *Daemon) PullBundleImage(ctx context.Context, bundleRef, imageName string, metaHeaders map[string][]string, authConfig *types.AuthConfig, outStream io.Writer) (image.ID, error) {
+// ResolveBundleImage pulls a single image referenced by a bundle from a registry.
+// If this fails it will check if a local bundle exists. ResolveBundleImage returns
+// image ID of the pulled image.
+func (daemon *Daemon) ResolveBundleImage(ctx context.Context, bundleRef, imageName string, metaHeaders map[string][]string, authConfig *types.AuthConfig, outStream io.Writer) (image.ID, error) {
 	ref, err := reference.ParseNamed(bundleRef)
 	if err != nil {
-		return "", err
+		return "", errors.Wrapf(err, "error parsing %v", bundleRef)
 	}
 
 	selector := &bundleImageSelector{
@@ -558,17 +564,21 @@ func (daemon *Daemon) PullBundleImage(ctx context.Context, bundleRef, imageName 
 	err = distribution.Pull(ctx, ref, pullConfig)
 	close(progressChan)
 	<-writesDone
-	if err != bundleConfigStopPull {
-		if ctx.Err() != nil {
-			return "", err
+	if errors.Cause(err) != bundleStopAfterPull {
+		// find bundle locally
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
 		}
+
 		dgst, err := daemon.bundleReferenceStore.Get(ref)
 		if err != nil {
-			return "", err
+			return "", errors.Wrapf(err, "failed to find bundle locally by %v", ref)
 		}
 		bundle, err := daemon.bundleStore.Get(bundle.IDFromDigest(dgst))
 		if err != nil {
-			return "", err
+			return "", errors.Wrapf(err, "failed to get local bundle by %v", dgst)
 		}
 		for _, s := range bundle.Services {
 			if s.Name == imageName {
@@ -577,12 +587,12 @@ func (daemon *Daemon) PullBundleImage(ctx context.Context, bundleRef, imageName 
 		}
 	}
 	if len(selector.pulled) != 1 {
-		return "", fmt.Errorf("invalid number of images pulled: %v", selector.pulled)
+		return "", errors.Errorf("invalid number of images pulled: %v", selector.pulled)
 	}
 	return selector.pulled[0], nil
 }
 
-var bundleConfigStopPull = errors.New("")
+var bundleStopAfterPull = errors.New("pulling stopped after config")
 
 type bundleImageSelector struct {
 	config []byte
@@ -592,10 +602,10 @@ type bundleImageSelector struct {
 
 func (b *bundleImageSelector) Create(config []byte) (bundle.ID, error) {
 	b.config = config
-	return "", bundleConfigStopPull
+	return "", bundleStopAfterPull
 }
 func (b *bundleImageSelector) Get(id bundle.ID) (*bundle.Bundle, error) {
-	return nil, fmt.Errorf("not found")
+	return nil, errors.Errorf("bundle %v not found", id)
 }
 func (b *bundleImageSelector) Select(name string) bool {
 	return b.name != "" && name == b.name

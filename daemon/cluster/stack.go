@@ -46,7 +46,7 @@ func (c *Cluster) CreateStack(name, bundleRef, encodedAuth string) (*types.Stack
 
 	b, err := c.config.Backend.ResolveBundleManifest(bundleRef, &authConfig)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "error resolving bundle %v", bundleRef)
 	}
 
 	resp := &types.StackCreateResponse{}

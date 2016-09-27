@@ -66,7 +66,7 @@ func (c *containerAdapter) pullImage(ctx context.Context) error {
 		var id image.ID
 		logrus.Debugf("pullImage %#v", c.container.spec())
 		if c.container.spec().Bundle != "" {
-			id, err = c.backend.PullBundleImage(ctx, c.container.spec().Bundle, c.container.spec().Image, metaHeaders, authConfig, pw)
+			id, err = c.backend.ResolveBundleImage(ctx, c.container.spec().Bundle, c.container.spec().Image, metaHeaders, authConfig, pw)
 			if err == nil {
 				c.container.imageID = id
 			}

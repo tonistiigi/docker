@@ -17,17 +17,7 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 		return nil, fmt.Errorf("No such image: %s", name)
 	}
 
-	refs := daemon.referenceStore.References(img.ID().Digest())
-	repoTags := []string{}
-	repoDigests := []string{}
-	for _, ref := range refs {
-		switch ref.(type) {
-		case reference.NamedTagged:
-			repoTags = append(repoTags, ref.String())
-		case reference.Canonical:
-			repoDigests = append(repoDigests, ref.String())
-		}
-	}
+	repoTags, repoDigests := splitReferencesByType(daemon.referenceStore.References(img.ID().Digest()))
 
 	var size int64
 	var layerMetadata map[string]string
@@ -78,4 +68,16 @@ func (daemon *Daemon) LookupImage(name string) (*types.ImageInspect, error) {
 	imageInspect.GraphDriver.Data = layerMetadata
 
 	return imageInspect, nil
+}
+
+func splitReferencesByType(refs []reference.Named) (repoTags, repoDigests []string) {
+	for _, ref := range refs {
+		switch ref.(type) {
+		case reference.NamedTagged:
+			repoTags = append(repoTags, ref.String())
+		case reference.Canonical:
+			repoDigests = append(repoDigests, ref.String())
+		}
+	}
+	return
 }
