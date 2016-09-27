@@ -326,4 +326,8 @@ type BundlePushOptions BundlePullOptions
 type StackCreateOptions struct {
 	Bundle string
 	Name   string
+	// EncodedRegistryAuth is the encoded registry authorization credentials.
+	//
+	// This field follows the format of the X-Registry-Auth header.
+	EncodedRegistryAuth string `json:"-"`
 }

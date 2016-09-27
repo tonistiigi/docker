@@ -44,6 +44,6 @@ type Backend interface {
 	UnsubscribeFromEvents(listener chan interface{})
 	UpdateAttachment(string, string, string, *network.NetworkingConfig) error
 	WaitForDetachment(context.Context, string, string, string, string) error
-	ResolveBundleManifest(bundleRef string) (*bundle.Bundle, error)
+	ResolveBundleManifest(bundleRef string, authconfig *types.AuthConfig) (*bundle.Bundle, error)
 	PullBundleImage(ctx context.Context, bundleRef, imageName string, metaHeaders map[string][]string, authConfig *types.AuthConfig, outStream io.Writer) (image.ID, error)
 }

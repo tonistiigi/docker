@@ -27,14 +27,6 @@ import (
 	"golang.org/x/net/context"
 )
 
-// CreateBundle(src, repository, tag string, inConfig io.ReadCloser, outStream io.Writer) error
-// PullBundle(ctx context.Context, bundle, tag string, metaHeaders map[string][]string, authConfig *types.AuthConfig, outStream io.Writer) error
-// PushBundle(ctx context.Context, bundle, tag string, metaHeaders map[string][]string, authConfig *types.AuthConfig, outStream io.Writer) error
-// BundleDelete(bundleRef string, force, prune bool) ([]types.BundleDelete, error)
-// Bundles(filterArgs string, filter string, all bool) ([]*types.Bundle, error)
-// LookupBundle(name string) (*types.BundleInspect, error)
-// TagBundle(bundleName, repository, tag string) error
-
 var acceptedBundleFilterTags = map[string]bool{
 	"label":  true,
 	"before": true,
@@ -492,20 +484,16 @@ func (daemon *Daemon) PullBundle(ctx context.Context, bundle, tag string, metaHe
 	return err
 }
 
-func (daemon *Daemon) ResolveBundleManifest(bundleRef string) (*bundle.Bundle, error) {
+func (daemon *Daemon) ResolveBundleManifest(bundleRef string, authConfig *types.AuthConfig) (*bundle.Bundle, error) {
 	ref, err := reference.ParseNamed(bundleRef)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO: meta, auth
-	metaHeaders := make(map[string][]string)
-	authConfig := &types.AuthConfig{}
-
-	selector := &bundleImageSelector{}
+	selector := &bundleImageSelector{} // don't pull images
 
 	pullConfig := &distribution.PullConfig{
-		MetaHeaders:         metaHeaders,
+		MetaHeaders:         make(map[string][]string),
 		AuthConfig:          authConfig,
 		ProgressOutput:      progress.Discard,
 		RegistryService:     daemon.RegistryService,

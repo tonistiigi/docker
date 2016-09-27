@@ -18,8 +18,9 @@ const (
 )
 
 type deployOptions struct {
-	bundle string
-	name   string
+	bundle       string
+	name         string
+	registryAuth bool
 }
 
 func newDeployCommand(dockerCli *command.DockerCli) *cobra.Command {
@@ -38,6 +39,7 @@ func newDeployCommand(dockerCli *command.DockerCli) *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.StringVar(&opts.name, "name", "", "Stack name")
+	flags.BoolVar(&opts.registryAuth, "with-registry-auth", false, "Send registry authentication details to swarm agents")
 	return cmd
 }
 
@@ -45,10 +47,22 @@ func runDeploy(dockerCli *command.DockerCli, opts deployOptions) error {
 	client := dockerCli.Client()
 	ctx := context.Background()
 
-	response, err := client.StackCreate(ctx, types.StackCreateOptions{
+	createOpts := types.StackCreateOptions{
 		Bundle: opts.bundle,
 		Name:   opts.name,
-	})
+	}
+
+	// only send auth if flag was set
+	if opts.registryAuth {
+		// Retrieve encoded auth token from the image reference
+		encodedAuth, err := command.RetrieveAuthTokenFromImage(ctx, dockerCli, opts.bundle)
+		if err != nil {
+			return err
+		}
+		createOpts.EncodedRegistryAuth = encodedAuth
+	}
+
+	response, err := client.StackCreate(ctx, createOpts)
 	if err != nil {
 		return err
 	}

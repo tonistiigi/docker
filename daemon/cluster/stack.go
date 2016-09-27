@@ -1,19 +1,23 @@
 package cluster
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 
+	apitypes "github.com/docker/docker/api/types"
 	types "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/daemon/cluster/convert"
 	"github.com/docker/docker/pkg/namesgenerator"
 	swarmapi "github.com/docker/swarmkit/api"
+	"github.com/pkg/errors"
 )
 
 const labelNamespace = "com.docker.stack.namespace"
 
-// CreateStack(name, bundle string) error // TODO: add config
+// TODO: add config
 
-func (c *Cluster) CreateStack(name, bundleRef string) (*types.StackCreateResponse, error) {
+func (c *Cluster) CreateStack(name, bundleRef, encodedAuth string) (*types.StackCreateResponse, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -29,7 +33,18 @@ func (c *Cluster) CreateStack(name, bundleRef string) (*types.StackCreateRespons
 		return nil, fmt.Errorf("bundle name cannot be empty")
 	}
 
-	b, err := c.config.Backend.ResolveBundleManifest(bundleRef)
+	var authConfig apitypes.AuthConfig
+	if encodedAuth != "" {
+		authJSON, err := base64.URLEncoding.DecodeString(encodedAuth)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to decode base64 auth %q", encodedAuth)
+		}
+		if err := json.Unmarshal(authJSON, &authConfig); err != nil {
+			return nil, errors.Wrapf(err, "failed to parse auth json: %v", string(authJSON))
+		}
+	}
+
+	b, err := c.config.Backend.ResolveBundleManifest(bundleRef, &authConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +64,9 @@ func (c *Cluster) CreateStack(name, bundleRef string) (*types.StackCreateRespons
 					Labels:  s.Labels,
 					Command: s.Command,
 					Args:    s.Args,
-					Env:     s.Env, // TODO: missing fields. figure out bundle.ServiceSpec type first
+					Env:     s.Env,
+					Dir:     s.WorkingDir,
+					User:    s.User,
 				},
 			},
 			Mode: types.ServiceMode{
@@ -67,6 +84,7 @@ func (c *Cluster) CreateStack(name, bundleRef string) (*types.StackCreateRespons
 			return nil, fmt.Errorf("service does not use container tasks")
 		}
 		ctnr.Bundle = bundleRef
+		ctnr.PullOptions = &swarmapi.ContainerSpec_PullOptions{RegistryAuth: encodedAuth}
 
 		ctx, cancel := c.getRequestContext()
 		defer cancel()

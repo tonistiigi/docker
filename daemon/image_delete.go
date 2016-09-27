@@ -374,7 +374,7 @@ func (daemon *Daemon) checkImageDeleteConflict(imgID image.ID, mask conflictType
 
 	if mask&conflictDependentBundle != 0 {
 		bundles := daemon.bundleStore.BundlesByImage(imgID)
-		if len(bundles[0]) > 0 {
+		if len(bundles) > 0 {
 			return &imageDeleteConflict{
 				imgID:   imgID,
 				hard:    true,

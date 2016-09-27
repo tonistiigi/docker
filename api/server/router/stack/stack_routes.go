@@ -16,7 +16,10 @@ func (s *stackRouter) postStackCreate(ctx context.Context, w http.ResponseWriter
 	bundle := r.Form.Get("bundle")
 	name := r.Form.Get("name")
 
-	resp, err := s.backend.CreateStack(name, bundle)
+	// Get returns "" if the header does not exist
+	encodedAuth := r.Header.Get("X-Registry-Auth")
+
+	resp, err := s.backend.CreateStack(name, bundle, encodedAuth)
 	if err != nil {
 		return err
 	}

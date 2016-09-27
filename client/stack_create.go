@@ -15,8 +15,16 @@ func (cli *Client) StackCreate(ctx context.Context, options types.StackCreateOpt
 	query.Set("bundle", options.Bundle)
 	query.Set("name", options.Name)
 
+	var headers map[string][]string
+
+	if options.EncodedRegistryAuth != "" {
+		headers = map[string][]string{
+			"X-Registry-Auth": {options.EncodedRegistryAuth},
+		}
+	}
+
 	var response swarm.StackCreateResponse
-	resp, err := cli.post(ctx, "/stacks/create", query, nil, nil)
+	resp, err := cli.post(ctx, "/stacks/create", query, nil, headers)
 	if err != nil {
 		return response, err
 	}

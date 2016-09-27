@@ -55,8 +55,8 @@ type ServiceSpec struct {
 	Env        []string          `json:",omitempty"`
 	Labels     map[string]string `json:",omitempty"`
 	Ports      []Port            `json:",omitempty"`
-	WorkingDir *string           `json:",omitempty"`
-	User       *string           `json:",omitempty"`
+	WorkingDir string            `json:",omitempty"`
+	User       string            `json:",omitempty"`
 	Networks   []string          `json:",omitempty"`
 }
 
