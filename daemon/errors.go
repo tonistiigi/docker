@@ -8,22 +8,22 @@ import (
 	"github.com/docker/docker/reference"
 )
 
-func (d *Daemon) imageNotExistToErrcode(err error) error {
-	if dne, isDNE := err.(ErrImageDoesNotExist); isDNE {
+func (d *Daemon) refNotExistToErrcode(t string, err error) error {
+	if dne, isDNE := err.(ErrRefDoesNotExist); isDNE {
 		if strings.Contains(dne.RefOrID, "@") {
-			e := fmt.Errorf("No such image: %s", dne.RefOrID)
+			e := fmt.Errorf("No such %v: %s", t, dne.RefOrID)
 			return errors.NewRequestNotFoundError(e)
 		}
 		tag := reference.DefaultTag
 		ref, err := reference.ParseNamed(dne.RefOrID)
 		if err != nil {
-			e := fmt.Errorf("No such image: %s:%s", dne.RefOrID, tag)
+			e := fmt.Errorf("No such %v: %s:%s", t, dne.RefOrID, tag)
 			return errors.NewRequestNotFoundError(e)
 		}
 		if tagged, isTagged := ref.(reference.NamedTagged); isTagged {
 			tag = tagged.Tag()
 		}
-		e := fmt.Errorf("No such image: %s:%s", ref.Name(), tag)
+		e := fmt.Errorf("No such %v: %s:%s", t, ref.Name(), tag)
 		return errors.NewRequestNotFoundError(e)
 	}
 	return err

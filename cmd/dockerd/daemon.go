@@ -406,7 +406,7 @@ func initRouter(s *apiserver.Server, d *daemon.Daemon, c *cluster.Cluster) {
 	routers := []router.Router{}
 
 	// we need to add the checkpoint router before the container router or the DELETE gets masked
-	routers = addExperimentalRouters(routers, d, decoder)
+	routers = addExperimentalRouters(routers, d, c, decoder)
 
 	routers = append(routers, []router.Router{
 		container.NewRouter(d, decoder),

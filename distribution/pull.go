@@ -10,14 +10,25 @@ import (
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/image/bundle"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 	"golang.org/x/net/context"
 )
 
-// ImagePullConfig stores pull configuration.
-type ImagePullConfig struct {
+type bundleCreateGetter interface {
+	Create(config []byte) (bundle.ID, error)
+	Get(id bundle.ID) (*bundle.Bundle, error)
+}
+
+type bundleImageSelector interface {
+	Select(string) bool
+	Pulled(image.ID)
+}
+
+// PullConfig stores pull configuration.
+type PullConfig struct {
 	// MetaHeaders stores HTTP headers with metadata about the image
 	MetaHeaders map[string][]string
 	// AuthConfig holds authentication credentials for authenticating with
@@ -29,17 +40,23 @@ type ImagePullConfig struct {
 	// RegistryService is the registry service to use for TLS configuration
 	// and endpoint lookup.
 	RegistryService registry.Service
-	// ImageEventLogger notifies events for a given image
-	ImageEventLogger func(id, name, action string)
+	// EventLogger notifies events for a given pull
+	EventLogger func(id, name, action string)
 	// MetadataStore is the storage backend for distribution-specific
 	// metadata.
 	MetadataStore metadata.Store
 	// ImageStore manages images.
 	ImageStore image.Store
+	// BundleStore manages images.
+	BundleStore bundleCreateGetter
 	// ReferenceStore manages tags.
 	ReferenceStore reference.Store
 	// DownloadManager manages concurrent pulls.
 	DownloadManager *xfer.LayerDownloadManager
+	// BundleImageSelector provides optional control for partially pulling bundles
+	BundleImageSelector bundleImageSelector
+
+	requireSchema2 bool
 }
 
 // Puller is an interface that abstracts pulling for different API versions.
@@ -55,20 +72,20 @@ type Puller interface {
 // whether a v1 or v2 puller will be created. The other parameters are passed
 // through to the underlying puller implementation for use during the actual
 // pull operation.
-func newPuller(endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo, imagePullConfig *ImagePullConfig) (Puller, error) {
+func newPuller(endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo, pullConfig *PullConfig) (Puller, error) {
 	switch endpoint.Version {
 	case registry.APIVersion2:
 		return &v2Puller{
-			V2MetadataService: metadata.NewV2MetadataService(imagePullConfig.MetadataStore),
+			V2MetadataService: metadata.NewV2MetadataService(pullConfig.MetadataStore),
 			endpoint:          endpoint,
-			config:            imagePullConfig,
+			config:            pullConfig,
 			repoInfo:          repoInfo,
 		}, nil
 	case registry.APIVersion1:
 		return &v1Puller{
-			v1IDService: metadata.NewV1IDService(imagePullConfig.MetadataStore),
+			v1IDService: metadata.NewV1IDService(pullConfig.MetadataStore),
 			endpoint:    endpoint,
-			config:      imagePullConfig,
+			config:      pullConfig,
 			repoInfo:    repoInfo,
 		}, nil
 	}
@@ -77,9 +94,9 @@ func newPuller(endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo,
 
 // Pull initiates a pull operation. image is the repository name to pull, and
 // tag may be either empty, or indicate a specific tag to pull.
-func Pull(ctx context.Context, ref reference.Named, imagePullConfig *ImagePullConfig) error {
+func Pull(ctx context.Context, ref reference.Named, pullConfig *PullConfig) error {
 	// Resolve the Repository name from fqn to RepositoryInfo
-	repoInfo, err := imagePullConfig.RegistryService.ResolveRepository(ref)
+	repoInfo, err := pullConfig.RegistryService.ResolveRepository(ref)
 	if err != nil {
 		return err
 	}
@@ -89,7 +106,7 @@ func Pull(ctx context.Context, ref reference.Named, imagePullConfig *ImagePullCo
 		return err
 	}
 
-	endpoints, err := imagePullConfig.RegistryService.LookupPullEndpoints(repoInfo.Hostname())
+	endpoints, err := pullConfig.RegistryService.LookupPullEndpoints(repoInfo.Hostname())
 	if err != nil {
 		return err
 	}
@@ -116,7 +133,14 @@ func Pull(ctx context.Context, ref reference.Named, imagePullConfig *ImagePullCo
 		// retry for any of these.
 		confirmedTLSRegistries = make(map[string]struct{})
 	)
+
+	pullConfig.requireSchema2 = pullConfig.BundleStore != nil
+
 	for _, endpoint := range endpoints {
+		if pullConfig.requireSchema2 && endpoint.Version == registry.APIVersion1 {
+			continue
+		}
+
 		if confirmedV2 && endpoint.Version == registry.APIVersion1 {
 			logrus.Debugf("Skipping v1 endpoint %s because v2 registry was detected", endpoint.URL)
 			continue
@@ -131,7 +155,7 @@ func Pull(ctx context.Context, ref reference.Named, imagePullConfig *ImagePullCo
 
 		logrus.Debugf("Trying to pull %s from %s %s", repoInfo.Name(), endpoint.URL, endpoint.Version)
 
-		puller, err := newPuller(endpoint, repoInfo, imagePullConfig)
+		puller, err := newPuller(endpoint, repoInfo, pullConfig)
 		if err != nil {
 			lastErr = err
 			continue
@@ -171,7 +195,7 @@ func Pull(ctx context.Context, ref reference.Named, imagePullConfig *ImagePullCo
 			return err
 		}
 
-		imagePullConfig.ImageEventLogger(ref.String(), repoInfo.Name(), "pull")
+		pullConfig.EventLogger(ref.String(), repoInfo.Name(), "pull")
 		return nil
 	}
 

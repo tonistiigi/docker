@@ -25,7 +25,7 @@ type v1Pusher struct {
 	endpoint    registry.APIEndpoint
 	ref         reference.Named
 	repoInfo    *registry.RepositoryInfo
-	config      *ImagePushConfig
+	config      *PushConfig
 	session     *registry.Session
 }
 

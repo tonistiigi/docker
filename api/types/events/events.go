@@ -7,6 +7,8 @@ const (
 	DaemonEventType = "daemon"
 	// ImageEventType is the event type that images generate
 	ImageEventType = "image"
+	// BundleEventType is the event type that bundles generate
+	BundleEventType = "bundle"
 	// NetworkEventType is the event type that networks generate
 	NetworkEventType = "network"
 	// PluginEventType is the event type that plugins generate

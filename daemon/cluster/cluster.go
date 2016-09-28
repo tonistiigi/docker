@@ -934,9 +934,15 @@ func (c *Cluster) UpdateService(serviceIDOrName string, version uint64, spec typ
 		return err
 	}
 
+	// this is needed because if the encodedAuth isn't being updated then we
+	// shouldn't lose it, and continue to use the one that was already present
 	currentService, err := getService(ctx, c.client, serviceIDOrName)
 	if err != nil {
 		return err
+	}
+	ctnr := currentService.Spec.Task.GetContainer()
+	if ctnr == nil {
+		return fmt.Errorf("service does not use container tasks")
 	}
 
 	if encodedAuth != "" {
@@ -953,6 +959,11 @@ func (c *Cluster) UpdateService(serviceIDOrName string, version uint64, spec typ
 			return fmt.Errorf("service does not use container tasks")
 		}
 		serviceSpec.Task.GetContainer().PullOptions = ctnr.PullOptions
+	}
+
+	// bundle reset. TODO: maybe should just forbid
+	if ctnr.Bundle != "" {
+		serviceSpec.Task.GetContainer().Bundle = ctnr.Bundle
 	}
 
 	_, err = c.client.UpdateService(

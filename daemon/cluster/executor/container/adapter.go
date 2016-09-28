@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/versions"
 	executorpkg "github.com/docker/docker/daemon/cluster/executor"
+	"github.com/docker/docker/image"
 	"github.com/docker/libnetwork"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/log"
@@ -61,7 +62,16 @@ func (c *containerAdapter) pullImage(ctx context.Context) error {
 	pr, pw := io.Pipe()
 	metaHeaders := map[string][]string{}
 	go func() {
-		err := c.backend.PullImage(ctx, c.container.image(), "", metaHeaders, authConfig, pw)
+		var err error
+		if c.container.spec().Bundle != "" {
+			var id image.ID
+			id, err = c.backend.ResolveBundleImage(ctx, c.container.spec().Bundle, c.container.spec().Image, metaHeaders, authConfig, pw)
+			if err == nil {
+				c.container.imageID = id // set imageID used to start container
+			}
+		} else {
+			err = c.backend.PullImage(ctx, c.container.image(), "", metaHeaders, authConfig, pw)
+		}
 		pw.CloseWithError(err)
 	}()
 

@@ -29,11 +29,13 @@ import (
 	"github.com/docker/docker/daemon/events"
 	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/libnetwork/cluster"
+	"github.com/pkg/errors"
 	// register graph drivers
 	_ "github.com/docker/docker/daemon/graphdriver/register"
 	dmetadata "github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/image/bundle"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/migrate/v1"
@@ -75,6 +77,7 @@ type Daemon struct {
 	containers                container.Store
 	execCommands              *exec.Store
 	referenceStore            reference.Store
+	bundleReferenceStore      reference.Store
 	downloadManager           *xfer.LayerDownloadManager
 	uploadManager             *xfer.LayerUploadManager
 	distributionMetadataStore dmetadata.Store
@@ -96,6 +99,7 @@ type Daemon struct {
 	layerStore                layer.Store
 	imageStore                image.Store
 	pluginStore               *pluginstore.Store
+	bundleStore               bundle.Store
 	nameIndex                 *registrar.Registrar
 	linkIndex                 *linkIndex
 	containerd                libcontainerd.Client
@@ -589,6 +593,16 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 		return nil, err
 	}
 
+	fn := filepath.Join(imageRoot, "bundledb")
+	bfs, err := image.NewFSStoreBackend(fn)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create backing store for bundles at %v", fn)
+	}
+	d.bundleStore, err = bundle.NewBundleStore(bfs, d.imageStore)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create bundle store")
+	}
+
 	// Configure the volumes driver
 	volStore, err := d.configureVolumes(rootUID, rootGID)
 	if err != nil {
@@ -618,6 +632,12 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 		return nil, fmt.Errorf("Couldn't create Tag store repositories: %s", err)
 	}
 
+	fn = filepath.Join(imageRoot, "bundles.json")
+	bundleReferenceStore, err := reference.NewReferenceStore(fn)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create referencestore at %v", fn)
+	}
+
 	migrationStart := time.Now()
 	if err := v1.Migrate(config.Root, graphDriver, d.layerStore, d.imageStore, referenceStore, distributionMetadataStore); err != nil {
 		logrus.Errorf("Graph migration failed: %q. Your old graph data was found to be too inconsistent for upgrading to content-addressable storage. Some of the old data was probably not upgraded. We recommend starting over with a clean storage directory if possible.", err)
@@ -642,6 +662,7 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 	d.containers = container.NewMemoryStore()
 	d.execCommands = exec.NewStore()
 	d.referenceStore = referenceStore
+	d.bundleReferenceStore = bundleReferenceStore
 	d.distributionMetadataStore = distributionMetadataStore
 	d.trustKey = trustKey
 	d.idIndex = truncindex.NewTruncIndex([]string{})

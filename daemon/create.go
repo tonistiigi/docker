@@ -55,7 +55,7 @@ func (daemon *Daemon) containerCreate(params types.ContainerCreateConfig, manage
 
 	container, err := daemon.create(params, managed)
 	if err != nil {
-		return types.ContainerCreateResponse{Warnings: warnings}, daemon.imageNotExistToErrcode(err)
+		return types.ContainerCreateResponse{Warnings: warnings}, daemon.refNotExistToErrcode("image", err)
 	}
 
 	return types.ContainerCreateResponse{ID: container.ID, Warnings: warnings}, nil

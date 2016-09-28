@@ -526,3 +526,35 @@ type Runtime struct {
 	Path string   `json:"path"`
 	Args []string `json:"runtimeArgs,omitempty"`
 }
+
+// BundleDelete is the API response for deleting a bundle
+type BundleDelete struct {
+	Untagged string `json:",omitempty"`
+	Deleted  string `json:",omitempty"`
+}
+
+// BundleInspect is the API response for inspecting a bundle
+type BundleInspect struct {
+	ID            string `json:"Id"`
+	RepoTags      []string
+	RepoDigests   []string
+	Created       string
+	DockerVersion string
+	Services      []*BundleService
+}
+
+// Bundle contains response of Remote API:
+// GET "/bundles/json"
+type Bundle struct {
+	ID          string `json:"Id"`
+	RepoTags    []string
+	RepoDigests []string
+	Created     int64
+	Labels      map[string]string
+}
+
+// BundleService describes a service included in a bundle
+type BundleService struct { // todo: expose more fields here
+	Image *ImageInspect
+	Name  string
+}

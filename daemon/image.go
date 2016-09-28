@@ -8,12 +8,12 @@ import (
 	"github.com/docker/docker/reference"
 )
 
-// ErrImageDoesNotExist is error returned when no image can be found for a reference.
-type ErrImageDoesNotExist struct {
+// ErrRefDoesNotExist is error returned when no image can be found for a reference.
+type ErrRefDoesNotExist struct {
 	RefOrID string
 }
 
-func (e ErrImageDoesNotExist) Error() string {
+func (e ErrRefDoesNotExist) Error() string {
 	return fmt.Sprintf("no such id: %s", e.RefOrID)
 }
 
@@ -26,7 +26,7 @@ func (daemon *Daemon) GetImageID(refOrID string) (image.ID, error) {
 	}
 	if id != "" {
 		if _, err := daemon.imageStore.Get(image.IDFromDigest(id)); err != nil {
-			return "", ErrImageDoesNotExist{refOrID}
+			return "", ErrRefDoesNotExist{refOrID}
 		}
 		return image.IDFromDigest(id), nil
 	}
@@ -49,7 +49,7 @@ func (daemon *Daemon) GetImageID(refOrID string) (image.ID, error) {
 		return id, nil
 	}
 
-	return "", ErrImageDoesNotExist{refOrID}
+	return "", ErrRefDoesNotExist{refOrID}
 }
 
 // GetImage returns an image corresponding to the image referred to by refOrID.

@@ -37,18 +37,18 @@ func (daemon *Daemon) PushImage(ctx context.Context, image, tag string, metaHead
 		close(writesDone)
 	}()
 
-	imagePushConfig := &distribution.ImagePushConfig{
-		MetaHeaders:      metaHeaders,
-		AuthConfig:       authConfig,
-		ProgressOutput:   progress.ChanOutput(progressChan),
-		RegistryService:  daemon.RegistryService,
-		ImageEventLogger: daemon.LogImageEvent,
-		MetadataStore:    daemon.distributionMetadataStore,
-		LayerStore:       daemon.layerStore,
-		ImageStore:       daemon.imageStore,
-		ReferenceStore:   daemon.referenceStore,
-		TrustKey:         daemon.trustKey,
-		UploadManager:    daemon.uploadManager,
+	imagePushConfig := &distribution.PushConfig{
+		MetaHeaders:     metaHeaders,
+		AuthConfig:      authConfig,
+		ProgressOutput:  progress.ChanOutput(progressChan),
+		RegistryService: daemon.RegistryService,
+		EventLogger:     daemon.LogImageEvent,
+		MetadataStore:   daemon.distributionMetadataStore,
+		LayerStore:      daemon.layerStore,
+		ImageStore:      daemon.imageStore,
+		ReferenceStore:  daemon.referenceStore,
+		TrustKey:        daemon.trustKey,
+		UploadManager:   daemon.uploadManager,
 	}
 
 	err = distribution.Push(ctx, ref, imagePushConfig)

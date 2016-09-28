@@ -19,8 +19,8 @@ import (
 	"golang.org/x/net/context"
 )
 
-// ImagePushConfig stores push configuration.
-type ImagePushConfig struct {
+// PushConfig stores push configuration.
+type PushConfig struct {
 	// MetaHeaders store HTTP headers with metadata about the image
 	MetaHeaders map[string][]string
 	// AuthConfig holds authentication credentials for authenticating with
@@ -32,8 +32,8 @@ type ImagePushConfig struct {
 	// RegistryService is the registry service to use for TLS configuration
 	// and endpoint lookup.
 	RegistryService registry.Service
-	// ImageEventLogger notifies events for a given image
-	ImageEventLogger func(id, name, action string)
+	// EventLogger notifies events for a given push
+	EventLogger func(id, name, action string)
 	// MetadataStore is the storage backend for distribution-specific
 	// metadata.
 	MetadataStore metadata.Store
@@ -41,6 +41,8 @@ type ImagePushConfig struct {
 	LayerStore layer.Store
 	// ImageStore manages images.
 	ImageStore image.Store
+	// BundleStore manages bundles.
+	BundleStore bundleCreateGetter
 	// ReferenceStore manages tags.
 	ReferenceStore reference.Store
 	// TrustKey is the private key for legacy signatures. This is typically
@@ -48,6 +50,8 @@ type ImagePushConfig struct {
 	TrustKey libtrust.PrivateKey
 	// UploadManager dispatches uploads.
 	UploadManager *xfer.LayerUploadManager
+
+	requireSchema2 bool
 }
 
 // Pusher is an interface that abstracts pushing for different API versions.
@@ -66,7 +70,7 @@ const compressionBufSize = 32768
 // whether a v1 or v2 pusher will be created. The other parameters are passed
 // through to the underlying pusher implementation for use during the actual
 // push operation.
-func NewPusher(ref reference.Named, endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo, imagePushConfig *ImagePushConfig) (Pusher, error) {
+func NewPusher(ref reference.Named, endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo, imagePushConfig *PushConfig) (Pusher, error) {
 	switch endpoint.Version {
 	case registry.APIVersion2:
 		return &v2Pusher{
@@ -91,7 +95,7 @@ func NewPusher(ref reference.Named, endpoint registry.APIEndpoint, repoInfo *reg
 // Push initiates a push operation on ref.
 // ref is the specific variant of the image to be pushed.
 // If no tag is provided, all tags will be pushed.
-func Push(ctx context.Context, ref reference.Named, imagePushConfig *ImagePushConfig) error {
+func Push(ctx context.Context, ref reference.Named, imagePushConfig *PushConfig) error {
 	// FIXME: Allow to interrupt current push when new push of same image is done.
 
 	// Resolve the Repository name from fqn to RepositoryInfo
@@ -126,7 +130,12 @@ func Push(ctx context.Context, ref reference.Named, imagePushConfig *ImagePushCo
 		confirmedTLSRegistries = make(map[string]struct{})
 	)
 
+	imagePushConfig.requireSchema2 = imagePushConfig.BundleStore != nil
+
 	for _, endpoint := range endpoints {
+		if imagePushConfig.requireSchema2 && endpoint.Version == registry.APIVersion1 {
+			continue
+		}
 		if confirmedV2 && endpoint.Version == registry.APIVersion1 {
 			logrus.Debugf("Skipping v1 endpoint %s because v2 registry was detected", endpoint.URL)
 			continue
@@ -168,7 +177,7 @@ func Push(ctx context.Context, ref reference.Named, imagePushConfig *ImagePushCo
 			return err
 		}
 
-		imagePushConfig.ImageEventLogger(ref.String(), repoInfo.Name(), "push")
+		imagePushConfig.EventLogger(ref.String(), repoInfo.Name(), "push")
 		return nil
 	}
 

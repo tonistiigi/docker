@@ -301,3 +301,34 @@ type TaskListOptions struct {
 type PluginRemoveOptions struct {
 	Force bool
 }
+
+// BundleListOptions holds parameters to list bundles.
+type BundleListOptions struct {
+	Filter filters.Args
+}
+
+// BundleRemoveOptions holds parameters to remove images.
+type BundleRemoveOptions struct {
+	Force         bool
+	PruneChildren bool
+}
+
+// BundlePullOptions holds information to pull bundles.
+type BundlePullOptions struct {
+	// RegistryAuth is the base64 encoded credentials for the registry
+	RegistryAuth  string
+	PrivilegeFunc RequestPrivilegeFunc
+}
+
+// BundlePushOptions holds information to push bundles.
+type BundlePushOptions BundlePullOptions
+
+// StackCreateOptions describes a request for creating a new stack
+type StackCreateOptions struct {
+	Bundle string
+	Name   string
+	// EncodedRegistryAuth is the encoded registry authorization credentials.
+	//
+	// This field follows the format of the X-Registry-Auth header.
+	EncodedRegistryAuth string `json:"-"`
+}
