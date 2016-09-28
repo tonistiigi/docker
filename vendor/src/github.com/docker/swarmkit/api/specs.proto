@@ -188,6 +188,10 @@ message ContainerSpec {
 
 	// PullOptions parameterize the behavior of image pulls.
 	PullOptions pull_options = 10;
+
+	// Bundle reference to use for getting the image. If this is set image field
+	// specifies image inside the bundle.
+	string bundle = 12;
 }
 
 // EndpointSpec defines the properties that can be configured to

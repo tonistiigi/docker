@@ -91,7 +91,7 @@ clone git github.com/boltdb/bolt fff57c100f4dea1905678da7e90d92429dff2904
 clone git github.com/miekg/dns 75e6e86cc601825c5dbcd4e0c209eab180997cd7
 
 # get graph and distribution packages
-clone git github.com/docker/distribution 77b9d2997abcded79a5314970fe69a44c93c25fb
+clone git github.com/docker/distribution schema2-deps git://github.com/tonistiigi/distribution.git
 clone git github.com/vbatts/tar-split v0.9.11
 
 # get go-zfs packages
@@ -143,7 +143,7 @@ clone git github.com/docker/docker-credential-helpers v0.3.0
 clone git github.com/docker/containerd 2545227b0357eb55e369fa0072baef9ad91cdb69
 
 # cluster
-clone git github.com/docker/swarmkit 7b202f058db2f3a7d41351a56e5ef720c9b5a45d
+clone git github.com/docker/swarmkit add-bundle git://github.com/tonistiigi/swarmkit.git
 clone git github.com/golang/mock bd3c8e81be01eef76d4b503f5e687d2d1354d2d9
 clone git github.com/gogo/protobuf v0.3
 clone git github.com/cloudflare/cfssl 7fb22c8cba7ecaf98e4082d22d65800cf45e042a
