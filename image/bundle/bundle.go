@@ -2,11 +2,11 @@ package bundle
 
 import (
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/image"
+	"github.com/pkg/errors"
 )
 
 // ID is the content-addressable ID of a bundle.
@@ -76,7 +76,7 @@ func (img *Bundle) ID() ID {
 func NewFromJSON(src []byte) (*Bundle, error) {
 	bundle := &Bundle{}
 	if err := json.Unmarshal(src, bundle); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to unmarshal json")
 	}
 	if len(bundle.Services) == 0 {
 		return nil, errors.New("Invalid bundle JSON, no services specified.")

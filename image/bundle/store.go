@@ -8,6 +8,7 @@ import (
 	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
+	"github.com/pkg/errors"
 )
 
 // Store is an interface for creating and accessing images
@@ -58,7 +59,7 @@ func (bs *store) restore() error {
 		id := IDFromDigest(dgst)
 		bundle, err := bs.Get(id)
 		if err != nil {
-			logrus.Errorf("invalid bundle %v, %v", dgst, err)
+			logrus.Errorf("invalid bundle %v, %+v", dgst, err)
 			return nil
 		}
 		for _, s := range bundle.Services {
@@ -86,7 +87,7 @@ func (bs *store) Create(config []byte) (ID, error) {
 	}
 	for _, s := range bundle.Services {
 		if s.Name == "" {
-			return "", fmt.Errorf("empty service name not allowed")
+			return "", errors.New("empty service name not allowed")
 		}
 	}
 
@@ -106,7 +107,7 @@ func (bs *store) Create(config []byte) (ID, error) {
 	bs.bundles[bundleID] = struct{}{}
 	if err := bs.digestSet.Add(bundleID.Digest()); err != nil {
 		delete(bs.bundles, bundleID)
-		return "", err
+		return "", errors.Wrapf(err, "failed to add %v to digestSet", bundleID.Digest())
 	}
 
 	for _, s := range bundle.Services {
@@ -122,10 +123,10 @@ func (bs *store) Search(term string) (ID, error) {
 
 	dgst, err := bs.digestSet.Lookup(term)
 	if err != nil {
-		if err == digest.ErrDigestNotFound {
+		if errors.Cause(err) == digest.ErrDigestNotFound {
 			err = fmt.Errorf("No such bundle: %s", term)
 		}
-		return "", err
+		return "", errors.Wrapf(err, "failed to lookup digest %v", err)
 	}
 	return IDFromDigest(dgst), nil
 }
@@ -152,7 +153,7 @@ func (bs *store) Delete(id ID) ([]layer.Metadata, error) {
 	defer bs.mu.Unlock()
 
 	if err := bs.digestSet.Remove(id.Digest()); err != nil {
-		logrus.Errorf("error removing %s from digest set: %q", id, err)
+		logrus.Errorf("error removing %s from digest set: %+v", id, err)
 	}
 	delete(bs.bundles, id)
 	bs.fs.Delete(id.Digest())
@@ -176,7 +177,7 @@ func (bs *store) Map() map[ID]*Bundle {
 	for id := range bs.bundles {
 		bundle, err := bs.Get(id)
 		if err != nil {
-			logrus.Errorf("invalid bundle access: %q, error: %q", id, err)
+			logrus.Errorf("invalid bundle access: %q, error: %+v", id, err)
 			continue
 		}
 		bundles[id] = bundle
