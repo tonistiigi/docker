@@ -50,7 +50,9 @@ func runList(dockerCli *command.DockerCli, opts listOptions) error {
 	ctx := context.Background()
 	client := dockerCli.Client()
 
-	services, err := client.ServiceList(ctx, types.ServiceListOptions{Filter: opts.filter.Value()})
+	services, err := client.ServiceList(ctx, types.ServiceListOptions{
+		Filter: opts.filter.Value(),
+	})
 	if err != nil {
 		return err
 	}

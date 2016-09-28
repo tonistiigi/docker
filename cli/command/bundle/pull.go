@@ -1,4 +1,4 @@
-package image
+package bundle
 
 import (
 	"errors"
@@ -7,8 +7,11 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/cli"
 	"github.com/docker/docker/cli/command"
+	"github.com/docker/docker/cli/command/image"
+	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 	"github.com/spf13/cobra"
@@ -16,16 +19,15 @@ import (
 
 type pullOptions struct {
 	remote string
-	all    bool
 }
 
-// NewPullCommand creates a new `docker pull` command
-func NewPullCommand(dockerCli *command.DockerCli) *cobra.Command {
+// newPullCommand creates a new `docker bundle pull` command
+func newPullCommand(dockerCli *command.DockerCli) *cobra.Command {
 	var opts pullOptions
 
 	cmd := &cobra.Command{
 		Use:   "pull [OPTIONS] NAME[:TAG|@DIGEST]",
-		Short: "Pull an image or a repository from a registry",
+		Short: "Pull a bundle from a registry",
 		Args:  cli.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.remote = args[0]
@@ -34,10 +36,7 @@ func NewPullCommand(dockerCli *command.DockerCli) *cobra.Command {
 	}
 
 	flags := cmd.Flags()
-
-	flags.BoolVarP(&opts.all, "all-tags", "a", false, "Download all tagged images in the repository")
 	command.AddTrustedFlags(flags, true)
-
 	return cmd
 }
 
@@ -46,11 +45,8 @@ func runPull(dockerCli *command.DockerCli, opts pullOptions) error {
 	if err != nil {
 		return err
 	}
-	if opts.all && !reference.IsNameOnly(distributionRef) {
-		return errors.New("tag can't be used with --all-tags/-a")
-	}
 
-	if !opts.all && reference.IsNameOnly(distributionRef) {
+	if reference.IsNameOnly(distributionRef) {
 		distributionRef = reference.WithDefaultTag(distributionRef)
 		fmt.Fprintf(dockerCli.Out(), "Using default tag: %s\n", reference.DefaultTag)
 	}
@@ -78,9 +74,9 @@ func runPull(dockerCli *command.DockerCli, opts pullOptions) error {
 
 	if command.IsTrusted() && !registryRef.HasDigest() {
 		// Check if tag is digest
-		err = TrustedPull(ctx, dockerCli, repoInfo, registryRef, authConfig, requestPrivilege)
+		err = image.TrustedPull(ctx, dockerCli, repoInfo, registryRef, authConfig, requestPrivilege)
 	} else {
-		err = imagePullPrivileged(ctx, dockerCli, authConfig, distributionRef.String(), requestPrivilege, opts.all)
+		err = bundlePullPrivileged(ctx, dockerCli, authConfig, distributionRef.String(), requestPrivilege)
 	}
 	if err != nil {
 		if strings.Contains(err.Error(), "target is a plugin") {
@@ -90,4 +86,25 @@ func runPull(dockerCli *command.DockerCli, opts pullOptions) error {
 	}
 
 	return nil
+}
+
+func bundlePullPrivileged(ctx context.Context, cli *command.DockerCli, authConfig types.AuthConfig, ref string, requestPrivilege types.RequestPrivilegeFunc) error {
+
+	encodedAuth, err := command.EncodeAuthToBase64(authConfig)
+	if err != nil {
+		return err
+	}
+	options := types.BundlePullOptions{
+		RegistryAuth:  encodedAuth,
+		PrivilegeFunc: requestPrivilege,
+	}
+
+	responseBody, err := cli.Client().BundlePull(ctx, ref, options)
+	if err != nil {
+		return err
+	}
+	defer responseBody.Close()
+
+	// TODO: use new function here
+	return jsonmessage.DisplayJSONMessagesToStream(responseBody, cli.Out(), nil)
 }

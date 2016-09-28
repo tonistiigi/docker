@@ -206,3 +206,18 @@ func IsErrPluginPermissionDenied(err error) bool {
 	_, ok := err.(pluginPermissionDenied)
 	return ok
 }
+
+// bundleNotFoundError implements an error returned when an bundle is not in the docker host.
+type bundleNotFoundError struct {
+	bundleID string
+}
+
+// NoFound indicates that this error type is of NotFound
+func (e bundleNotFoundError) NotFound() bool {
+	return true
+}
+
+// Error returns a string representation of an bundleNotFoundError
+func (e bundleNotFoundError) Error() string {
+	return fmt.Sprintf("Error: No such bundle: %s", e.bundleID)
+}

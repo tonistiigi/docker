@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/docker/docker/cli/command"
+	"github.com/docker/docker/cli/command/bundle"
 	"github.com/docker/docker/cli/command/checkpoint"
 	"github.com/docker/docker/cli/command/container"
 	"github.com/docker/docker/cli/command/image"
@@ -74,6 +75,7 @@ func AddCommands(cmd *cobra.Command, dockerCli *command.DockerCli) {
 		hide(system.NewInspectCommand(dockerCli)),
 		checkpoint.NewCheckpointCommand(dockerCli),
 		plugin.NewPluginCommand(dockerCli),
+		bundle.NewBundleCommand(dockerCli),
 	)
 }
 
