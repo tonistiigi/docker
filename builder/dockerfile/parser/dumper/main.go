@@ -23,7 +23,7 @@ func main() {
 		}
 		defer f.Close()
 
-		ast, err := parser.Parse(f)
+		ast, _, err := parser.Parse(f)
 		if err != nil {
 			panic(err)
 		} else {

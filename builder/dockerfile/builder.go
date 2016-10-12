@@ -2,7 +2,6 @@ package dockerfile
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -18,6 +17,7 @@ import (
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/reference"
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
 
@@ -138,10 +138,14 @@ func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, back
 	}
 
 	if dockerfile != nil {
-		b.dockerfile, err = parser.Parse(dockerfile)
+		node, directives, err := parser.Parse(dockerfile)
 		if err != nil {
 			return nil, err
 		}
+		if err := b.validateDirectives(*directives); err != nil {
+			return nil, err
+		}
+		b.dockerfile = node
 	}
 
 	return b, nil
@@ -187,6 +191,25 @@ func sanitizeRepoAndTags(names []string) ([]reference.Named, error) {
 		}
 	}
 	return repoAndTags, nil
+}
+
+func (b *Builder) validateDirectives(d parser.Directives) error {
+	if !d.NetMode.Matches(b.options.NetMode) {
+		return errors.Errorf("Network requirements in Dockerfile (%v) are not satisfied. Please set the correct value with --net option to build", d.NetMode.String())
+	}
+	logrus.Debugf("extrahosts: %+v", b.options)
+	hosts := b.options.ExtraHosts
+	if len(hosts) == 0 {
+		hosts = []string{""}
+	}
+	for _, dh := range d.ExtraHosts {
+		for _, uh := range hosts {
+			if !dh.Matches(strings.Split(uh, ":")[0]) {
+				return errors.Errorf("Additional hosts requirements in Dockerfile (%v) are not satisfied. Please set the correct values with --add-host option to build", dh.String())
+			}
+		}
+	}
+	return nil
 }
 
 // build runs the Dockerfile builder from a context and a docker object that allows to make calls
@@ -310,7 +333,7 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 		return nil, err
 	}
 
-	ast, err := parser.Parse(bytes.NewBufferString(strings.Join(changes, "\n")))
+	ast, _, err := parser.Parse(bytes.NewBufferString(strings.Join(changes, "\n")))
 	if err != nil {
 		return nil, err
 	}

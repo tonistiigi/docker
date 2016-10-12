@@ -59,6 +59,7 @@ type buildOptions struct {
 	compress       bool
 	securityOpt    []string
 	netMode        string
+	extraHosts     []string
 }
 
 // NewBuildCommand creates a new `docker build` command
@@ -107,6 +108,7 @@ func NewBuildCommand(dockerCli *command.DockerCli) *cobra.Command {
 	flags.BoolVar(&options.compress, "compress", false, "Compress the build context using gzip")
 	flags.StringSliceVar(&options.securityOpt, "security-opt", []string{}, "Security options")
 	flags.StringVar(&options.netMode, "net", "default", "Connect a container to a network")
+	flags.StringSliceVar(&options.extraHosts, "add-host", []string{}, "Add a custom host-to-IP mapping (host:ip)")
 
 	command.AddTrustedFlags(flags, true)
 
@@ -305,6 +307,7 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		CacheFrom:      options.cacheFrom,
 		SecurityOpt:    options.securityOpt,
 		NetMode:        options.netMode,
+		ExtraHosts:     options.extraHosts,
 	}
 
 	response, err := dockerCli.Client().ImageBuild(ctx, body, buildOptions)

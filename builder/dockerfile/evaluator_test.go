@@ -171,7 +171,7 @@ func executeTestCase(t *testing.T, testCase dispatchTestCase) {
 	}()
 
 	r := strings.NewReader(testCase.dockerfile)
-	n, err := parser.Parse(r)
+	n, _, err := parser.Parse(r)
 
 	if err != nil {
 		t.Fatalf("Error when parsing Dockerfile: %s", err)

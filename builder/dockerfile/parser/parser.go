@@ -4,7 +4,6 @@ package parser
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -12,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/docker/docker/builder/dockerfile/command"
+	"github.com/pkg/errors"
 )
 
 // Node is a structure used to represent a parse tree.
@@ -43,12 +43,14 @@ type Directives struct {
 	EscapeToken           rune                // Current escape token
 	LineContinuationRegex *regexp.Regexp      // Current line contination regex
 	usedDirectives        map[string]struct{} // Whether a directive has been seen
+	NetMode               RequireForbidKeyList
+	ExtraHosts            []RequireForbidKeyList
 }
 
 var (
 	dispatch        map[string]func(string, Directives) (*Node, map[string]bool, error)
 	tokenWhitespace = regexp.MustCompile(`[\t\v\f\r ]+`)
-	directiveRegexp = regexp.MustCompile(`^#[ \t]*([a-z0-9]+)[ \t]*=[ \t]*(.*)$`)
+	directiveRegexp = regexp.MustCompile(`^#[ \t]*([a-z0-9-]+)[ \t]*=[ \t]*(.*)$`)
 	tokenComment    = regexp.MustCompile(`^#.*$`)
 	errNoDirective  = errors.New("not a directive")
 )
@@ -73,6 +75,66 @@ func (d *Directives) SetEscapeToken(s string) error {
 	d.EscapeToken = rune(s[0])
 	d.LineContinuationRegex = regexp.MustCompile(`\` + s + `$`)
 	return nil
+}
+
+// RequireForbidKeyList is a structure that holds a list or required or forbidden values
+type RequireForbidKeyList struct {
+	require, forbid map[string]struct{}
+}
+
+func (d *RequireForbidKeyList) UnmarshalText(b []byte) error {
+	// # net = host
+	// # net = !host,!none
+	// # net = host,bridge
+	require := make(map[string]struct{})
+	forbid := make(map[string]struct{})
+
+	for _, k := range strings.Split(string(b), ",") {
+		k = strings.TrimSpace(k)
+		req := true
+		if len(k) > 0 && k[0] == '!' {
+			k = k[1:]
+			req = false
+		}
+		if req {
+			require[k] = struct{}{}
+		} else {
+			forbid[k] = struct{}{}
+		}
+	}
+	if len(require) > 0 && len(forbid) > 0 {
+		return errors.New("required and forbidden values can't be used together")
+	}
+	d.require, d.forbid = require, forbid
+	return nil
+}
+
+func (d *RequireForbidKeyList) Matches(inp string) bool {
+	if len(d.require) > 0 {
+		for k := range d.require {
+			if strings.EqualFold(k, inp) {
+				return true
+			}
+		}
+		return false
+	}
+	for k := range d.forbid {
+		if strings.EqualFold(k, inp) {
+			return false
+		}
+	}
+	return true
+}
+
+func (d *RequireForbidKeyList) String() string {
+	keys := []string{}
+	for k := range d.require {
+		keys = append(keys, k)
+	}
+	for k := range d.forbid {
+		keys = append(keys, "!"+k)
+	}
+	return strings.Join(keys, ",")
 }
 
 func init() {
@@ -139,7 +201,7 @@ func ParseLine(line string, d Directives) (string, *Node, error) {
 func ParseDirectives(line string, d *Directives) (err error) {
 	tecMatch := directiveRegexp.FindStringSubmatch(strings.ToLower(line))
 	if len(tecMatch) > 2 {
-		if _, ok := d.usedDirectives[tecMatch[1]]; ok {
+		if _, ok := d.usedDirectives[tecMatch[1]]; ok && tecMatch[1] != "add-host" {
 			return fmt.Errorf("only one %v parser directive can be used", tecMatch[1])
 		}
 		defer func() {
@@ -150,6 +212,15 @@ func ParseDirectives(line string, d *Directives) (err error) {
 		switch tecMatch[1] {
 		case "escape":
 			return d.SetEscapeToken(tecMatch[2])
+		case "net":
+			return d.NetMode.UnmarshalText([]byte(tecMatch[2]))
+		case "add-host":
+			h := &RequireForbidKeyList{}
+			if err := h.UnmarshalText([]byte(tecMatch[2])); err != nil {
+				return err
+			}
+			d.ExtraHosts = append(d.ExtraHosts, *h)
+			return nil
 		}
 	}
 	return errNoDirective
@@ -157,7 +228,7 @@ func ParseDirectives(line string, d *Directives) (err error) {
 
 // Parse is the main parse routine.
 // It handles an io.ReadWriteCloser and returns the root of the AST.
-func Parse(r io.Reader) (*Node, error) {
+func Parse(r io.Reader) (*Node, *Directives, error) {
 	startLine, currentLine := 0, 0
 	parseDirectives := true
 	root := &Node{}
@@ -202,7 +273,7 @@ func Parse(r io.Reader) (*Node, error) {
 				if err == errNoDirective {
 					parseDirectives = false
 				} else {
-					return nil, err
+					return nil, nil, err
 				}
 			}
 		}
@@ -217,14 +288,14 @@ func Parse(r io.Reader) (*Node, error) {
 		}
 		partialLine += scannedLine
 		if err := parse(partialLine); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	if partialLine != "" {
 		if err := parse(partialLine); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	return root, nil
+	return root, &d, nil
 }

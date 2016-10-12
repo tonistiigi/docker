@@ -109,6 +109,15 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 		options.CacheFrom = cacheFrom
 	}
 
+	var extraHosts = []string{}
+	extraHostsJSON := r.FormValue("extrahosts")
+	if extraHostsJSON != "" {
+		if err := json.Unmarshal([]byte(extraHostsJSON), &extraHosts); err != nil {
+			return nil, err
+		}
+		options.ExtraHosts = extraHosts
+	}
+
 	return options, nil
 }
 

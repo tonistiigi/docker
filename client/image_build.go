@@ -85,6 +85,11 @@ func imageBuildOptionsToQuery(options types.ImageBuildOptions) (url.Values, erro
 
 	query.Set("cpusetcpus", options.CPUSetCPUs)
 	query.Set("netmode", options.NetMode)
+	extraHostsJSON, err := json.Marshal(options.ExtraHosts)
+	if err != nil {
+		return query, err
+	}
+	query.Set("extrahosts", string(extraHostsJSON))
 	query.Set("cpusetmems", options.CPUSetMems)
 	query.Set("cpushares", strconv.FormatInt(options.CPUShares, 10))
 	query.Set("cpuquota", strconv.FormatInt(options.CPUQuota, 10))

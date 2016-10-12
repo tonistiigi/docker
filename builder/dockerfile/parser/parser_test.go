@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -40,7 +41,7 @@ func TestTestNegative(t *testing.T) {
 		}
 		defer df.Close()
 
-		_, err = Parse(df)
+		_, _, err = Parse(df)
 		if err == nil {
 			t.Fatalf("No error parsing broken dockerfile for %s", dir)
 		}
@@ -58,7 +59,7 @@ func TestTestData(t *testing.T) {
 		}
 		defer df.Close()
 
-		ast, err := Parse(df)
+		ast, _, err := Parse(df)
 		if err != nil {
 			t.Fatalf("Error parsing %s's dockerfile: %v", dir, err)
 		}
@@ -137,7 +138,7 @@ func TestLineInformation(t *testing.T) {
 	}
 	defer df.Close()
 
-	ast, err := Parse(df)
+	ast, _, err := Parse(df)
 	if err != nil {
 		t.Fatalf("Error parsing dockerfile %s: %v", testFileLineInfo, err)
 	}
@@ -161,5 +162,57 @@ func TestLineInformation(t *testing.T) {
 				i, expected[i][0], expected[i][1], child.startLine, child.endLine)
 			t.Fatalf("Root line information doesn't match result.")
 		}
+	}
+}
+
+func TestParseDirectives(t *testing.T) {
+	dockerfile := `# net = host
+# add-host = myhost,foo
+from busybox`
+
+	_, d, err := Parse(strings.NewReader(dockerfile))
+	if err != nil {
+		t.Fatalf("Dockerfile parsing failed %v", err)
+	}
+	if !d.NetMode.Matches("host") {
+		t.Fatalf("Net directive host didn't match: %v", d.NetMode)
+	}
+	if d.NetMode.Matches("none") {
+		t.Fatalf("Net directive none should not have matched: %v", d.NetMode)
+	}
+	if !d.ExtraHosts[0].Matches("myhost") {
+		t.Fatalf("Host directive myhost should have matched: %v", d.ExtraHosts[0])
+	}
+	if !d.ExtraHosts[0].Matches("foo") {
+		t.Fatalf("Host directive foo should have matched: %v", d.ExtraHosts[0])
+	}
+	if d.ExtraHosts[0].Matches("bar") {
+		t.Fatalf("Host directive bar should not have matched: %v", d.ExtraHosts[0])
+	}
+
+	dockerfile = `# net = !none,!host
+# add-host = foo
+# add-host = !google.com
+from busybox`
+
+	_, d, err = Parse(strings.NewReader(dockerfile))
+	if err != nil {
+		t.Fatalf("Dockerfile parsing failed %v", err)
+	}
+
+	if !d.NetMode.Matches("bridge") {
+		t.Fatalf("Net directive bridge didn't match: %v", d.NetMode)
+	}
+	if d.NetMode.Matches("none") {
+		t.Fatalf("Net directive none should not have matched: %v", d.NetMode)
+	}
+	if !d.ExtraHosts[0].Matches("foo") {
+		t.Fatalf("Host directive foo didn't match: %v", d.ExtraHosts[0])
+	}
+	if d.ExtraHosts[0].Matches("bar") {
+		t.Fatalf("Host directive bar should not have matched: %v", d.ExtraHosts[0])
+	}
+	if d.ExtraHosts[1].Matches("google.com") {
+		t.Fatalf("Host directive google.com should not have matched: %v", d.ExtraHosts[1])
 	}
 }
