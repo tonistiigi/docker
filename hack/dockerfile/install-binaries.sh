@@ -4,7 +4,7 @@ set -x
 
 TOMLV_COMMIT=9baf8a8a9f2ed20a8e54160840c492f937eeaf9a
 RUNC_COMMIT=02f8fa7863dd3f82909a73e2061897828460d52f
-CONTAINERD_COMMIT=837e8c5e1cad013ed57f5c2090c8591c10cbbdae
+CONTAINERD_COMMIT=6afac2b9155cfc4d15df1f846c2cd07912e881ac
 GRIMES_COMMIT=15ecf9414859b16a8a19ac6748a622a5498d57e3
 
 export GOPATH="$(mktemp -d)"
@@ -30,7 +30,7 @@ do
 
 		containerd)
 			echo "Install containerd version $CONTAINERD_COMMIT"
-			git clone https://github.com/docker/containerd.git "$GOPATH/src/github.com/docker/containerd"
+			git clone https://github.com/tonistiigi/containerd.git "$GOPATH/src/github.com/docker/containerd"
 			cd "$GOPATH/src/github.com/docker/containerd"
 			git checkout -q "$CONTAINERD_COMMIT"
 			make static
