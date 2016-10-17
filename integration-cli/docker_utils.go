@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -1497,6 +1498,9 @@ func waitForGoroutines(expected int) error {
 				return err
 			}
 			if n > expected {
+				if daemonPid > 0 && isLocalDaemon {
+					syscall.Kill(daemonPid, syscall.SIGUSR1)
+				}
 				return fmt.Errorf("leaked goroutines: expected less than or equal to %d, got: %d", expected, n)
 			}
 		default:

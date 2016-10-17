@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/docker/docker/pkg/integration/checker"
@@ -4511,6 +4512,10 @@ func (s *DockerDaemonSuite) TestRunWithUlimitAndDaemonDefault(c *check.C) {
 func (s *DockerSuite) TestRunStoppedLoggingDriverNoLeak(c *check.C) {
 	nroutines, err := getGoroutineNumber()
 	c.Assert(err, checker.IsNil)
+
+	if daemonPid > 0 && isLocalDaemon {
+		syscall.Kill(daemonPid, syscall.SIGUSR1)
+	}
 
 	out, _, err := dockerCmdWithError("run", "--name=fail", "--log-driver=splunk", "busybox", "true")
 	c.Assert(err, checker.NotNil)
