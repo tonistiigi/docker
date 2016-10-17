@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -49,6 +50,8 @@ func (ctr *container) clean() error {
 	if os.Getenv("LIBCONTAINERD_NOCLEAN") == "1" {
 		return nil
 	}
+	logrus.Debugf("cleanContainer %v", ctr.dir)
+	debug.PrintStack()
 	if _, err := os.Lstat(ctr.dir); err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -67,11 +70,13 @@ func (ctr *container) clean() error {
 func (ctr *container) cleanProcess(id string) {
 	if p, ok := ctr.processes[id]; ok {
 		for _, i := range []int{syscall.Stdin, syscall.Stdout, syscall.Stderr} {
+			logrus.Debugf("cleanProcess %v", p.fifo(i))
 			if err := os.Remove(p.fifo(i)); err != nil {
 				logrus.Warnf("libcontainerd: failed to remove %v for process %v: %v", p.fifo(i), id, err)
 			}
 		}
 	}
+	debug.PrintStack()
 	delete(ctr.processes, id)
 }
 

@@ -8,10 +8,12 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 )
 
 type fifo struct {
+	fn          string
 	flag        int
 	opened      chan struct{}
 	closed      chan struct{}
@@ -36,6 +38,9 @@ var leakCheckWg *sync.WaitGroup
 //     fifo isn't open. read/write will be connected after the actual fifo is
 //     open or after fifo is closed.
 func OpenFifo(ctx context.Context, fn string, flag int, perm os.FileMode) (io.ReadWriteCloser, error) {
+	logrus.Debugf("> open %v", fn)
+	defer logrus.Debugf("< open %v", fn)
+
 	if _, err := os.Stat(fn); err != nil {
 		if os.IsNotExist(err) && flag&syscall.O_CREAT != 0 {
 			if err := syscall.Mkfifo(fn, uint32(perm&os.ModePerm)); err != nil && !os.IsExist(err) {
@@ -58,6 +63,7 @@ func OpenFifo(ctx context.Context, fn string, flag int, perm os.FileMode) (io.Re
 
 	f := &fifo{
 		handle:  h,
+		fn:      fn,
 		flag:    flag,
 		opened:  make(chan struct{}),
 		closed:  make(chan struct{}),
@@ -70,22 +76,28 @@ func OpenFifo(ctx context.Context, fn string, flag int, perm os.FileMode) (io.Re
 	}
 
 	go func() {
+		logrus.Debugf("> open-go1 %v", fn)
+		defer logrus.Debugf("< open-go1 %v", fn)
 		if wg != nil {
 			defer wg.Done()
 		}
 		select {
 		case <-ctx.Done():
+			logrus.Debugf("> cancel ctx")
 			f.Close()
 		case <-f.opened:
 		case <-f.closed:
 		}
 	}()
 	go func() {
+		fn2 := fn
+		defer logrus.Debugf("< open-go2 %v", fn2)
 		if wg != nil {
 			defer wg.Done()
 		}
 		var file *os.File
 		fn, err := h.Path()
+		logrus.Debugf("> open-go2 %v %v %v", fn2, fn, err)
 		if err == nil {
 			file, err = os.OpenFile(fn, flag, 0)
 		}
@@ -163,6 +175,8 @@ func (f *fifo) Write(b []byte) (int, error) {
 // Close the fifo. Next reads/writes will error. This method can also be used
 // before open(2) has returned and fifo was never opened.
 func (f *fifo) Close() error {
+	logrus.Debugf("> fifo close %v", f.fn)
+	defer logrus.Debugf("< fifo close %v", f.fn)
 	for {
 		select {
 		case <-f.closed:
@@ -188,6 +202,7 @@ func (f *fifo) Close() error {
 					reverseMode = syscall.O_RDONLY
 				}
 				fn, err := f.handle.Path()
+				logrus.Debugf("fifo handle %v %v", fn, err)
 				if err != nil {
 					// Path has become invalid. We will leak a goroutine.
 					// This case should not happen in linux.
@@ -202,6 +217,7 @@ func (f *fifo) Close() error {
 				if err == nil {
 					f.Close()
 				}
+				//runtime.Gosched()
 			}
 		}
 	}
