@@ -22,6 +22,7 @@ type CommonAPIClient interface {
 	NetworkAPIClient
 	ServiceAPIClient
 	SwarmAPIClient
+	SecretAPIClient
 	SystemAPIClient
 	VolumeAPIClient
 	ClientVersion() string
@@ -137,4 +138,12 @@ type VolumeAPIClient interface {
 	VolumeList(ctx context.Context, filter filters.Args) (types.VolumesListResponse, error)
 	VolumeRemove(ctx context.Context, volumeID string, force bool) error
 	VolumesPrune(ctx context.Context, cfg types.VolumesPruneConfig) (types.VolumesPruneReport, error)
+}
+
+// SecretAPIClient defines API client methods for secrets}
+type SecretAPIClient interface {
+	SecretList(ctx context.Context, options types.SecretListOptions) ([]swarm.Secret, error)
+	SecretCreate(ctx context.Context, secret swarm.SecretSpec) (types.SecretCreateResponse, error)
+	SecretRemove(ctx context.Context, id string) error
+	SecretInspectWithRaw(ctx context.Context, name string) (swarm.Secret, []byte, error)
 }

@@ -96,3 +96,15 @@ func newListTasksFilters(filter filters.Args, transformFunc func(filters.Args) e
 
 	return f, nil
 }
+
+func newListSecretsFilters(filter filters.Args) (*swarmapi.ListSecretsRequest_Filters, error) {
+	accepted := map[string]bool{
+		"name": true,
+	}
+	if err := filter.Validate(accepted); err != nil {
+		return nil, err
+	}
+	return &swarmapi.ListSecretsRequest_Filters{
+		NamePrefixes: filter.Get("name"),
+	}, nil
+}
