@@ -76,7 +76,13 @@ func newSession(ctx context.Context, agent *Agent, delay time.Duration, sessionI
 }
 
 func (s *session) run(ctx context.Context, delay time.Duration, description *api.NodeDescription) {
-	time.Sleep(delay) // delay before registering.
+	timer := time.NewTimer(delay) // delay before registering.
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+		return
+	}
 
 	if err := s.start(ctx, description); err != nil {
 		select {
@@ -252,12 +258,26 @@ func (s *session) watch(ctx context.Context) error {
 			}
 		}
 		if tasksWatch != nil {
+			// When falling back to Tasks because of an old managers, we wrap the tasks in assignments.
 			var taskResp *api.TasksMessage
+			var assignmentChanges []*api.AssignmentChange
 			taskResp, err = tasksWatch.Recv()
 			if err != nil {
 				return err
 			}
-			resp = &api.AssignmentsMessage{Type: api.AssignmentsMessage_COMPLETE, UpdateTasks: taskResp.Tasks}
+			for _, t := range taskResp.Tasks {
+				taskChange := &api.AssignmentChange{
+					Assignment: &api.Assignment{
+						Item: &api.Assignment_Task{
+							Task: t,
+						},
+					},
+					Action: api.AssignmentChange_AssignmentActionUpdate,
+				}
+
+				assignmentChanges = append(assignmentChanges, taskChange)
+			}
+			resp = &api.AssignmentsMessage{Type: api.AssignmentsMessage_COMPLETE, Changes: assignmentChanges}
 		}
 
 		// If there seems to be a gap in the stream, let's break out of the inner for and
