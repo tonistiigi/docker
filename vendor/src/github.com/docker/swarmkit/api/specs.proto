@@ -159,6 +159,10 @@ message ContainerSpec {
 	// If Command and Args are provided, Args will be appended to Command.
 	repeated string args = 4;
 
+	// Hostname specifies the hostname that will be set on containers created by docker swarm.
+	// All containers for a given service will have the same hostname
+	string hostname = 14;
+
 	// Env specifies the environment variables for the container in NAME=VALUE
 	// format. These must be compliant with  [IEEE Std
 	// 1003.1-2001](http://pubs.opengroup.org/onlinepubs/009695399/basedefs/xbd_chap08.html).
@@ -176,6 +180,10 @@ message ContainerSpec {
 
 	// Groups specifies supplementary groups available to the user.
 	repeated string groups = 11;
+
+	// TTY declares that a TTY should be attached to the standard streams,
+	// including stdin if it is still open.
+	bool tty = 13 [(gogoproto.customname) = "TTY"];
 
 	repeated Mount mounts = 8 [(gogoproto.nullable) = false];
 
@@ -280,6 +288,9 @@ message ClusterSpec {
 
 	// TaskDefaults specifies the default values to use for task creation.
 	TaskDefaults task_defaults = 7 [(gogoproto.nullable) = false];
+
+	// EncryptionConfig are the cluster-wide settings for encrypting at rest
+	EncryptionConfig encryption_config = 8 [(gogoproto.nullable) = false];
 }
 
 // SecretSpec specifies a user-provided secret.

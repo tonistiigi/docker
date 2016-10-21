@@ -1,7 +1,10 @@
 package manager
 
 import (
+	"bytes"
+	"crypto/rand"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"net"
@@ -19,14 +22,20 @@ import (
 	"github.com/docker/swarmkit/manager/allocator"
 	"github.com/docker/swarmkit/manager/controlapi"
 	"github.com/docker/swarmkit/manager/dispatcher"
+	"github.com/docker/swarmkit/manager/encryption"
 	"github.com/docker/swarmkit/manager/health"
 	"github.com/docker/swarmkit/manager/keymanager"
-	"github.com/docker/swarmkit/manager/orchestrator"
+	"github.com/docker/swarmkit/manager/orchestrator/constraintenforcer"
+	"github.com/docker/swarmkit/manager/orchestrator/global"
+	"github.com/docker/swarmkit/manager/orchestrator/replicated"
+	"github.com/docker/swarmkit/manager/orchestrator/taskreaper"
 	"github.com/docker/swarmkit/manager/resourceapi"
 	"github.com/docker/swarmkit/manager/scheduler"
+	"github.com/docker/swarmkit/manager/state"
 	"github.com/docker/swarmkit/manager/state/raft"
 	"github.com/docker/swarmkit/manager/state/store"
 	"github.com/docker/swarmkit/protobuf/ptypes"
+	"github.com/docker/swarmkit/remotes"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -35,6 +44,10 @@ import (
 const (
 	// defaultTaskHistoryRetentionLimit is the number of tasks to keep.
 	defaultTaskHistoryRetentionLimit = 5
+	// the raft DEK (data encryption key) is stored in the TLS cert as a header
+	// these are the header values
+	defaultRaftDEKKey        = "raft-dek"
+	defaultRaftDekKeyPending = "raft-dek-pending"
 )
 
 // Config is used to tune the Manager.
@@ -82,16 +95,17 @@ type Manager struct {
 
 	caserver               *ca.Server
 	dispatcher             *dispatcher.Dispatcher
-	replicatedOrchestrator *orchestrator.ReplicatedOrchestrator
-	globalOrchestrator     *orchestrator.GlobalOrchestrator
-	taskReaper             *orchestrator.TaskReaper
-	constraintEnforcer     *orchestrator.ConstraintEnforcer
+	replicatedOrchestrator *replicated.Orchestrator
+	globalOrchestrator     *global.Orchestrator
+	taskReaper             *taskreaper.TaskReaper
+	constraintEnforcer     *constraintenforcer.ConstraintEnforcer
 	scheduler              *scheduler.Scheduler
 	allocator              *allocator.Allocator
 	keyManager             *keymanager.KeyManager
 	server                 *grpc.Server
 	localserver            *grpc.Server
 	raftNode               *raft.Node
+	keyRotator             *raftDEKRotator
 
 	mu sync.Mutex
 
@@ -203,6 +217,10 @@ func New(config *Config) (*Manager, error) {
 		raftCfg.HeartbeatTick = int(config.HeartbeatTick)
 	}
 
+	keyRotator := &raftDEKRotator{
+		rotationChan: make(chan struct{}),
+	}
+
 	newNodeOpts := raft.NodeOptions{
 		ID:              config.SecurityConfig.ClientTLSCreds.NodeID(),
 		Addr:            tcpAddr,
@@ -211,6 +229,7 @@ func New(config *Config) (*Manager, error) {
 		StateDir:        raftStateDir,
 		ForceNewCluster: config.ForceNewCluster,
 		TLSCredentials:  config.SecurityConfig.ClientTLSCreds,
+		KeyRotator:      keyRotator,
 	}
 	raftNode := raft.NewNode(newNodeOpts)
 
@@ -227,6 +246,7 @@ func New(config *Config) (*Manager, error) {
 		raftNode:    raftNode,
 		started:     make(chan struct{}),
 		stopped:     make(chan struct{}),
+		keyRotator:  keyRotator,
 	}
 
 	return m, nil
@@ -343,19 +363,34 @@ func (m *Manager) Run(parent context.Context) error {
 	// Set the raft server as serving for the health server
 	healthServer.SetServingStatus("Raft", api.HealthCheckResponse_SERVING)
 
-	if err := m.raftNode.JoinAndStart(ctx); err != nil {
+	if err := m.joinAndStart(ctx); err != nil {
 		return errors.Wrap(err, "can't initialize raft node")
 	}
+	m.keyRotator.SetKeyWriter(m.config.SecurityConfig.KeyWriter())
 
 	localHealthServer.SetServingStatus("ControlAPI", api.HealthCheckResponse_SERVING)
 
 	close(m.started)
 
+	go m.watchForKEKChanges(ctx)
+
 	go func() {
+		if m.keyRotator.GetNewKey() != nil {
+			m.keyRotator.rotationChan <- struct{}{}
+		}
 		err := m.raftNode.Run(ctx)
 		if err != nil {
 			log.G(ctx).Error(err)
 			m.Stop(ctx)
+			if err == raft.ErrMemberRemoved {
+				if err := m.config.SecurityConfig.KeyWriter().UpdateHeaders(func(headers map[string]string, _ []byte) error {
+					delete(headers, defaultRaftDEKKey)
+					delete(headers, defaultRaftDekKeyPending)
+					return nil
+				}); err != nil {
+					log.G(ctx).Error(errors.Wrap(err, "unable to remove raft DEK from TLS certificate"))
+				}
+			}
 		}
 	}()
 
@@ -478,6 +513,105 @@ func (m *Manager) Stop(ctx context.Context) {
 
 	log.G(ctx).Info("Manager shut down")
 	// mutex is released and Run can return now
+}
+
+func (m *Manager) joinAndStart(ctx context.Context) error {
+	return m.config.SecurityConfig.KeyWriter().UpdateHeaders(func(headers map[string]string, kek []byte) error {
+		if err := m.keyRotator.LoadFromHeaders(headers, kek); err != nil {
+			return err
+		}
+
+		// if there is no DEK, create a new one
+		dekStr, foundDEK := headers[defaultRaftDEKKey]
+		if !foundDEK {
+			newDek := make([]byte, 32)
+			_, err := rand.Read(newDek)
+			if err != nil {
+				return err
+			}
+			if headers[defaultRaftDEKKey], err = encodePEMHeaderValue(newDek, kek); err != nil {
+				return err
+			}
+			return m.raftNode.JoinAndStart(ctx, newDek)
+		}
+
+		if pendingKey := m.keyRotator.GetNewKey(); pendingKey != nil {
+			// if there is a pending header, try decrypting with that first - if that doesn't work, fall back
+			// on the normal dek but finish rotating
+			err := m.raftNode.JoinAndStart(ctx, pendingKey)
+			switch err.(type) {
+			case encryption.ErrCannotDecode:
+				// if the dek hasn't been used to snapshot, fall back to the original dek - a rotation
+				// still needs to happen
+				break
+			case nil:
+				// we've successfully joined - that means the previous snapshot had succeeded - finish
+				// the rotation
+				return m.keyRotator.FinishKeyRotation(pendingKey)
+			default:
+				// we failed to join but not due to a decoding error
+				return err
+			}
+		}
+
+		// there is a regular header - use that to decrypt and start
+		dek, err := decodePEMHeaderValue(dekStr, kek)
+		if err != nil {
+			return err
+		}
+		return m.raftNode.JoinAndStart(ctx, dek)
+	})
+}
+
+func (m *Manager) watchForKEKChanges(ctx context.Context) {
+	clusterWatch, clusterWatchCancel := state.Watch(m.raftNode.MemoryStore().WatchQueue(),
+		state.EventUpdateCluster{},
+	)
+	securityConfig := m.config.SecurityConfig
+	// we are our own peer from which we get certs - try to connect over the local socket
+	r := remotes.NewRemotes(api.Peer{Addr: m.Addr().String(), NodeID: securityConfig.ClientTLSCreds.NodeID()})
+	defer clusterWatchCancel()
+	for {
+		select {
+		case event := <-clusterWatch:
+			clusterEvent := event.(state.EventUpdateCluster)
+			kek := clusterEvent.Cluster.Spec.EncryptionConfig.ManagerUnlockKey
+			switch {
+			case bytes.Equal(kek, m.keyRotator.GetCurrentKEK()):
+				// if the KEK hasn't changed, do nothing
+				break
+			case m.keyRotator.GetCurrentKEK() == nil:
+				// it was previously unencrypted, and now needs to be encrypted - trigger
+				// a full rotation of the TLS keys too
+				if err := ca.RenewTLSConfigNow(ctx, securityConfig, r, nil); err != nil {
+					// try again
+					clusterWatch <- clusterEvent
+					break
+				}
+				// Now that we have a new TLS certificate, let's load it from disk and
+				// update our key rotator
+				headers, _, err := securityConfig.KeyReader().ReadHeaders()
+				if err != nil {
+					// try again
+					clusterWatch <- clusterEvent
+					break
+				}
+				m.keyRotator.LoadFromHeaders(headers, kek)
+				// trigger a raft DEK rotation
+				m.keyRotator.RotationNotify() <- struct{}{}
+			default:
+				// the kek has just changed - all we just to do is re-encrypt the DEK and the cert
+				if err := securityConfig.KeyWriter().RotateKEK(kek); err != nil {
+					// try again
+					clusterWatch <- clusterEvent
+				}
+			}
+		case <-m.stopped:
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 // rotateRootCAKEK will attempt to rotate the key-encryption-key for root CA key-material in raft.
@@ -638,7 +772,7 @@ func (m *Manager) becomeLeader(ctx context.Context) {
 		// store. Don't check the error because
 		// we expect this to fail unless this
 		// is a brand new cluster.
-		store.CreateCluster(tx, defaultClusterObject(clusterID, initialCAConfig, raftCfg, rootCA))
+		store.CreateCluster(tx, defaultClusterObject(clusterID, initialCAConfig, raftCfg, rootCA, m.keyRotator.GetCurrentKEK()))
 		// Add Node entry for ourself, if one
 		// doesn't exist already.
 		store.CreateNode(tx, managerNode(nodeID))
@@ -651,10 +785,10 @@ func (m *Manager) becomeLeader(ctx context.Context) {
 		log.G(ctx).WithError(err).Error("root key-encrypting-key rotation failed")
 	}
 
-	m.replicatedOrchestrator = orchestrator.NewReplicatedOrchestrator(s)
-	m.constraintEnforcer = orchestrator.NewConstraintEnforcer(s)
-	m.globalOrchestrator = orchestrator.NewGlobalOrchestrator(s)
-	m.taskReaper = orchestrator.NewTaskReaper(s)
+	m.replicatedOrchestrator = replicated.NewReplicatedOrchestrator(s)
+	m.constraintEnforcer = constraintenforcer.New(s)
+	m.globalOrchestrator = global.NewGlobalOrchestrator(s)
+	m.taskReaper = taskreaper.New(s)
 	m.scheduler = scheduler.New(s)
 	m.keyManager = keymanager.New(s, keymanager.DefaultConfig())
 
@@ -706,21 +840,21 @@ func (m *Manager) becomeLeader(ctx context.Context) {
 		}
 	}(m.scheduler)
 
-	go func(constraintEnforcer *orchestrator.ConstraintEnforcer) {
+	go func(constraintEnforcer *constraintenforcer.ConstraintEnforcer) {
 		constraintEnforcer.Run()
 	}(m.constraintEnforcer)
 
-	go func(taskReaper *orchestrator.TaskReaper) {
+	go func(taskReaper *taskreaper.TaskReaper) {
 		taskReaper.Run()
 	}(m.taskReaper)
 
-	go func(orchestrator *orchestrator.ReplicatedOrchestrator) {
+	go func(orchestrator *replicated.Orchestrator) {
 		if err := orchestrator.Run(ctx); err != nil {
 			log.G(ctx).WithError(err).Error("replicated orchestrator exited with an error")
 		}
 	}(m.replicatedOrchestrator)
 
-	go func(globalOrchestrator *orchestrator.GlobalOrchestrator) {
+	go func(globalOrchestrator *global.Orchestrator) {
 		if err := globalOrchestrator.Run(ctx); err != nil {
 			log.G(ctx).WithError(err).Error("global orchestrator exited with an error")
 		}
@@ -760,7 +894,7 @@ func (m *Manager) becomeFollower() {
 }
 
 // defaultClusterObject creates a default cluster.
-func defaultClusterObject(clusterID string, initialCAConfig api.CAConfig, raftCfg api.RaftConfig, rootCA *ca.RootCA) *api.Cluster {
+func defaultClusterObject(clusterID string, initialCAConfig api.CAConfig, raftCfg api.RaftConfig, rootCA *ca.RootCA, kek []byte) *api.Cluster {
 	return &api.Cluster{
 		ID: clusterID,
 		Spec: api.ClusterSpec{
@@ -775,6 +909,9 @@ func defaultClusterObject(clusterID string, initialCAConfig api.CAConfig, raftCf
 			},
 			Raft:     raftCfg,
 			CAConfig: initialCAConfig,
+			EncryptionConfig: api.EncryptionConfig{
+				ManagerUnlockKey: kek,
+			},
 		},
 		RootCA: api.RootCA{
 			CAKey:      rootCA.Key,
@@ -804,4 +941,165 @@ func managerNode(nodeID string) *api.Node {
 			Membership: api.NodeMembershipAccepted,
 		},
 	}
+}
+
+// raftDEKRotator manages the raft DEK keys using TLS headers
+type raftDEKRotator struct {
+	mu           sync.Mutex
+	currentKEK   []byte
+	nextDEK      []byte
+	rotationChan chan struct{}
+	kw           ca.KeyWriter
+}
+
+func (r *raftDEKRotator) GetCurrentKEK() []byte {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.currentKEK
+}
+
+func (r *raftDEKRotator) SetKeyWriter(kw ca.KeyWriter) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.kw = kw
+}
+
+func (r *raftDEKRotator) GetNewKey() []byte {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.nextDEK
+}
+
+func (r *raftDEKRotator) RotationNotify() chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rotationChan
+}
+
+func (r *raftDEKRotator) FinishKeyRotation(key []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if bytes.Equal(key, r.nextDEK) {
+		r.nextDEK = nil
+	}
+	if r.kw != nil {
+		return r.kw.UpdateHeaders(func(headers map[string]string, kek []byte) error {
+			r.currentKEK = kek
+			// no matter what, set the current key
+			headerStr, err := encodePEMHeaderValue(key, kek)
+			if err != nil {
+				return err
+			}
+			headers[defaultRaftDEKKey] = headerStr
+
+			if pendingDEKStr, ok := headers[defaultRaftDekKeyPending]; ok {
+				pendingKey, err := decodePEMHeaderValue(pendingDEKStr, kek)
+				if err != nil {
+					return err
+				}
+				// that's weird, but ok - I guess rotate again
+				if !bytes.Equal(key, pendingKey) {
+					r.nextDEK = pendingKey
+				} else {
+					delete(headers, defaultRaftDekKeyPending)
+				}
+			}
+			return nil
+		})
+	}
+	return nil
+}
+
+func (r *raftDEKRotator) LoadFromHeaders(headers map[string]string, kek []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	_, foundDEK := headers[defaultRaftDEKKey]
+	pendingDEKStr, foundPendingDEK := headers[defaultRaftDekKeyPending]
+	if !foundDEK {
+		if foundPendingDEK {
+			return fmt.Errorf("there is a pending DEK but no current DEK")
+		}
+	}
+	if foundPendingDEK {
+		pendingKey, err := decodePEMHeaderValue(pendingDEKStr, kek)
+		if err != nil {
+			return err
+		}
+		r.nextDEK = pendingKey
+	}
+	r.currentKEK = kek
+	return nil
+}
+
+func decodePEMHeaderValue(headerValue string, kek []byte) ([]byte, error) {
+	var decoder encryption.Decoder
+	if kek != nil {
+		_, decoder = encryption.GetDefaults(kek)
+	}
+	valueBytes, err := base64.StdEncoding.DecodeString(headerValue)
+	if err != nil {
+		return nil, err
+	}
+	return encryption.Decode(valueBytes, decoder)
+}
+
+func encodePEMHeaderValue(headerValue []byte, kek []byte) (string, error) {
+	var encoder encryption.Encoder
+	if kek != nil {
+		encoder, _ = encryption.GetDefaults(kek)
+	}
+	encrypted, err := encryption.Encode(headerValue, encoder)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(encrypted), nil
+}
+
+// MaintainEncryptedPEMHeaders takes a set of PEM headers, and ensures that the manager raft DEK pem headers
+// are always encrypted correctly.
+func MaintainEncryptedPEMHeaders(headers map[string]string, oldKEK, newKEK []byte) error {
+	if bytes.Equal(oldKEK, newKEK) {
+		// don't bother re-encrypting anything if the keys have not changed
+		return nil
+	}
+
+	dekStr, foundDEK := headers[defaultRaftDEKKey]
+
+	// re-encrypt the current DEK
+	if foundDEK {
+		decodedValue, err := decodePEMHeaderValue(dekStr, oldKEK)
+		if err != nil {
+			return err
+		}
+		if headers[defaultRaftDEKKey], err = encodePEMHeaderValue(decodedValue, newKEK); err != nil {
+			return err
+		}
+	}
+
+	pendingDEKStr, foundPendingDEK := headers[defaultRaftDekKeyPending]
+
+	switch {
+	case foundPendingDEK:
+		// also re-encrypt the pending DEK, if that hasn't been updated yet
+		decodedValue, err := decodePEMHeaderValue(pendingDEKStr, oldKEK)
+		if err != nil {
+			return err
+		}
+		if headers[defaultRaftDekKeyPending], err = encodePEMHeaderValue(decodedValue, newKEK); err != nil {
+			return err
+		}
+
+	case foundDEK && oldKEK == nil:
+		// if there is a DEK, it should be rotated since the DEK was previously not encrypted with a KEK
+		newDek := make([]byte, 32)
+		_, err := rand.Read(newDek)
+		if err != nil {
+			return err
+		}
+		if headers[defaultRaftDekKeyPending], err = encodePEMHeaderValue(newDek, newKEK); err != nil {
+			return err
+		}
+	}
+	return nil
 }

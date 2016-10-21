@@ -22,6 +22,10 @@ service NodeCA {
 	rpc NodeCertificateStatus(NodeCertificateStatusRequest) returns (NodeCertificateStatusResponse) {
 		option (docker.protobuf.plugin.tls_authorization) = { insecure: true };
 	};
+	// GetEncryptionConfig returns the current encryption configuration for the cluster
+	rpc GetEncryptionConfig(GetEncryptionConfigRequest) returns (GetEncryptionConfigResponse) {
+		option (docker.protobuf.plugin.tls_authorization) = { roles: ["swarm-manager"] };
+	};
 }
 
 message NodeCertificateStatusRequest {
@@ -54,4 +58,10 @@ message GetRootCACertificateRequest {}
 
 message GetRootCACertificateResponse {
 	bytes certificate = 1;
+}
+
+message GetEncryptionConfigRequest {}
+
+message GetEncryptionConfigResponse {
+	EncryptionConfig encryption_config = 1;
 }

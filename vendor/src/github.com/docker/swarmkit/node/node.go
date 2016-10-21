@@ -80,6 +80,9 @@ type Config struct {
 	// HeartbeatTick defines the amount of ticks between each
 	// heartbeat sent to other members for health-check purposes
 	HeartbeatTick uint32
+
+	// UnlockKey is the key to unlock a node - used for decrypting at rest
+	UnlockKey []byte
 }
 
 // Node implements the primary node functionality for a member of a swarm
@@ -189,7 +192,7 @@ func (n *Node) run(ctx context.Context) (err error) {
 	}()
 
 	// NOTE: When this node is created by NewNode(), our nodeID is set if
-	// n.loadCertificates() succeeded in loading TLS credentials.
+	// n.loadCertificates() succeeded in loading TLS credentials from disk.
 	if n.config.JoinAddr == "" && n.nodeID == "" {
 		if err := n.bootstrapCA(); err != nil {
 			return err
@@ -227,7 +230,11 @@ func (n *Node) run(ctx context.Context) (err error) {
 	}()
 
 	certDir := filepath.Join(n.config.StateDir, "certificates")
-	securityConfig, err := ca.LoadOrCreateSecurityConfig(ctx, certDir, n.config.JoinToken, ca.ManagerRole, n.remotes, issueResponseChan)
+	// LoadOrCreateSecurityConfig is the point at which a new node joining a cluster will retrieve TLS
+	// certificates and write them to disk
+	securityConfig, err := ca.LoadOrCreateSecurityConfig(
+		ctx, certDir, n.config.JoinToken, ca.ManagerRole, n.remotes, issueResponseChan,
+		n.config.UnlockKey, manager.MaintainEncryptedPEMHeaders)
 	if err != nil {
 		return err
 	}
@@ -515,7 +522,8 @@ func (n *Node) loadCertificates() error {
 		return err
 	}
 	configPaths := ca.NewConfigPaths(certDir)
-	clientTLSCreds, _, err := ca.LoadTLSCreds(rootCA, configPaths.Node)
+	krw := ca.NewKeyReadWriter(configPaths.Node, n.config.UnlockKey, nil)
+	clientTLSCreds, _, err := ca.LoadTLSCreds(rootCA, krw)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -535,7 +543,10 @@ func (n *Node) loadCertificates() error {
 }
 
 func (n *Node) bootstrapCA() error {
-	if err := ca.BootstrapCluster(filepath.Join(n.config.StateDir, "certificates")); err != nil {
+	if err := ca.BootstrapCluster(
+		filepath.Join(n.config.StateDir, "certificates"),
+		n.config.UnlockKey,
+		manager.MaintainEncryptedPEMHeaders); err != nil {
 		return err
 	}
 	return n.loadCertificates()

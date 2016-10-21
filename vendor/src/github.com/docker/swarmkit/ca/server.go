@@ -69,6 +69,24 @@ func (s *Server) SetReconciliationRetryInterval(reconciliationRetryInterval time
 	s.reconciliationRetryInterval = reconciliationRetryInterval
 }
 
+// GetEncryptionConfig is responsible for returning the current unlock key used for encrypting TLS private keys and
+// other at rest data.  Access to this RPC call should only be allowed via mutual TLS from managers.
+func (s *Server) GetEncryptionConfig(ctx context.Context, request *api.GetEncryptionConfigRequest) (*api.GetEncryptionConfigResponse, error) {
+	log.G(ctx).WithFields(logrus.Fields{
+		"method": "GetEncryptionConfig",
+	})
+
+	var config *api.EncryptionConfig
+	s.store.View(func(tx store.ReadTx) {
+		cluster := store.GetCluster(tx, s.securityConfig.ClientTLSCreds.Organization())
+		config = &cluster.Spec.EncryptionConfig
+	})
+
+	return &api.GetEncryptionConfigResponse{
+		EncryptionConfig: config,
+	}, nil
+}
+
 // NodeCertificateStatus returns the current issuance status of an issuance request identified by the nodeID
 func (s *Server) NodeCertificateStatus(ctx context.Context, request *api.NodeCertificateStatusRequest) (*api.NodeCertificateStatusResponse, error) {
 	if request.NodeID == "" {
@@ -81,6 +99,7 @@ func (s *Server) NodeCertificateStatus(ctx context.Context, request *api.NodeCer
 	defer s.doneTask()
 
 	var node *api.Node
+	var cluster *api.Cluster
 
 	event := state.EventUpdateNode{
 		Node:   &api.Node{ID: request.NodeID},
@@ -92,6 +111,7 @@ func (s *Server) NodeCertificateStatus(ctx context.Context, request *api.NodeCer
 		s.store,
 		func(tx store.ReadTx) error {
 			node = store.GetNode(tx, request.NodeID)
+			cluster = store.GetCluster(tx, s.securityConfig.ClientTLSCreds.Organization())
 			return nil
 		},
 		event,

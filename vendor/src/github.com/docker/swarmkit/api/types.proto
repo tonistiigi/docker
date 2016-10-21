@@ -371,8 +371,7 @@ enum TaskState {
 	option (gogoproto.goproto_enum_prefix) = false;
 	option (gogoproto.enum_customname) = "TaskState";
 	NEW = 0 [(gogoproto.enumvalue_customname)="TaskStateNew"];
-	ALLOCATED = 64 [(gogoproto.enumvalue_customname)="TaskStateAllocated"]; // successful allocation of resources that the task needs
-	PENDING = 128 [(gogoproto.enumvalue_customname) = "TaskStatePending"]; // observed by scheduler but unassigned.
+	PENDING = 64 [(gogoproto.enumvalue_customname)="TaskStatePending"]; // waiting for scheduling decision
 	ASSIGNED = 192 [(gogoproto.enumvalue_customname)="TaskStateAssigned"];
 	ACCEPTED = 256 [(gogoproto.enumvalue_customname)="TaskStateAccepted"]; // task has been accepted by an agent.
 	PREPARING = 320 [(gogoproto.enumvalue_customname)="TaskStatePreparing"];
@@ -506,6 +505,21 @@ message PortConfig {
 		UDP = 1 [(gogoproto.enumvalue_customname) = "ProtocolUDP"];
 	}
 
+	// PublishMode controls how ports are published on the swarm.
+	enum PublishMode {
+		option (gogoproto.enum_customname) = "PublishMode";
+		option (gogoproto.goproto_enum_prefix) = false;
+
+		// PublishModeIngress exposes the port across the cluster on all nodes.
+		INGRESS = 0 [(gogoproto.enumvalue_customname) = "PublishModeIngress"];
+
+		// PublishModeHost exposes the port on just the target host.  If the
+		// published port is undefined, an ephemeral port will be allocated. If
+		// the published port is defined, the node will attempt to allocate it,
+		// erroring the task if it fails.
+		HOST = 1 [(gogoproto.enumvalue_customname) = "PublishModeHost"];
+	}
+
 	// Name for the port. If provided the port information can
 	// be queried using the name as in a DNS SRV query.
 	string name = 1;
@@ -516,11 +530,13 @@ message PortConfig {
 	// The port which the application is exposing and is bound to.
 	uint32 target_port = 3;
 
-	// PublishedPort specifies the port on which the service is
-	// exposed. If specified, the port must be
-	// within the available range. If not specified, an available
-	// port is automatically assigned.
+	// PublishedPort specifies the port on which the service is exposed. If
+	// specified, the port must be within the available range. If not specified
+	// (value is zero), an available port is automatically assigned.
 	uint32 published_port = 4;
+
+	// PublishMode controls how the port is published.
+	PublishMode publish_mode = 5;
 }
 
 // Driver is a generic driver type to be used throughout the API. For now, a
@@ -658,6 +674,15 @@ message RaftConfig {
 	uint32 election_tick = 5;
 }
 
+// EncryptionConfig defines the cluster-wide settings for encrypting data
+message EncryptionConfig {
+	// ManagerUnlockKey defines the key that locks a manager at rest.  This is the
+	// key encrypting key (KEK) that will encrypt the manager TLS keys at rest and
+	// the raft encryption keys at rest.  If not provided, then managers will be
+	// unlocked (will not require a key to start up from a shut down state).
+	bytes manager_unlock_key = 1;
+}
+
 // Placement specifies task distribution constraints.
 message Placement {
 	// constraints specifies a set of requirements a node should meet for a task.
@@ -785,4 +810,18 @@ message RemovedNode {
 	// Expiry is the latest known expiration time of a certificate that
 	// was issued to this node.
 	Timestamp expiry = 2;
+}
+
+message EncryptedRecord {
+	enum Algorithm {
+		option (gogoproto.goproto_enum_prefix) = false;
+		option (gogoproto.enum_customname) = "Algorithm";
+
+		NONE = 0 [(gogoproto.enumvalue_customname) = "NotEncrypted"];
+		SECRETBOX_SALSA20_POLY1305 = 1 [(gogoproto.enumvalue_customname) = "NaclSecretboxSalsa20Poly1305"];
+	}
+
+	Algorithm algorithm = 1;
+	bytes data = 2;
+	bytes nonce = 3;
 }
