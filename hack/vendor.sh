@@ -167,7 +167,7 @@ clone git github.com/prometheus/common ebdfc6da46522d58825777cf1f90490a5b1ef1d8
 clone git github.com/prometheus/procfs abf152e5f3e97f2fafac028d2cc06c1feb87ffa5
 clone hg bitbucket.org/ww/goautoneg 75cd24fc2f2c2a2088577d12123ddee5f54e0675
 clone git github.com/matttproud/golang_protobuf_extensions fc2b8d3a73c4867e51861bbdd5ae3c1f0869dd6a
-clone git github.com/pkg/errors 01fa4104b9c248c8945d14d9f128454d5b28d595
+clone git github.com/pkg/errors 839d9e913e063e28dfd0e6c7b7512793e0a48be9
 
 # cli
 clone git github.com/spf13/cobra v1.4.1 https://github.com/dnephin/cobra.git
