@@ -120,7 +120,7 @@ func (e *executor) Configure(ctx context.Context, node *api.Node) error {
 }
 
 // Controller returns a docker container runner.
-func (e *executor) Controller(t *api.Task) (exec.Controller, error) {
+func (e *executor) Controller(t *api.Task, sp exec.SecretProvider) (exec.Controller, error) {
 	if t.Spec.GetAttachment() != nil {
 		return newNetworkAttacherController(e.backend, t)
 	}

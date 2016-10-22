@@ -24,6 +24,7 @@ const (
 	flagToken               = "token"
 	flagTaskHistoryLimit    = "task-history-limit"
 	flagExternalCA          = "external-ca"
+	flagLockKey             = "lock-key"
 )
 
 type swarmOptions struct {
