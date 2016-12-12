@@ -14,14 +14,13 @@ import (
 	"github.com/docker/docker/plugin/store"
 	"github.com/docker/docker/plugin/v2"
 	"github.com/docker/docker/registry"
+	"github.com/pkg/errors"
 )
 
-var (
-	manager *Manager
-)
+const configFileName = "config.json"
 
 func (pm *Manager) restorePlugin(p *v2.Plugin) error {
-	p.Restore(pm.runRoot)
+	p.Restore(pm.config.ExecRoot)
 	if p.IsEnabled() {
 		return pm.restore(p)
 	}
@@ -30,17 +29,22 @@ func (pm *Manager) restorePlugin(p *v2.Plugin) error {
 
 type eventLogger func(id, name, action string)
 
+type ManagerConfig struct {
+	Store              *store.Store // remove
+	Executor           libcontainerd.Remote
+	RegistryService    registry.Service
+	LiveRestoreEnabled bool // TODO: remove
+	LogPluginEvent     eventLogger
+	Root               string
+	ExecRoot           string
+}
+
 // Manager controls the plugin subsystem.
 type Manager struct {
-	libRoot           string
-	runRoot           string
-	pluginStore       *store.Store
-	containerdClient  libcontainerd.Client
-	registryService   registry.Service
-	liveRestore       bool
-	pluginEventLogger eventLogger
-	mu                sync.RWMutex // protects cMap
-	cMap              map[*v2.Plugin]*controller
+	config           ManagerConfig
+	mu               sync.RWMutex // protects cMap
+	cMap             map[*v2.Plugin]*controller
+	containerdClient libcontainerd.Client
 }
 
 // controller represents the manager's control on a plugin.
@@ -50,36 +54,27 @@ type controller struct {
 	timeoutInSecs int
 }
 
-// GetManager returns the singleton plugin Manager
-func GetManager() *Manager {
-	return manager
-}
-
-// Init (was NewManager) instantiates the singleton Manager.
-// TODO: revert this to NewManager once we get rid of all the singletons.
-func Init(root string, ps *store.Store, remote libcontainerd.Remote, rs registry.Service, liveRestore bool, evL eventLogger) (err error) {
-	if manager != nil {
-		return nil
+// NewManager returns a new plugin manager.
+func NewManager(config ManagerConfig) (*Manager, error) {
+	manager := &Manager{
+		config: config,
 	}
-
-	root = filepath.Join(root, "plugins")
-	manager = &Manager{
-		libRoot:           root,
-		runRoot:           "/run/docker/plugins",
-		pluginStore:       ps,
-		registryService:   rs,
-		liveRestore:       liveRestore,
-		pluginEventLogger: evL,
+	if err := os.MkdirAll(manager.config.Root, 0700); err != nil {
+		return nil, errors.Wrapf(err, "failed to create %v", manager.config.Root)
 	}
-	if err := os.MkdirAll(manager.runRoot, 0700); err != nil {
-		return err
+	if err := os.MkdirAll(manager.config.ExecRoot, 0700); err != nil {
+		return nil, errors.Wrapf(err, "failed to create %v", manager.config.ExecRoot)
 	}
-	manager.containerdClient, err = remote.Client(manager)
+	var err error
+	manager.containerdClient, err = config.Executor.Client(manager) // todo: move to another struct
 	if err != nil {
-		return err
+		return nil, errors.Wrap(err, "failed to create containerd client")
 	}
 	manager.cMap = make(map[*v2.Plugin]*controller)
-	return manager.reload()
+	if err := manager.reload(); err != nil {
+		return nil, errors.Wrap(err, "failed to restore plugins")
+	}
+	return manager, nil
 }
 
 // StateChanged updates plugin internals using libcontainerd events.
@@ -88,7 +83,7 @@ func (pm *Manager) StateChanged(id string, e libcontainerd.StateInfo) error {
 
 	switch e.State {
 	case libcontainerd.StateExit:
-		p, err := pm.pluginStore.GetByID(id)
+		p, err := pm.config.Store.GetByID(id)
 		if err != nil {
 			return err
 		}
@@ -120,7 +115,7 @@ func (pm *Manager) StateChanged(id string, e libcontainerd.StateInfo) error {
 
 // reload is used on daemon restarts to load the manager's state
 func (pm *Manager) reload() error {
-	dt, err := os.Open(filepath.Join(pm.libRoot, "plugins.json"))
+	dt, err := os.Open(filepath.Join(pm.config.Root, "plugins.json")) // todo: remove
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -133,7 +128,7 @@ func (pm *Manager) reload() error {
 	if err := json.NewDecoder(dt).Decode(&plugins); err != nil {
 		return err
 	}
-	pm.pluginStore.SetAll(plugins)
+	pm.config.Store.SetAll(plugins)
 
 	var group sync.WaitGroup
 	group.Add(len(plugins))
@@ -148,7 +143,7 @@ func (pm *Manager) reload() error {
 			}
 
 			if p.Rootfs != "" {
-				p.Rootfs = filepath.Join(pm.libRoot, p.PluginObj.ID, "rootfs")
+				p.Rootfs = filepath.Join(pm.config.Root, p.PluginObj.ID, "rootfs")
 			}
 
 			// We should only enable rootfs propagation for certain plugin types that need it.
@@ -165,8 +160,8 @@ func (pm *Manager) reload() error {
 				}
 			}
 
-			pm.pluginStore.Update(p)
-			requiresManualRestore := !pm.liveRestore && p.IsEnabled()
+			pm.config.Store.Update(p)
+			requiresManualRestore := !pm.config.LiveRestoreEnabled && p.IsEnabled()
 
 			if requiresManualRestore {
 				// if liveRestore is not enabled, the plugin will be stopped now so we should enable it

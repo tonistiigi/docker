@@ -59,6 +59,7 @@ import (
 	"github.com/docker/libnetwork"
 	nwconfig "github.com/docker/libnetwork/config"
 	"github.com/docker/libtrust"
+	"github.com/pkg/errors"
 )
 
 var (
@@ -99,7 +100,8 @@ type Daemon struct {
 	gidMaps                   []idtools.IDMap
 	layerStore                layer.Store
 	imageStore                image.Store
-	PluginStore               *pluginstore.Store
+	PluginStore               *pluginstore.Store // todo: remove
+	pluginManager             *plugin.Manager
 	nameIndex                 *registrar.Registrar
 	linkIndex                 *linkIndex
 	containerd                libcontainerd.Client
@@ -554,10 +556,19 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 	}
 
 	d.RegistryService = registryService
-	d.PluginStore = pluginstore.NewStore(config.Root)
+	d.PluginStore = pluginstore.NewStore(config.Root) // todo: remove
 	// Plugin system initialization should happen before restore. Do not change order.
-	if err := d.pluginInit(config, containerdRemote); err != nil {
-		return nil, err
+	d.pluginManager, err = plugin.NewManager(plugin.ManagerConfig{
+		Root:               filepath.Join(config.Root, "plugins"),
+		ExecRoot:           filepath.Join(config.GetExecRoot(), "plugins"),
+		Store:              d.PluginStore,
+		Executor:           containerdRemote,
+		RegistryService:    registryService,
+		LiveRestoreEnabled: config.LiveRestoreEnabled,
+		LogPluginEvent:     d.LogPluginEvent, // todo: make private
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "couldn't create plugin manager")
 	}
 
 	d.layerStore, err = layer.NewStoreFromOptions(layer.StoreOptions{
@@ -1270,17 +1281,18 @@ func (daemon *Daemon) SetCluster(cluster Cluster) {
 	daemon.cluster = cluster
 }
 
-func (daemon *Daemon) pluginInit(cfg *Config, remote libcontainerd.Remote) error {
-	return plugin.Init(cfg.Root, daemon.PluginStore, remote, daemon.RegistryService, cfg.LiveRestoreEnabled, daemon.LogPluginEvent)
-}
-
 func (daemon *Daemon) pluginShutdown() {
-	manager := plugin.GetManager()
+	manager := daemon.pluginManager
 	// Check for a valid manager object. In error conditions, daemon init can fail
 	// and shutdown called, before plugin manager is initialized.
 	if manager != nil {
 		manager.Shutdown()
 	}
+}
+
+// PluginManager returns current pluginManager associated with the daemon
+func (daemon *Daemon) PluginManager() *plugin.Manager { // set up before daemon to avoid this method
+	return daemon.pluginManager
 }
 
 // CreateDaemonRoot creates the root for the daemon

@@ -33,7 +33,7 @@ var (
 
 // Disable deactivates a plugin. This means resources (volumes, networks) cant use them.
 func (pm *Manager) Disable(name string, config *types.PluginDisableConfig) error {
-	p, err := pm.pluginStore.GetByName(name)
+	p, err := pm.config.Store.GetByName(name)
 	if err != nil {
 		return err
 	}
@@ -48,13 +48,13 @@ func (pm *Manager) Disable(name string, config *types.PluginDisableConfig) error
 	if err := pm.disable(p, c); err != nil {
 		return err
 	}
-	pm.pluginEventLogger(p.GetID(), name, "disable")
+	pm.config.LogPluginEvent(p.GetID(), name, "disable")
 	return nil
 }
 
 // Enable activates a plugin, which implies that they are ready to be used by containers.
 func (pm *Manager) Enable(name string, config *types.PluginEnableConfig) error {
-	p, err := pm.pluginStore.GetByName(name)
+	p, err := pm.config.Store.GetByName(name)
 	if err != nil {
 		return err
 	}
@@ -63,7 +63,7 @@ func (pm *Manager) Enable(name string, config *types.PluginEnableConfig) error {
 	if err := pm.enable(p, c, false); err != nil {
 		return err
 	}
-	pm.pluginEventLogger(p.GetID(), name, "enable")
+	pm.config.LogPluginEvent(p.GetID(), name, "enable")
 	return nil
 }
 
@@ -71,7 +71,7 @@ func (pm *Manager) Enable(name string, config *types.PluginEnableConfig) error {
 func (pm *Manager) Inspect(refOrID string) (tp types.Plugin, err error) {
 	// Match on full ID
 	if validFullID.MatchString(refOrID) {
-		p, err := pm.pluginStore.GetByID(refOrID)
+		p, err := pm.config.Store.GetByID(refOrID)
 		if err == nil {
 			return p.PluginObj, nil
 		}
@@ -79,14 +79,14 @@ func (pm *Manager) Inspect(refOrID string) (tp types.Plugin, err error) {
 
 	// Match on full name
 	if pluginName, err := getPluginName(refOrID); err == nil {
-		if p, err := pm.pluginStore.GetByName(pluginName); err == nil {
+		if p, err := pm.config.Store.GetByName(pluginName); err == nil {
 			return p.PluginObj, nil
 		}
 	}
 
 	// Match on partial ID
 	if validPartialID.MatchString(refOrID) {
-		p, err := pm.pluginStore.Search(refOrID)
+		p, err := pm.config.Store.Search(refOrID)
 		if err == nil {
 			return p.PluginObj, nil
 		}
@@ -104,12 +104,12 @@ func (pm *Manager) pull(name string, metaHeader http.Header, authConfig *types.A
 	}
 	name = ref.String()
 
-	if p, _ := pm.pluginStore.GetByName(name); p != nil {
+	if p, _ := pm.config.Store.GetByName(name); p != nil {
 		logrus.Debug("plugin already exists")
 		return nil, nil, fmt.Errorf("%s exists", name)
 	}
 
-	pd, err := distribution.Pull(ref, pm.registryService, metaHeader, authConfig)
+	pd, err := distribution.Pull(ref, pm.config.RegistryService, metaHeader, authConfig)
 	if err != nil {
 		logrus.Debugf("error in distribution.Pull(): %v", err)
 		return nil, nil, err
@@ -198,7 +198,7 @@ func (pm *Manager) Pull(name string, metaHeader http.Header, authConfig *types.A
 	}
 
 	pluginID := stringid.GenerateNonCryptoID()
-	pluginDir := filepath.Join(pm.libRoot, pluginID)
+	pluginDir := filepath.Join(pm.config.Root, pluginID)
 	if err := os.MkdirAll(pluginDir, 0755); err != nil {
 		logrus.Debugf("error in MkdirAll: %v", err)
 		return err
@@ -212,28 +212,28 @@ func (pm *Manager) Pull(name string, metaHeader http.Header, authConfig *types.A
 		}
 	}()
 
-	err = distribution.WritePullData(pd, filepath.Join(pm.libRoot, pluginID), true)
+	err = distribution.WritePullData(pd, filepath.Join(pm.config.Root, pluginID), true)
 	if err != nil {
 		logrus.Debugf("error in distribution.WritePullData(): %v", err)
 		return err
 	}
 
 	tag := distribution.GetTag(ref)
-	p := v2.NewPlugin(ref.Name(), pluginID, pm.runRoot, pm.libRoot, tag)
+	p := v2.NewPlugin(ref.Name(), pluginID, pm.config.ExecRoot, pm.config.Root, tag)
 	err = p.InitPlugin()
 	if err != nil {
 		return err
 	}
-	pm.pluginStore.Add(p)
+	pm.config.Store.Add(p)
 
-	pm.pluginEventLogger(pluginID, ref.String(), "pull")
+	pm.config.LogPluginEvent(pluginID, ref.String(), "pull")
 
 	return nil
 }
 
 // List displays the list of plugins and associated metadata.
 func (pm *Manager) List() ([]types.Plugin, error) {
-	plugins := pm.pluginStore.GetAll()
+	plugins := pm.config.Store.GetAll()
 	out := make([]types.Plugin, 0, len(plugins))
 	for _, p := range plugins {
 		out = append(out, p.PluginObj)
@@ -243,11 +243,11 @@ func (pm *Manager) List() ([]types.Plugin, error) {
 
 // Push pushes a plugin to the store.
 func (pm *Manager) Push(name string, metaHeader http.Header, authConfig *types.AuthConfig) error {
-	p, err := pm.pluginStore.GetByName(name)
+	p, err := pm.config.Store.GetByName(name)
 	if err != nil {
 		return err
 	}
-	dest := filepath.Join(pm.libRoot, p.GetID())
+	dest := filepath.Join(pm.config.Root, p.GetID())
 	config, err := ioutil.ReadFile(filepath.Join(dest, "config.json"))
 	if err != nil {
 		return err
@@ -265,7 +265,7 @@ func (pm *Manager) Push(name string, metaHeader http.Header, authConfig *types.A
 	}
 	defer rootfs.Close()
 
-	_, err = distribution.Push(name, pm.registryService, metaHeader, authConfig, ioutil.NopCloser(bytes.NewReader(config)), rootfs)
+	_, err = distribution.Push(name, pm.config.RegistryService, metaHeader, authConfig, ioutil.NopCloser(bytes.NewReader(config)), rootfs)
 	// XXX: Ignore returning digest for now.
 	// Since digest needs to be written to the ProgressWriter.
 	return err
@@ -273,7 +273,7 @@ func (pm *Manager) Push(name string, metaHeader http.Header, authConfig *types.A
 
 // Remove deletes plugin's root directory.
 func (pm *Manager) Remove(name string, config *types.PluginRmConfig) (err error) {
-	p, err := pm.pluginStore.GetByName(name)
+	p, err := pm.config.Store.GetByName(name)
 	pm.mu.RLock()
 	c := pm.cMap[p]
 	pm.mu.RUnlock()
@@ -302,8 +302,8 @@ func (pm *Manager) Remove(name string, config *types.PluginRmConfig) (err error)
 
 	defer func() {
 		if err == nil || config.ForceRemove {
-			pm.pluginStore.Remove(p)
-			pm.pluginEventLogger(id, name, "remove")
+			pm.pm.config.Store.Remove(p)
+			pm.config.LogPluginEvent(id, name, "remove")
 		}
 	}()
 
@@ -315,7 +315,7 @@ func (pm *Manager) Remove(name string, config *types.PluginRmConfig) (err error)
 
 // Set sets plugin args
 func (pm *Manager) Set(name string, args []string) error {
-	p, err := pm.pluginStore.GetByName(name)
+	p, err := pm.config.Store.GetByName(name)
 	if err != nil {
 		return err
 	}
@@ -335,13 +335,13 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.Reader, opti
 	tag := distribution.GetTag(ref)
 	pluginID := stringid.GenerateNonCryptoID()
 
-	p := v2.NewPlugin(name, pluginID, pm.runRoot, pm.libRoot, tag)
+	p := v2.NewPlugin(name, pluginID, pm.config.ExecRoot, pm.config.Root, tag)
 
-	if v, _ := pm.pluginStore.GetByName(p.Name()); v != nil {
+	if v, _ := pm.config.Store.GetByName(p.Name()); v != nil {
 		return fmt.Errorf("plugin %q already exists", p.Name())
 	}
 
-	pluginDir := filepath.Join(pm.libRoot, pluginID)
+	pluginDir := filepath.Join(pm.config.Root, pluginID)
 	if err := os.MkdirAll(pluginDir, 0755); err != nil {
 		return err
 	}
@@ -366,11 +366,11 @@ func (pm *Manager) createFromContext(ctx context.Context, tarCtx io.Reader, plug
 		return err
 	}
 
-	if err := pm.pluginStore.Add(p); err != nil {
+	if err := pm.config.Store.Add(p); err != nil {
 		return err
 	}
 
-	pm.pluginEventLogger(p.GetID(), repoName, "create")
+	pm.config.LogPluginEvent(p.GetID(), repoName, "create")
 
 	return nil
 }

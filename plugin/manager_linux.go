@@ -18,7 +18,7 @@ import (
 )
 
 func (pm *Manager) enable(p *v2.Plugin, c *controller, force bool) error {
-	p.Rootfs = filepath.Join(pm.libRoot, p.PluginObj.ID, "rootfs")
+	p.Rootfs = filepath.Join(pm.config.Root, p.PluginObj.ID, "rootfs")
 	if p.IsEnabled() && !force {
 		return fmt.Errorf("plugin %s is already enabled", p.Name())
 	}
@@ -61,8 +61,9 @@ func (pm *Manager) pluginPostStart(p *v2.Plugin, c *controller) error {
 	}
 
 	p.SetPClient(client)
-	pm.pluginStore.SetState(p, true)
-	pm.pluginStore.CallHandler(p)
+	pm.config.Store.SetState(p, true)
+	pm.config.Store.CallHandler(p)
+
 	return nil
 }
 
@@ -115,19 +116,19 @@ func (pm *Manager) disable(p *v2.Plugin, c *controller) error {
 
 	c.restart = false
 	shutdownPlugin(p, c, pm.containerdClient)
-	pm.pluginStore.SetState(p, false)
+	pm.config.Store.SetState(p, false)
 	return nil
 }
 
 // Shutdown stops all plugins and called during daemon shutdown.
 func (pm *Manager) Shutdown() {
-	plugins := pm.pluginStore.GetAll()
+	plugins := pm.config.Store.GetAll()
 	for _, p := range plugins {
 		pm.mu.RLock()
 		c := pm.cMap[p]
 		pm.mu.RUnlock()
 
-		if pm.liveRestore && p.IsEnabled() {
+		if pm.config.LiveRestoreEnabled && p.IsEnabled() {
 			logrus.Debug("Plugin active when liveRestore is set, skipping shutdown")
 			continue
 		}
