@@ -3,7 +3,9 @@
 package plugin
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,11 +15,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"strings"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
+	"github.com/docker/docker/pkg/pools"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/plugin/distribution"
 	"github.com/docker/docker/plugin/v2"
@@ -324,7 +329,7 @@ func (pm *Manager) Set(name string, args []string) error {
 
 // CreateFromContext creates a plugin from the given pluginDir which contains
 // both the rootfs and the config.json and a repoName with optional tag.
-func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.Reader, options *types.PluginCreateOptions) error {
+func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, options *types.PluginCreateOptions) error {
 	repoName := options.RepoName
 	ref, err := distribution.GetRef(repoName)
 	if err != nil {
@@ -335,9 +340,52 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.Reader, opti
 	tag := distribution.GetTag(ref)
 	pluginID := stringid.GenerateNonCryptoID()
 
+	rootfsDir, err := ioutil.TempDir(pm.tmpDir(), ".rootfs")
+	if err != nil {
+		return errors.Wrap(err, "failed to create temp directory")
+	}
+	var config []byte
+	rootfs := splitConfigRootFSFromTar(tarCtx, &config)
+
+	n, err := pm.blobStore.New()
+	if err != nil {
+		return err
+	}
+	gzw := gzip.NewWriter(n)
+	digester := digest.Canonical.New()
+	rootfsReader := io.TeeReader(rootfs, io.MultiWriter(gzw, digester.Hash()))
+
+	if err := chrootarchive.Untar(rootfsReader, rootfsDir, nil); err != nil {
+		n.Close()
+		return err
+	}
+	if err := rootfs.Close(); err != nil {
+		n.Close()
+		return err
+	}
+
+	if config == nil {
+		n.Close()
+		return errors.New("config not found")
+	}
+	if err := gzw.Close(); err != nil {
+		return errors.Wrap(err, "error closing gzip writer")
+	}
+	dgst, err := n.Commit()
+	if err != nil {
+		return err
+	}
+
+	logrus.Debugf("rootfs gzip blob: %v", dgst)
+	logrus.Debugf("rootfs diffid: %v", digester.Digest())
+	logrus.Debugf("config: %s %v", config)
+	logrus.Debugf("rootfs temporarily extracted to: %v", rootfsDir)
+
+	return nil
+
 	p := v2.NewPlugin(name, pluginID, pm.config.ExecRoot, pm.config.Root, tag)
 
-	if v, _ := pm.config.Store.GetByName(p.Name()); v != nil {
+	if v, _ := pm.config.Store.GetByName(p.Name()); v != nil { // TODO: this is not safe
 		return fmt.Errorf("plugin %q already exists", p.Name())
 	}
 
@@ -355,6 +403,64 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.Reader, opti
 	}
 
 	return nil
+}
+
+func splitConfigRootFSFromTar(in io.ReadCloser, config *[]byte) io.ReadCloser {
+	pr, pw := io.Pipe()
+	go func() {
+		tarReader := tar.NewReader(in)
+		tarWriter := tar.NewWriter(pw)
+		defer in.Close()
+
+		hasRootfs := false
+
+		for {
+			hdr, err := tarReader.Next()
+			if err == io.EOF {
+				if !hasRootfs {
+					pw.CloseWithError(errors.Wrap(err, "no rootfs found"))
+					return
+				}
+				// Signals end of archive.
+				tarWriter.Close()
+				pw.Close()
+				return
+			}
+			if err != nil {
+				pw.CloseWithError(errors.Wrap(err, "failed to read from tar"))
+				return
+			}
+
+			content := io.Reader(tarReader)
+			name := filepath.Clean(hdr.Name)
+			if filepath.IsAbs(name) {
+				name = name[1:]
+			}
+			if name == configFileName {
+				dt, err := ioutil.ReadAll(content)
+				if err != nil {
+					pw.CloseWithError(errors.Wrap(err, "failed to read config.json"))
+					return
+				}
+				*config = dt
+			}
+			if parts := strings.Split(name, string(filepath.Separator)); len(parts) != 0 && parts[0] == rootfsFileName {
+				hdr.Name = filepath.Clean(filepath.Join(parts[1:]...))
+				if err := tarWriter.WriteHeader(hdr); err != nil {
+					pw.CloseWithError(errors.Wrap(err, "error writing tar header"))
+					return
+				}
+				if _, err := pools.Copy(tarWriter, content); err != nil {
+					pw.CloseWithError(errors.Wrap(err, "error copying tar data"))
+					return
+				}
+				hasRootfs = true
+			} else {
+				io.Copy(ioutil.Discard, content)
+			}
+		}
+	}()
+	return pr
 }
 
 func (pm *Manager) createFromContext(ctx context.Context, tarCtx io.Reader, pluginDir, repoName string, p *v2.Plugin) error {
@@ -388,4 +494,67 @@ func getPluginName(name string) (string, error) {
 		return "", fmt.Errorf("invalid name: %s", named.String())
 	}
 	return ref.String(), nil
+}
+
+type basicBlobStore struct {
+	path string
+}
+
+func newBasicBlobStore(p string) (*basicBlobStore, error) {
+	tmpdir := filepath.Join(p, "_tmp")
+	if err := os.MkdirAll(tmpdir, 0700); err != nil {
+		return nil, errors.Wrapf(err, "failed to mkdir %v", p)
+	}
+	return &basicBlobStore{path: p}, nil
+}
+
+func (b *basicBlobStore) New() (WriteCommitCloser, error) {
+	f, err := ioutil.TempFile(filepath.Join(b.path, "_tmp"), ".insertion")
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create temp file")
+	}
+	return newInsertion(f), nil
+}
+
+func (b *basicBlobStore) Get(dgst digest.Digest) (io.ReadCloser, error) {
+	return os.Open(filepath.Join(b.path, string(dgst.Algorithm()), dgst.Hex()))
+}
+
+type WriteCommitCloser interface {
+	io.WriteCloser
+	Commit() (digest.Digest, error)
+}
+
+type insertion struct {
+	io.Writer
+	f        *os.File
+	digester digest.Digester
+}
+
+func newInsertion(tempFile *os.File) *insertion {
+	digester := digest.Canonical.New()
+	return &insertion{f: tempFile, digester: digester, Writer: io.MultiWriter(tempFile, digester.Hash())}
+}
+
+func (i *insertion) Commit() (digest.Digest, error) {
+	p := i.f.Name()
+	d := filepath.Join(filepath.Join(p, "../../"))
+	i.f.Sync()
+	defer os.RemoveAll(p)
+	if err := i.f.Close(); err != nil {
+		return "", err
+	}
+	dgst := i.digester.Digest()
+	if err := os.MkdirAll(filepath.Join(d, string(dgst.Algorithm())), 0700); err != nil {
+		return "", errors.Wrapf(err, "failed to mkdir %v", d)
+	}
+	if err := os.Rename(p, filepath.Join(d, string(dgst.Algorithm()), dgst.Hex())); err != nil {
+		return "", errors.Wrapf(err, "failed to rename %v", p)
+	}
+	return dgst, nil
+}
+
+func (i *insertion) Close() error {
+	defer os.RemoveAll(i.f.Name())
+	return i.f.Close()
 }

@@ -19,5 +19,5 @@ type Backend interface {
 	Privileges(name string, metaHeaders http.Header, authConfig *enginetypes.AuthConfig) (enginetypes.PluginPrivileges, error)
 	Pull(name string, metaHeaders http.Header, authConfig *enginetypes.AuthConfig, privileges enginetypes.PluginPrivileges) error
 	Push(name string, metaHeaders http.Header, authConfig *enginetypes.AuthConfig) error
-	CreateFromContext(ctx context.Context, tarCtx io.Reader, options *enginetypes.PluginCreateOptions) error
+	CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, options *enginetypes.PluginCreateOptions) error
 }

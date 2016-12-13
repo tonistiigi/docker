@@ -19,6 +19,7 @@ import (
 )
 
 const configFileName = "config.json"
+const rootfsFileName = "rootfs"
 
 func (pm *Manager) restorePlugin(p *v2.Plugin) error {
 	p.Restore(pm.config.ExecRoot)
@@ -46,6 +47,7 @@ type Manager struct {
 	mu               sync.RWMutex // protects cMap
 	cMap             map[*v2.Plugin]*controller
 	containerdClient libcontainerd.Client
+	blobStore        *basicBlobStore
 }
 
 // controller represents the manager's control on a plugin.
@@ -61,21 +63,33 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 		config: config,
 	}
 	if err := os.MkdirAll(manager.config.Root, 0700); err != nil {
-		return nil, errors.Wrapf(err, "failed to create %v", manager.config.Root)
+		return nil, errors.Wrapf(err, "failed to mkdir %v", manager.config.Root)
 	}
 	if err := os.MkdirAll(manager.config.ExecRoot, 0700); err != nil {
-		return nil, errors.Wrapf(err, "failed to create %v", manager.config.ExecRoot)
+		return nil, errors.Wrapf(err, "failed to mkdir %v", manager.config.ExecRoot)
+	}
+	if err := os.MkdirAll(manager.tmpDir(), 0700); err != nil {
+		return nil, errors.Wrapf(err, "failed to mkdir %v", manager.tmpDir())
 	}
 	var err error
 	manager.containerdClient, err = config.Executor.Client(manager) // todo: move to another struct
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create containerd client")
 	}
+	manager.blobStore, err = newBasicBlobStore(filepath.Join(manager.config.Root, "storage"))
+	if err != nil {
+		return nil, err
+	}
+
 	manager.cMap = make(map[*v2.Plugin]*controller)
 	if err := manager.reload(); err != nil {
 		return nil, errors.Wrap(err, "failed to restore plugins")
 	}
 	return manager, nil
+}
+
+func (pm *Manager) tmpDir() string {
+	return filepath.Join(pm.config.Root, "_tmp")
 }
 
 // StateChanged updates plugin internals using libcontainerd events.
