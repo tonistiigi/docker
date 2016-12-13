@@ -3,6 +3,7 @@ package plugin
 import (
 	"encoding/json"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,30 +114,31 @@ func (pm *Manager) StateChanged(id string, e libcontainerd.StateInfo) error {
 	return nil
 }
 
-// reload is used on daemon restarts to load the manager's state
-func (pm *Manager) reload() error {
-	dt, err := os.Open(filepath.Join(pm.config.Root, "plugins.json")) // todo: remove
+func (pm *Manager) reload() error { // todo: restore
+	dir, err := ioutil.ReadDir(pm.config.Root)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
+		return errors.Wrapf(err, "failed to read %v", pm.config.Root)
 	}
-	defer dt.Close()
-
 	plugins := make(map[string]*v2.Plugin)
-	if err := json.NewDecoder(dt).Decode(&plugins); err != nil {
-		return err
+	for _, v := range dir {
+		if validFullID.MatchString(v.Name()) {
+			p, err := pm.loadPlugin(v.Name())
+			if err != nil {
+				return err
+			}
+			plugins[p.GetID()] = p
+		}
 	}
+
 	pm.config.Store.SetAll(plugins)
 
-	var group sync.WaitGroup
-	group.Add(len(plugins))
+	var wg sync.WaitGroup
+	wg.Add(len(plugins))
 	for _, p := range plugins {
-		c := &controller{}
+		c := &controller{} // todo: remove this
 		pm.cMap[p] = c
 		go func(p *v2.Plugin) {
-			defer group.Done()
+			defer wg.Done()
 			if err := pm.restorePlugin(p); err != nil {
 				logrus.Errorf("failed to restore plugin '%s': %s", p.Name(), err)
 				return
@@ -171,8 +173,21 @@ func (pm *Manager) reload() error {
 			}
 		}(p)
 	}
-	group.Wait()
+	wg.Wait()
 	return nil
+}
+
+func (pm *Manager) loadPlugin(id string) (*v2.Plugin, error) {
+	p := filepath.Join(pm.config.Root, id, configFileName)
+	dt, err := ioutil.ReadFile(p)
+	if err != nil {
+		return nil, errors.Wrapf(err, "error reading %v", p)
+	}
+	var plugin v2.Plugin
+	if err := json.Unmarshal(dt, &plugin); err != nil {
+		return nil, errors.Wrapf(err, "error decoding %v", p)
+	}
+	return &plugin, nil
 }
 
 type logHook struct{ id string }
