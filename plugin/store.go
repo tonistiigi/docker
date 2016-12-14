@@ -38,32 +38,31 @@ func (name ErrAmbiguous) Error() string {
 }
 
 // GetByName retreives a plugin by name.
-func (ps *Store) GetByName(name string) (*Plugin, error) {
+func (ps *Store) GetV2Plugin(refOrID string) (*Plugin, error) {
 	ps.RLock()
 	defer ps.RUnlock()
 
-	id, nameOk := ps.nameToID[name]
-	if !nameOk {
-		return nil, ErrNotFound(name)
+	id, err := ps.resolvePluginID(refOrID)
+	if err != nil {
+		return nil, err
 	}
 
 	p, idOk := ps.plugins[id]
 	if !idOk {
-		return nil, ErrNotFound(id)
+		return nil, errors.WithStack(ErrNotFound(id))
 	}
+
 	return p, nil
 }
 
-// GetByID retreives a plugin by ID.
-func (ps *Store) GetByID(id string) (*Plugin, error) {
-	ps.RLock()
-	defer ps.RUnlock()
-
-	p, idOk := ps.plugins[id]
-	if !idOk {
-		return nil, ErrNotFound(id)
+// validateName returns error if name is already reserved. always call with lock and full name
+func (ps *Store) validateName(name string) error {
+	for _, p := range ps.plugins {
+		if p.Name() == name {
+			return errors.Errorf("%v exists", name)
+		}
 	}
-	return p, nil
+	return nil
 }
 
 // GetAll retreives all plugins.
@@ -113,19 +112,7 @@ func (ps *Store) Add(p *Plugin) error {
 	if v, exist := ps.plugins[p.GetID()]; exist {
 		return fmt.Errorf("plugin %q has the same ID %s as %q", p.Name(), p.GetID(), v.Name())
 	}
-	// Since both Pull() and CreateFromContext() calls GetByName() before any plugin
-	// to search for collision (to fail fast), it is unlikely the following check
-	// will return an error.
-	// However, in case two CreateFromContext() are called at the same time,
-	// there is still a remote possibility that a collision might happen.
-	// For that reason we still perform the collision check below as it is protected
-	// by ps.Lock() and ps.Unlock() above.
-	if _, exist := ps.nameToID[p.Name()]; exist {
-		return fmt.Errorf("plugin %q already exists", p.Name())
-	}
 	ps.plugins[p.GetID()] = p
-	ps.nameToID[p.Name()] = p.GetID()
-	ps.updatePluginDB()
 	return nil
 }
 
@@ -135,16 +122,12 @@ func (ps *Store) Update(p *Plugin) {
 	defer ps.Unlock()
 
 	ps.plugins[p.GetID()] = p
-	ps.nameToID[p.Name()] = p.GetID()
-	ps.updatePluginDB()
 }
 
 // Remove removes a plugin from memory and plugindb.
 func (ps *Store) Remove(p *Plugin) {
 	ps.Lock()
 	delete(ps.plugins, p.GetID())
-	delete(ps.nameToID, p.Name())
-	ps.updatePluginDB()
 	ps.Unlock()
 }
 
@@ -168,18 +151,7 @@ func (ps *Store) Get(name, capability string, mode int) (plugingetter.CompatPlug
 
 	// Lookup using new model.
 	if ps != nil {
-		fullName := name
-		if named, err := reference.ParseNamed(fullName); err == nil { // FIXME: validate
-			if reference.IsNameOnly(named) {
-				named = reference.WithDefaultTag(named)
-			}
-			ref, ok := named.(reference.NamedTagged)
-			if !ok {
-				return nil, fmt.Errorf("invalid name: %s", named.String())
-			}
-			fullName = ref.String()
-		}
-		p, err = ps.GetByName(fullName)
+		p, err = ps.GetV2Plugin(name)
 		if err == nil {
 			p.AddRefCount(mode)
 			if p.IsEnabled() {
@@ -187,9 +159,9 @@ func (ps *Store) Get(name, capability string, mode int) (plugingetter.CompatPlug
 			}
 			// Plugin was found but it is disabled, so we should not fall back to legacy plugins
 			// but we should error out right away
-			return nil, ErrNotFound(fullName)
+			return nil, ErrNotFound(name)
 		}
-		if _, ok := err.(ErrNotFound); !ok {
+		if _, ok := errors.Cause(err).(ErrNotFound); !ok {
 			return nil, err
 		}
 	}
@@ -296,12 +268,12 @@ func (ps *Store) resolvePluginID(idOrName string) (string, error) {
 		}
 		if strings.HasPrefix(id, idOrName) {
 			if found != nil {
-				return "", ErrAmbiguous(idOrName)
+				return "", errors.WithStack(ErrAmbiguous(idOrName))
 			}
 			found = p
 		}
 		if found == nil {
-			return "", ErrNotFound(idOrName)
+			return "", errors.WithStack(ErrNotFound(idOrName))
 		}
 	}
 	return found.PluginObj.ID, nil

@@ -100,7 +100,7 @@ func (pm *Manager) StateChanged(id string, e libcontainerd.StateInfo) error {
 
 	switch e.State {
 	case libcontainerd.StateExit:
-		p, err := pm.config.Store.GetByID(id)
+		p, err := pm.config.Store.GetV2Plugin(id)
 		if err != nil {
 			return err
 		}
@@ -208,8 +208,8 @@ func (pm *Manager) loadPlugin(id string) (*Plugin, error) {
 
 // createPlugin creates a new plugin. take lock before calling.
 func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsums []digest.Digest, rootfsDir string) (err error) {
-	if v, _ := pm.config.Store.GetByName(name); v != nil { // todo: this check is wrong. remove store
-		return errors.Errorf("plugin %q already exists", name)
+	if err := pm.config.Store.validateName(name); err != nil { // todo: this check is wrong. remove store
+		return err
 	}
 
 	configRC, err := pm.blobStore.Get(configDigest)

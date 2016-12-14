@@ -15,7 +15,6 @@ type Store struct {
 	 * to the new model. Legacy plugins use Handle() for registering an
 	 * activation callback.*/
 	handlers map[string][]func(string, *plugins.Client)
-	nameToID map[string]string
 	plugindb string
 }
 
@@ -24,7 +23,6 @@ func NewStore(libRoot string) *Store {
 	return &Store{
 		plugins:  make(map[string]*Plugin),
 		handlers: make(map[string][]func(string, *plugins.Client)),
-		nameToID: make(map[string]string),
 		plugindb: filepath.Join(libRoot, "plugins", "plugins.json"),
 	}
 }
