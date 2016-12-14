@@ -207,27 +207,27 @@ func (pm *Manager) loadPlugin(id string) (*Plugin, error) {
 }
 
 // createPlugin creates a new plugin. take lock before calling.
-func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsums []digest.Digest, rootfsDir string) (err error) {
+func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsums []digest.Digest, rootfsDir string) (p *Plugin, err error) {
 	if err := pm.config.Store.validateName(name); err != nil { // todo: this check is wrong. remove store
-		return err
+		return nil, err
 	}
 
 	configRC, err := pm.blobStore.Get(configDigest)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer configRC.Close()
 
 	var config types.PluginConfig
 	dec := json.NewDecoder(configRC)
 	if err := dec.Decode(&config); err != nil {
-		return errors.Wrapf(err, "failed to parse config")
+		return nil, errors.Wrapf(err, "failed to parse config")
 	}
 	if dec.More() {
-		return errors.New("invalid config json")
+		return nil, errors.New("invalid config json")
 	}
 
-	p := &Plugin{
+	p = &Plugin{
 		PluginObj: types.Plugin{
 			Name:   name,
 			ID:     stringid.GenerateRandomID(),
@@ -240,7 +240,7 @@ func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsum
 
 	pdir := filepath.Join(pm.config.Root, p.PluginObj.ID)
 	if err := os.MkdirAll(pdir, 0700); err != nil {
-		return errors.Wrapf(err, "failed to mkdir %v", pdir)
+		return nil, errors.Wrapf(err, "failed to mkdir %v", pdir)
 	}
 
 	defer func() {
@@ -250,18 +250,18 @@ func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsum
 	}()
 
 	if err := os.Rename(rootfsDir, filepath.Join(pdir, rootfsFileName)); err != nil {
-		return errors.Wrap(err, "failed to rename rootfs")
+		return nil, errors.Wrap(err, "failed to rename rootfs")
 	}
 
 	// plugin.save()
 	pluginJSON, err := json.Marshal(p)
 	if err := ioutils.AtomicWriteFile(filepath.Join(pdir, configFileName), pluginJSON, 0600); err != nil {
-		return err
+		return nil, err
 	}
 
 	pm.config.Store.Add(p) // todo: remove
 
-	return nil
+	return p, nil
 }
 
 func (pm *Manager) cleanupUnusedBlobs(d ...digest.Digest) {

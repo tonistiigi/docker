@@ -401,33 +401,14 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, 
 	logrus.Debugf("config blobsum: %v", configBlobsum)
 	logrus.Debugf("rootfs temporarily extracted to: %v", tmpRootfsDir)
 
-	err = pm.createPlugin(name, configBlobsum, []digest.Digest{rootFSBlobsum}, tmpRootfsDir)
+	p, err := pm.createPlugin(name, configBlobsum, []digest.Digest{rootFSBlobsum}, tmpRootfsDir)
 	if err == nil {
 		cleanupBlobs = nil
 	}
 
-	return err
-	//
-	// p := NewPlugin(name, pluginID, pm.config.ExecRoot, pm.config.Root, tag)
-	//
-	// if v, _ := pm.config.Store.GetByName(p.Name()); v != nil { // TODO: this is not safe
-	//   return fmt.Errorf("plugin %q already exists", p.Name())
-	// }
-	//
-	// pluginDir := filepath.Join(pm.config.Root, pluginID)
-	// if err := os.MkdirAll(pluginDir, 0755); err != nil {
-	//   return err
-	// }
-	//
-	// // In case an error happens, remove the created directory.
-	// if err := pm.createFromContext(ctx, tarCtx, pluginDir, repoName, p); err != nil {
-	//   if err := os.RemoveAll(pluginDir); err != nil {
-	//     logrus.Warnf("unable to remove %q from failed plugin creation: %v", pluginDir, err)
-	//   }
-	//   return err
-	// }
+	pm.config.LogPluginEvent(p.PluginObj.ID, name, "create")
 
-	return nil
+	return err
 }
 
 func (pm *Manager) validateConfig(config types.PluginConfig) error {
@@ -490,24 +471,6 @@ func splitConfigRootFSFromTar(in io.ReadCloser, config *[]byte) io.ReadCloser {
 		}
 	}()
 	return pr
-}
-
-func (pm *Manager) createFromContext(ctx context.Context, tarCtx io.Reader, pluginDir, repoName string, p *Plugin) error {
-	if err := chrootarchive.Untar(tarCtx, pluginDir, nil); err != nil {
-		return err
-	}
-
-	if err := p.InitPlugin(); err != nil {
-		return err
-	}
-
-	if err := pm.config.Store.Add(p); err != nil {
-		return err
-	}
-
-	pm.config.LogPluginEvent(p.GetID(), repoName, "create")
-
-	return nil
 }
 
 func getPluginName(name string) (string, error) {
