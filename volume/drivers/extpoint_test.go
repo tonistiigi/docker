@@ -3,14 +3,10 @@ package volumedrivers
 import (
 	"testing"
 
-	"github.com/docker/docker/plugin"
 	volumetestutils "github.com/docker/docker/volume/testutils"
 )
 
 func TestGetDriver(t *testing.T) {
-	pluginStore := plugin.NewStore("/var/lib/docker")
-	RegisterPluginGetter(pluginStore)
-
 	_, err := GetDriver("missing")
 	if err == nil {
 		t.Fatal("Expected error, was nil")
