@@ -81,6 +81,9 @@ type PluginConfig struct {
 	// workdir
 	// Required: true
 	Workdir string `json:"Workdir"`
+
+	// rootfs
+	Rootfs *PluginConfigRootfs `json:"rootfs,omitempty"`
 }
 
 // PluginConfigArgs plugin config args
@@ -141,6 +144,17 @@ type PluginConfigNetwork struct {
 	// type
 	// Required: true
 	Type string `json:"Type"`
+}
+
+// PluginConfigRootfs plugin config rootfs
+// swagger:model PluginConfigRootfs
+type PluginConfigRootfs struct {
+
+	// diff ids
+	DiffIds []string `json:"diff_ids"`
+
+	// type
+	Type string `json:"type,omitempty"`
 }
 
 // PluginConfigUser plugin config user

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/oci"
 	"github.com/docker/docker/pkg/plugingetter"
@@ -27,6 +28,9 @@ type Plugin struct {
 	LibRoot           string // TODO: make private
 	PropagatedMount   string // TODO: make private
 	Rootfs            string // TODO: make private
+
+	Config   digest.Digest
+	Blobsums []digest.Digest
 }
 
 const defaultPluginRuntimeDestination = "/run/docker/plugins"

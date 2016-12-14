@@ -303,7 +303,7 @@ func (pm *Manager) Remove(name string, config *types.PluginRmConfig) (err error)
 	}
 
 	id := p.GetID()
-	pluginDir := filepath.Join(pm.libRoot, id)
+	pluginDir := filepath.Join(pm.config.Root, id)
 
 	defer func() {
 		if err == nil || config.ForceRemove {
@@ -340,46 +340,75 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, 
 	tag := distribution.GetTag(ref)
 	pluginID := stringid.GenerateNonCryptoID()
 
-	rootfsDir, err := ioutil.TempDir(pm.tmpDir(), ".rootfs")
+	tmpRootfsDir, err := ioutil.TempDir(pm.tmpDir(), ".rootfs")
 	if err != nil {
 		return errors.Wrap(err, "failed to create temp directory")
 	}
-	var config []byte
-	rootfs := splitConfigRootFSFromTar(tarCtx, &config)
+	var configJSON []byte
+	rootfs := splitConfigRootFSFromTar(tarCtx, &configJSON)
 
-	n, err := pm.blobStore.New()
+	rootFSBlob, err := pm.blobStore.New()
 	if err != nil {
 		return err
 	}
-	gzw := gzip.NewWriter(n)
-	digester := digest.Canonical.New()
-	rootfsReader := io.TeeReader(rootfs, io.MultiWriter(gzw, digester.Hash()))
+	defer rootFSBlob.Close()
+	gzw := gzip.NewWriter(rootFSBlob)
+	layerDigester := digest.Canonical.New()
+	rootfsReader := io.TeeReader(rootfs, io.MultiWriter(gzw, layerDigester.Hash()))
 
-	if err := chrootarchive.Untar(rootfsReader, rootfsDir, nil); err != nil {
-		n.Close()
+	if err := chrootarchive.Untar(rootfsReader, tmpRootfsDir, nil); err != nil {
 		return err
 	}
 	if err := rootfs.Close(); err != nil {
-		n.Close()
 		return err
 	}
 
-	if config == nil {
-		n.Close()
+	if configJSON == nil {
 		return errors.New("config not found")
 	}
+
 	if err := gzw.Close(); err != nil {
 		return errors.Wrap(err, "error closing gzip writer")
 	}
-	dgst, err := n.Commit()
+
+	var config types.PluginConfig
+	if err := json.Unmarshal(configJSON, &config); err != nil {
+		return errors.Wrap(err, "failed to parse config")
+	}
+
+	if err := pm.validateConfig(config); err != nil {
+		return err
+	}
+
+	rootFSBlobsum, err := rootFSBlob.Commit()
 	if err != nil {
 		return err
 	}
 
-	logrus.Debugf("rootfs gzip blob: %v", dgst)
-	logrus.Debugf("rootfs diffid: %v", digester.Digest())
+	config.Rootfs = &types.PluginConfigRootfs{
+		Type:    "layers",
+		DiffIds: []string{layerDigester.Digest().String()},
+	}
+
+	configBlob, err := pm.blobStore.New()
+	if err != nil {
+		return err
+	}
+	if err := json.NewEncoder(configBlob).Encode(config); err != nil {
+		return errors.Wrap(err, "error encoding json config")
+	}
+	configBlobsum, err := configBlob.Commit()
+	if err != nil {
+		return err
+	}
+
+	logrus.Debugf("rootfs gzip blob: %v", rootFSBlobsum)
+	logrus.Debugf("rootfs diffid: %v", layerDigester.Digest())
 	logrus.Debugf("config: %s %v", config)
-	logrus.Debugf("rootfs temporarily extracted to: %v", rootfsDir)
+	logrus.Debugf("config blobsum: %v", configBlobsum)
+	logrus.Debugf("rootfs temporarily extracted to: %v", tmpRootfsDir)
+
+	// pm.newPlugin(config, tmpRootfsDir)
 
 	return nil
 
@@ -403,6 +432,10 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, 
 	}
 
 	return nil
+}
+
+func (pm *Manager) validateConfig(config types.PluginConfig) error {
+	return nil // TODO:
 }
 
 func splitConfigRootFSFromTar(in io.ReadCloser, config *[]byte) io.ReadCloser {
@@ -529,6 +562,7 @@ type insertion struct {
 	io.Writer
 	f        *os.File
 	digester digest.Digester
+	closed   bool
 }
 
 func newInsertion(tempFile *os.File) *insertion {
@@ -544,6 +578,7 @@ func (i *insertion) Commit() (digest.Digest, error) {
 	if err := i.f.Close(); err != nil {
 		return "", err
 	}
+	i.closed = true
 	dgst := i.digester.Digest()
 	if err := os.MkdirAll(filepath.Join(d, string(dgst.Algorithm())), 0700); err != nil {
 		return "", errors.Wrapf(err, "failed to mkdir %v", d)
@@ -555,6 +590,9 @@ func (i *insertion) Commit() (digest.Digest, error) {
 }
 
 func (i *insertion) Close() error {
+	if i.closed {
+		return nil
+	}
 	defer os.RemoveAll(i.f.Name())
 	return i.f.Close()
 }
