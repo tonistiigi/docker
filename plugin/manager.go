@@ -12,8 +12,6 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/pkg/mount"
-	"github.com/docker/docker/plugin/store"
-	"github.com/docker/docker/plugin/v2"
 	"github.com/docker/docker/registry"
 	"github.com/pkg/errors"
 )
@@ -21,7 +19,7 @@ import (
 const configFileName = "config.json"
 const rootfsFileName = "rootfs"
 
-func (pm *Manager) restorePlugin(p *v2.Plugin) error {
+func (pm *Manager) restorePlugin(p *Plugin) error {
 	p.Restore(pm.config.ExecRoot)
 	if p.IsEnabled() {
 		return pm.restore(p)
@@ -32,7 +30,7 @@ func (pm *Manager) restorePlugin(p *v2.Plugin) error {
 type eventLogger func(id, name, action string)
 
 type ManagerConfig struct {
-	Store              *store.Store // remove
+	Store              *Store // remove
 	Executor           libcontainerd.Remote
 	RegistryService    registry.Service
 	LiveRestoreEnabled bool // TODO: remove
@@ -45,7 +43,7 @@ type ManagerConfig struct {
 type Manager struct {
 	config           ManagerConfig
 	mu               sync.RWMutex // protects cMap
-	cMap             map[*v2.Plugin]*controller
+	cMap             map[*Plugin]*controller
 	containerdClient libcontainerd.Client
 	blobStore        *basicBlobStore
 }
@@ -81,7 +79,7 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 		return nil, err
 	}
 
-	manager.cMap = make(map[*v2.Plugin]*controller)
+	manager.cMap = make(map[*Plugin]*controller)
 	if err := manager.reload(); err != nil {
 		return nil, errors.Wrap(err, "failed to restore plugins")
 	}
@@ -133,7 +131,7 @@ func (pm *Manager) reload() error { // todo: restore
 	if err != nil {
 		return errors.Wrapf(err, "failed to read %v", pm.config.Root)
 	}
-	plugins := make(map[string]*v2.Plugin)
+	plugins := make(map[string]*Plugin)
 	for _, v := range dir {
 		if validFullID.MatchString(v.Name()) {
 			p, err := pm.loadPlugin(v.Name())
@@ -151,7 +149,7 @@ func (pm *Manager) reload() error { // todo: restore
 	for _, p := range plugins {
 		c := &controller{} // todo: remove this
 		pm.cMap[p] = c
-		go func(p *v2.Plugin) {
+		go func(p *Plugin) {
 			defer wg.Done()
 			if err := pm.restorePlugin(p); err != nil {
 				logrus.Errorf("failed to restore plugin '%s': %s", p.Name(), err)
@@ -191,13 +189,13 @@ func (pm *Manager) reload() error { // todo: restore
 	return nil
 }
 
-func (pm *Manager) loadPlugin(id string) (*v2.Plugin, error) {
+func (pm *Manager) loadPlugin(id string) (*Plugin, error) {
 	p := filepath.Join(pm.config.Root, id, configFileName)
 	dt, err := ioutil.ReadFile(p)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error reading %v", p)
 	}
-	var plugin v2.Plugin
+	var plugin Plugin
 	if err := json.Unmarshal(dt, &plugin); err != nil {
 		return nil, errors.Wrapf(err, "error decoding %v", p)
 	}

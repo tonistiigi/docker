@@ -49,7 +49,6 @@ import (
 	"github.com/docker/docker/pkg/sysinfo"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/pkg/truncindex"
-	pluginstore "github.com/docker/docker/plugin/store"
 	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 	"github.com/docker/docker/runconfig"
@@ -100,7 +99,7 @@ type Daemon struct {
 	gidMaps                   []idtools.IDMap
 	layerStore                layer.Store
 	imageStore                image.Store
-	PluginStore               *pluginstore.Store // todo: remove
+	PluginStore               *plugin.Store // todo: remove
 	pluginManager             *plugin.Manager
 	nameIndex                 *registrar.Registrar
 	linkIndex                 *linkIndex
@@ -556,7 +555,7 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 	}
 
 	d.RegistryService = registryService
-	d.PluginStore = pluginstore.NewStore(config.Root) // todo: remove
+	d.PluginStore = plugin.NewStore(config.Root) // todo: remove
 	// Plugin system initialization should happen before restore. Do not change order.
 	d.pluginManager, err = plugin.NewManager(plugin.ManagerConfig{
 		Root:               filepath.Join(config.Root, "plugins"),

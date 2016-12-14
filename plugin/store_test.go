@@ -1,14 +1,14 @@
-package store
+package plugin
 
 import (
 	"testing"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/plugin/v2"
+	"github.com/docker/docker/plugin"
 )
 
 func TestFilterByCapNeg(t *testing.T) {
-	p := v2.NewPlugin("test", "1234567890", "/run/docker", "/var/lib/docker/plugins", "latest")
+	p := plugin.NewPlugin("test", "1234567890", "/run/docker", "/var/lib/docker/plugins", "latest")
 
 	iType := types.PluginInterfaceType{"volumedriver", "docker", "1.0"}
 	i := types.PluginConfigInterface{"plugins.sock", []types.PluginInterfaceType{iType}}
@@ -21,7 +21,7 @@ func TestFilterByCapNeg(t *testing.T) {
 }
 
 func TestFilterByCapPos(t *testing.T) {
-	p := v2.NewPlugin("test", "1234567890", "/run/docker", "/var/lib/docker/plugins", "latest")
+	p := plugin.NewPlugin("test", "1234567890", "/run/docker", "/var/lib/docker/plugins", "latest")
 
 	iType := types.PluginInterfaceType{"volumedriver", "docker", "1.0"}
 	i := types.PluginConfigInterface{"plugins.sock", []types.PluginInterfaceType{iType}}

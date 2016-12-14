@@ -25,7 +25,6 @@ import (
 	"github.com/docker/docker/pkg/pools"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/plugin/distribution"
-	"github.com/docker/docker/plugin/v2"
 	"github.com/docker/docker/reference"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
@@ -224,7 +223,7 @@ func (pm *Manager) Pull(name string, metaHeader http.Header, authConfig *types.A
 	}
 
 	tag := distribution.GetTag(ref)
-	p := v2.NewPlugin(ref.Name(), pluginID, pm.config.ExecRoot, pm.config.Root, tag)
+	p := NewPlugin(ref.Name(), pluginID, pm.config.ExecRoot, pm.config.Root, tag)
 	err = p.InitPlugin()
 	if err != nil {
 		return err
@@ -307,7 +306,7 @@ func (pm *Manager) Remove(name string, config *types.PluginRmConfig) (err error)
 
 	defer func() {
 		if err == nil || config.ForceRemove {
-			pm.pm.config.Store.Remove(p)
+			pm.config.Store.Remove(p)
 			pm.config.LogPluginEvent(id, name, "remove")
 		}
 	}()
@@ -412,7 +411,7 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, 
 
 	return nil
 
-	p := v2.NewPlugin(name, pluginID, pm.config.ExecRoot, pm.config.Root, tag)
+	p := NewPlugin(name, pluginID, pm.config.ExecRoot, pm.config.Root, tag)
 
 	if v, _ := pm.config.Store.GetByName(p.Name()); v != nil { // TODO: this is not safe
 		return fmt.Errorf("plugin %q already exists", p.Name())
@@ -496,7 +495,7 @@ func splitConfigRootFSFromTar(in io.ReadCloser, config *[]byte) io.ReadCloser {
 	return pr
 }
 
-func (pm *Manager) createFromContext(ctx context.Context, tarCtx io.Reader, pluginDir, repoName string, p *v2.Plugin) error {
+func (pm *Manager) createFromContext(ctx context.Context, tarCtx io.Reader, pluginDir, repoName string, p *Plugin) error {
 	if err := chrootarchive.Untar(tarCtx, pluginDir, nil); err != nil {
 		return err
 	}
