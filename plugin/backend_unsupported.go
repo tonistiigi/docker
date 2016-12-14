@@ -24,8 +24,8 @@ func (pm *Manager) Enable(name string, config *types.PluginEnableConfig) error {
 }
 
 // Inspect examines a plugin config
-func (pm *Manager) Inspect(refOrID string) (tp types.Plugin, err error) {
-	return tp, errNotSupported
+func (pm *Manager) Inspect(refOrID string) (tp *types.Plugin, err error) {
+	return nil, errNotSupported
 }
 
 // Privileges pulls a plugin config and computes the privileges required to install it.

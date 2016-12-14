@@ -72,32 +72,18 @@ func (pm *Manager) Enable(name string, config *types.PluginEnableConfig) error {
 }
 
 // Inspect examines a plugin config
-func (pm *Manager) Inspect(refOrID string) (tp types.Plugin, err error) {
-	// Match on full ID
-	if validFullID.MatchString(refOrID) {
-		p, err := pm.config.Store.GetByID(refOrID)
-		if err == nil {
-			return p.PluginObj, nil
-		}
+func (pm *Manager) Inspect(refOrID string) (tp *types.Plugin, err error) {
+	id, err := pm.config.Store.resolvePluginID(refOrID)
+	if err != nil {
+		return nil, err
 	}
 
-	// Match on full name
-	if pluginName, err := getPluginName(refOrID); err == nil {
-		if p, err := pm.config.Store.GetByName(pluginName); err == nil {
-			return p.PluginObj, nil
-		}
+	p, err := pm.config.Store.GetByID(id)
+	if err != nil {
+		return nil, err
 	}
 
-	// Match on partial ID
-	if validPartialID.MatchString(refOrID) {
-		p, err := pm.config.Store.Search(refOrID)
-		if err == nil {
-			return p.PluginObj, nil
-		}
-		return tp, err
-	}
-
-	return tp, fmt.Errorf("no such plugin name or ID associated with %q", refOrID)
+	return &p.PluginObj, nil
 }
 
 func (pm *Manager) pull(name string, metaHeader http.Header, authConfig *types.AuthConfig) (reference.Named, distribution.PullData, error) {

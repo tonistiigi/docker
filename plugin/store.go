@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/plugins"
 	"github.com/docker/docker/reference"
+	"github.com/pkg/errors"
 )
 
 /* allowV1PluginsFallback determines daemon's support for V1 plugins.
@@ -270,24 +271,38 @@ func (ps *Store) CallHandler(p *Plugin) {
 	}
 }
 
-// Search retreives a plugin by ID Prefix
-// If no plugin is found, then ErrNotFound is returned
-// If multiple plugins are found, then ErrAmbiguous is returned
-func (ps *Store) Search(partialID string) (*Plugin, error) {
-	ps.RLock()
+func (ps *Store) resolvePluginID(idOrName string) (string, error) {
+	ps.RLock() // todo: fix
 	defer ps.RUnlock()
 
+	if validFullID.MatchString(idOrName) {
+		return idOrName, nil
+	}
+
+	ref, err := reference.ParseNamed(idOrName)
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to parse %v", idOrName)
+	}
+	if _, ok := ref.(reference.Canonical); ok {
+		return "", errors.New("canonical references cannot be resolved")
+	}
+
+	fullRef := reference.WithDefaultTag(ref)
+
 	var found *Plugin
-	for id, p := range ps.plugins {
-		if strings.HasPrefix(id, partialID) {
+	for id, p := range ps.plugins { // this can be optimized
+		if p.PluginObj.Name == ref.String() || p.PluginObj.Name == fullRef.String() {
+			return p.PluginObj.ID, nil
+		}
+		if strings.HasPrefix(id, idOrName) {
 			if found != nil {
-				return nil, ErrAmbiguous(partialID)
+				return "", ErrAmbiguous(idOrName)
 			}
 			found = p
 		}
+		if found == nil {
+			return "", ErrNotFound(idOrName)
+		}
 	}
-	if found == nil {
-		return nil, ErrNotFound(partialID)
-	}
-	return found, nil
+	return found.PluginObj.ID, nil
 }

@@ -100,12 +100,7 @@ func (p *Plugin) IsV1() bool {
 
 // Name returns the plugin name.
 func (p *Plugin) Name() string {
-	name := p.PluginObj.Name
-	if len(p.PluginObj.Tag) > 0 {
-		// TODO: this feels hacky, maybe we should be storing the distribution reference rather than splitting these
-		name += ":" + p.PluginObj.Tag
-	}
-	return name
+	return p.PluginObj.Name
 }
 
 // FilterByCap query the plugin for a given capability.

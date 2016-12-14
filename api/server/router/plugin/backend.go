@@ -13,7 +13,7 @@ type Backend interface {
 	Disable(name string, config *enginetypes.PluginDisableConfig) error
 	Enable(name string, config *enginetypes.PluginEnableConfig) error
 	List() ([]enginetypes.Plugin, error)
-	Inspect(name string) (enginetypes.Plugin, error)
+	Inspect(name string) (*enginetypes.Plugin, error)
 	Remove(name string, config *enginetypes.PluginRmConfig) error
 	Set(name string, args []string) error
 	Privileges(name string, metaHeaders http.Header, authConfig *enginetypes.AuthConfig) (enginetypes.PluginPrivileges, error)
