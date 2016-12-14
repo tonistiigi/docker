@@ -10,8 +10,12 @@ import (
 	"sync"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/digest"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/libcontainerd"
+	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/mount"
+	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/registry"
 	"github.com/pkg/errors"
 )
@@ -200,6 +204,68 @@ func (pm *Manager) loadPlugin(id string) (*Plugin, error) {
 		return nil, errors.Wrapf(err, "error decoding %v", p)
 	}
 	return &plugin, nil
+}
+
+// createPlugin creates a new plugin. take lock before calling.
+func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsums []digest.Digest, rootfsDir string) (err error) {
+	if v, _ := pm.config.Store.GetByName(name); v != nil { // todo: this check is wrong. remove store
+		return errors.Errorf("plugin %q already exists", name)
+	}
+
+	configRC, err := pm.blobStore.Get(configDigest)
+	if err != nil {
+		return err
+	}
+	defer configRC.Close()
+
+	var config types.PluginConfig
+	dec := json.NewDecoder(configRC)
+	if err := dec.Decode(&config); err != nil {
+		return errors.Wrapf(err, "failed to parse config")
+	}
+	if dec.More() {
+		return errors.New("invalid config json")
+	}
+
+	p := &Plugin{
+		PluginObj: types.Plugin{
+			Name:   name,
+			ID:     stringid.GenerateRandomID(),
+			Config: config,
+		},
+		Config:   configDigest,
+		Blobsums: blobsums,
+	}
+	p.initEmptySettings()
+
+	pdir := filepath.Join(pm.config.Root, p.PluginObj.ID)
+	if err := os.MkdirAll(pdir, 0700); err != nil {
+		return errors.Wrapf(err, "failed to mkdir %v", pdir)
+	}
+
+	defer func() {
+		if err != nil {
+			os.RemoveAll(pdir)
+		}
+	}()
+
+	if err := os.Rename(rootfsDir, filepath.Join(pdir, rootfsFileName)); err != nil {
+		return errors.Wrap(err, "failed to rename rootfs")
+	}
+
+	// plugin.save()
+	pluginJSON, err := json.Marshal(p)
+	if err := ioutils.AtomicWriteFile(filepath.Join(pdir, configFileName), pluginJSON, 0600); err != nil {
+		return err
+	}
+
+	pm.config.Store.Add(p) // todo: remove
+
+	return nil
+}
+
+func (pm *Manager) cleanupUnusedBlobs(d ...digest.Digest) {
+	// todo:
 }
 
 type logHook struct{ id string }

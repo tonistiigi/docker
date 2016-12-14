@@ -21,7 +21,7 @@ import (
 // Plugin represents an individual plugin.
 type Plugin struct {
 	mu                sync.RWMutex
-	PluginObj         types.Plugin `json:"plugin"`
+	PluginObj         types.Plugin `json:"plugin"` // todo: embed struct
 	pClient           *plugins.Client
 	runtimeSourcePath string
 	refCount          int
@@ -136,6 +136,12 @@ func (p *Plugin) InitPlugin() error {
 		return err
 	}
 
+	p.initEmptySettings()
+
+	return p.writeSettings()
+}
+
+func (p *Plugin) initEmptySettings() {
 	p.PluginObj.Settings.Mounts = make([]types.PluginMount, len(p.PluginObj.Config.Mounts))
 	copy(p.PluginObj.Settings.Mounts, p.PluginObj.Config.Mounts)
 	p.PluginObj.Settings.Devices = make([]types.PluginDevice, len(p.PluginObj.Config.Linux.Devices))
@@ -148,8 +154,6 @@ func (p *Plugin) InitPlugin() error {
 	}
 	p.PluginObj.Settings.Args = make([]string, len(p.PluginObj.Config.Args.Value))
 	copy(p.PluginObj.Settings.Args, p.PluginObj.Config.Args.Value)
-
-	return p.writeSettings()
 }
 
 func (p *Plugin) writeSettings() error {
