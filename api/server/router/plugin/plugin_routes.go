@@ -41,7 +41,7 @@ func (pr *pluginRouter) getPrivileges(ctx context.Context, w http.ResponseWriter
 
 	metaHeaders, authConfig := parseHeaders(r.Header)
 
-	privileges, err := pr.backend.Privileges(r.FormValue("name"), metaHeaders, authConfig)
+	privileges, err := pr.backend.Privileges(ctx, r.FormValue("name"), metaHeaders, authConfig)
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,8 @@ func (pr *pluginRouter) pullPlugin(ctx context.Context, w http.ResponseWriter, r
 
 	metaHeaders, authConfig := parseHeaders(r.Header)
 
-	if err := pr.backend.Pull(r.FormValue("name"), metaHeaders, authConfig, privileges); err != nil {
+	// TODO: Support output stream
+	if err := pr.backend.Pull(ctx, r.FormValue("name"), metaHeaders, authConfig, privileges, nil); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusCreated)
@@ -130,7 +131,7 @@ func (pr *pluginRouter) pushPlugin(ctx context.Context, w http.ResponseWriter, r
 
 	metaHeaders, authConfig := parseHeaders(r.Header)
 
-	return pr.backend.Push(vars["name"], metaHeaders, authConfig)
+	return pr.backend.Push(ctx, vars["name"], metaHeaders, authConfig, nil)
 }
 
 func (pr *pluginRouter) setPlugin(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {

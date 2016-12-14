@@ -24,6 +24,9 @@ func (idserv *V1IDService) namespace() string {
 
 // Get finds a layer by its V1 ID.
 func (idserv *V1IDService) Get(v1ID, registry string) (layer.DiffID, error) {
+	if idserv.store == nil {
+		return layer.DiffID(""), nil
+	}
 	if err := v1.ValidateID(v1ID); err != nil {
 		return layer.DiffID(""), err
 	}
@@ -37,6 +40,9 @@ func (idserv *V1IDService) Get(v1ID, registry string) (layer.DiffID, error) {
 
 // Set associates an image with a V1 ID.
 func (idserv *V1IDService) Set(v1ID, registry string, id layer.DiffID) error {
+	if idserv.store == nil {
+		return nil
+	}
 	if err := v1.ValidateID(v1ID); err != nil {
 		return err
 	}
