@@ -446,7 +446,9 @@ func configToRootFS(c []byte) (*image.RootFS, error) {
 	if err := json.Unmarshal(c, &pluginConfig); err != nil {
 		return nil, err
 	}
-
+	if pluginConfig.Rootfs == nil {
+		return nil, errors.New("invalid rootfs")
+	}
 	return rootFSFromPlugin(pluginConfig.Rootfs), nil
 }
 
