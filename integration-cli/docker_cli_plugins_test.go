@@ -12,7 +12,7 @@ import (
 
 var (
 	pluginProcessName = "sample-volume-plugin"
-	pName             = "tiborvass/sample-volume-plugin"
+	pName             = "tonistiigi/sample-volume-plugin"
 	pTag              = "latest"
 	pNameWithTag      = pName + ":" + pTag
 )
@@ -143,7 +143,7 @@ func (s *DockerSuite) TestPluginInstallImage(c *check.C) {
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 	out, _, err := dockerCmdWithError("plugin", "install", "redis")
 	c.Assert(err, checker.NotNil)
-	c.Assert(out, checker.Contains, "content is not a plugin")
+	c.Assert(out, checker.Contains, "target is image")
 }
 
 func (s *DockerSuite) TestPluginEnableDisableNegative(c *check.C) {
@@ -177,6 +177,9 @@ func (s *DockerSuite) TestPluginCreate(c *check.C) {
 
 	data := `{"description": "foo plugin"}`
 	err = ioutil.WriteFile(filepath.Join(temp, "config.json"), []byte(data), 0644)
+	c.Assert(err, checker.IsNil)
+
+	err = os.MkdirAll(filepath.Join(temp, "rootfs"), 0700)
 	c.Assert(err, checker.IsNil)
 
 	out, _, err := dockerCmdWithError("plugin", "create", name, temp)

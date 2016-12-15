@@ -59,7 +59,7 @@ func (ps *Store) GetV2Plugin(refOrID string) (*Plugin, error) {
 func (ps *Store) validateName(name string) error {
 	for _, p := range ps.plugins {
 		if p.Name() == name {
-			return errors.Errorf("%v exists", name)
+			return errors.Errorf("%v already exists", name)
 		}
 	}
 	return nil
