@@ -263,15 +263,24 @@ func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsum
 		return nil, errors.Wrap(err, "failed to rename rootfs")
 	}
 
-	// plugin.save()
-	pluginJSON, err := json.Marshal(p)
-	if err := ioutils.AtomicWriteFile(filepath.Join(pdir, configFileName), pluginJSON, 0600); err != nil {
+	if err := pm.save(p); err != nil {
 		return nil, err
 	}
 
 	pm.config.Store.Add(p) // todo: remove
 
 	return p, nil
+}
+
+func (pm *Manager) save(p *Plugin) error {
+	pluginJSON, err := json.Marshal(p)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal plugin json")
+	}
+	if err := ioutils.AtomicWriteFile(filepath.Join(pm.config.Root, p.GetID(), configFileName), pluginJSON, 0600); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (pm *Manager) cleanupUnusedBlobs(d ...digest.Digest) {

@@ -100,7 +100,6 @@ func (ps *Store) SetState(p *Plugin, state bool) {
 	defer ps.Unlock()
 
 	p.PluginObj.Enabled = state
-	ps.updatePluginDB()
 }
 
 // Add adds a plugin to memory and plugindb.

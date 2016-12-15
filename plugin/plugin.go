@@ -99,17 +99,6 @@ func (p *Plugin) initEmptySettings() {
 	copy(p.PluginObj.Settings.Args, p.PluginObj.Config.Args.Value)
 }
 
-func (p *Plugin) writeSettings() error {
-	// f, err := os.Create(filepath.Join(p.LibRoot, p.PluginObj.ID, "plugin-settings.json"))
-	// if err != nil {
-	//   return err
-	// }
-	// err = json.NewEncoder(f).Encode(&p.PluginObj.Settings)
-	// f.Close()
-	// return err
-	return nil
-}
-
 // Set is used to pass arguments to the plugin.
 func (p *Plugin) Set(args []string) error {
 	p.mu.Lock()
@@ -195,8 +184,7 @@ next:
 		return fmt.Errorf("setting %q not found in the plugin configuration", s.name)
 	}
 
-	// update the settings on disk
-	return p.writeSettings()
+	return nil
 }
 
 // IsEnabled returns the active state of the plugin.

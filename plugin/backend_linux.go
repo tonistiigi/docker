@@ -570,7 +570,10 @@ func (pm *Manager) Set(name string, args []string) error {
 	if err != nil {
 		return err
 	}
-	return p.Set(args)
+	if err := p.Set(args); err != nil {
+		return err
+	}
+	return pm.save(p)
 }
 
 // CreateFromContext creates a plugin from the given pluginDir which contains

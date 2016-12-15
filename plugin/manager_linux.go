@@ -62,7 +62,7 @@ func (pm *Manager) pluginPostStart(p *Plugin, c *controller) error {
 	pm.config.Store.SetState(p, true)
 	pm.config.Store.CallHandler(p)
 
-	return nil
+	return pm.save(p)
 }
 
 func (pm *Manager) restore(p *Plugin) error {
@@ -115,7 +115,7 @@ func (pm *Manager) disable(p *Plugin, c *controller) error {
 	c.restart = false
 	shutdownPlugin(p, c, pm.containerdClient)
 	pm.config.Store.SetState(p, false)
-	return nil
+	return pm.save(p)
 }
 
 // Shutdown stops all plugins and called during daemon shutdown.
