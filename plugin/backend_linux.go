@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"strings"
 	"syscall"
@@ -30,16 +29,13 @@ import (
 	"github.com/docker/docker/pkg/pools"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/streamformatter"
-	"github.com/docker/docker/pkg/stringid"
-	"github.com/docker/docker/plugin/distribution"
 	"github.com/docker/docker/reference"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
 
 var (
-	validFullID    = regexp.MustCompile(`^([a-f0-9]{64})$`)
-	validPartialID = regexp.MustCompile(`^([a-f0-9]{1,64})$`)
+	validFullID = regexp.MustCompile(`^([a-f0-9]{64})$`)
 )
 
 // Disable deactivates a plugin. This means resources (volumes, networks) cant use them.
@@ -88,19 +84,16 @@ func (pm *Manager) Inspect(refOrID string) (tp *types.Plugin, err error) {
 	return &p.PluginObj, nil
 }
 
-func (pm *Manager) pull(ctx context.Context, name string, metaHeader http.Header, authConfig *types.AuthConfig, outStream io.Writer) (reference.Named, distribution.PullData, error) {
-	ref, err := distribution.GetRef(name)
+func (pm *Manager) pull(ctx context.Context, name string, config *dockerdist.ImagePullConfig, outStream io.Writer) error {
+	ref, err := reference.ParseNamed(name) // fix pull-by-digest
 	if err != nil {
-		logrus.Debugf("error in distribution.GetRef: %v", err)
-		return nil, nil, err
+		return err
 	}
-	name = ref.String()
-
+	name = reference.WithDefaultTag(ref).String()
 	if err := pm.config.Store.validateName(name); err != nil {
-		return nil, nil, err
+		return err
 	}
 
-	var po progress.Output
 	if outStream != nil {
 		// Include a buffer so that slow client connections don't affect
 		// transfer performance.
@@ -121,59 +114,36 @@ func (pm *Manager) pull(ctx context.Context, name string, metaHeader http.Header
 			close(writesDone)
 		}()
 
-		po = progress.ChanOutput(progressChan)
+		config.ProgressOutput = progress.ChanOutput(progressChan)
 	} else {
-		po = progress.DiscardOutput()
+		config.ProgressOutput = progress.DiscardOutput()
 	}
+	return dockerdist.Pull(ctx, ref, config)
+}
 
-	dm := &downloadManager{}
-	is := &imageStore{}
+type tempConfigStore struct {
+	config       []byte
+	configDigest digest.Digest
+}
 
-	pluginPullConfig := &dockerdist.ImagePullConfig{
-		Config: dockerdist.Config{
-			MetaHeaders:      metaHeader,
-			AuthConfig:       authConfig,
-			ProgressOutput:   po,
-			RegistryService:  pm.config.RegistryService,
-			ImageEventLogger: pluginEventLog,
-			ImageStore:       is,
-		},
-		DownloadManager: dm,
-		Schema2Types:    dockerdist.PluginTypes,
+func (s *tempConfigStore) Put(c []byte) (digest.Digest, error) {
+	dgst := digest.FromBytes(c)
+
+	s.config = c
+	s.configDigest = dgst
+
+	return dgst, nil
+}
+
+func (s *tempConfigStore) Get(d digest.Digest) ([]byte, error) {
+	if d != s.configDigest {
+		return nil, digest.ErrDigestNotFound
 	}
-
-	err = dockerdist.Pull(ctx, ref, pluginPullConfig)
-
-	return ref, dm.PullData(), err
+	return s.config, nil
 }
 
-type downloadManager struct {
-}
-
-func (dm *downloadManager) Download(ctx context.Context, initialRootFS image.RootFS, layers []xfer.DownloadDescriptor, progressOutput progress.Output) (image.RootFS, func(), error) {
-	return image.RootFS{}, nil, nil
-}
-
-func (dm *downloadManager) PullData() distribution.PullData {
-	return nil
-}
-
-type imageStore struct {
-}
-
-func (is *imageStore) Put(c []byte) (digest.Digest, error) {
-	return "", nil
-}
-
-func (is *imageStore) Get(d digest.Digest) ([]byte, error) {
-	return nil, nil
-}
-func (is *imageStore) RootFSFromConfig([]byte) (*image.RootFS, error) {
-	return nil, nil
-}
-
-func pluginEventLog(id, name, action string) {
-	logrus.Debugf("plugin event: id=%s, name=%s, action=%s", id, name, action)
+func (s *tempConfigStore) RootFSFromConfig(c []byte) (*image.RootFS, error) {
+	return configToRootFS(c)
 }
 
 func writeDistributionProgress(cancelFunc func(), outStream io.Writer, progressChan <-chan progress.Progress) {
@@ -206,17 +176,7 @@ func isBrokenPipe(e error) bool {
 	return e == syscall.EPIPE
 }
 
-func computePrivileges(pd distribution.PullData) (types.PluginPrivileges, error) {
-	config, err := pd.Config()
-	if err != nil {
-		return nil, err
-	}
-
-	var c types.PluginConfig
-	if err := json.Unmarshal(config, &c); err != nil {
-		return nil, err
-	}
-
+func computePrivileges(c types.PluginConfig) (types.PluginPrivileges, error) {
 	var privileges types.PluginPrivileges
 	if c.Network.Type != "null" && c.Network.Type != "bridge" && c.Network.Type != "" {
 		privileges = append(privileges, types.PluginPrivilege{
@@ -263,62 +223,68 @@ func computePrivileges(pd distribution.PullData) (types.PluginPrivileges, error)
 
 // Privileges pulls a plugin config and computes the privileges required to install it.
 func (pm *Manager) Privileges(ctx context.Context, name string, metaHeader http.Header, authConfig *types.AuthConfig) (types.PluginPrivileges, error) {
-	_, pd, err := pm.pull(ctx, name, metaHeader, authConfig, nil)
-	if err != nil {
+	// create image store instance
+	cs := &tempConfigStore{}
+
+	pluginPullConfig := &dockerdist.ImagePullConfig{
+		Config: dockerdist.Config{
+			MetaHeaders:      metaHeader,
+			AuthConfig:       authConfig,
+			RegistryService:  pm.config.RegistryService,
+			ImageEventLogger: func(string, string, string) {},
+			ImageStore:       cs,
+		},
+		Schema2Types: dockerdist.PluginTypes,
+	}
+
+	if err := pm.pull(ctx, name, pluginPullConfig, nil); err != nil {
 		return nil, err
 	}
-	return computePrivileges(pd)
+
+	if cs.config == nil {
+		return nil, errors.New("no configuration pulled")
+	}
+	var config types.PluginConfig
+	if err := json.Unmarshal(cs.config, &config); err != nil {
+		return nil, err
+	}
+
+	return computePrivileges(config)
 }
 
 // Pull pulls a plugin, check if the correct privileges are provided and install the plugin.
 func (pm *Manager) Pull(ctx context.Context, name string, metaHeader http.Header, authConfig *types.AuthConfig, privileges types.PluginPrivileges, outStream io.Writer) (err error) {
-	_, pd, err := pm.pull(ctx, name, metaHeader, authConfig, outStream)
+	tmpRootfsDir, err := ioutil.TempDir(pm.tmpDir(), ".rootfs")
+	defer os.RemoveAll(tmpRootfsDir)
+
+	dm := &downloadManager{
+		tmpDir:    tmpRootfsDir,
+		blobStore: pm.blobStore,
+	}
+
+	pluginPullConfig := &dockerdist.ImagePullConfig{
+		Config: dockerdist.Config{
+			MetaHeaders:      metaHeader,
+			AuthConfig:       authConfig,
+			RegistryService:  pm.config.RegistryService,
+			ImageEventLogger: pm.config.LogPluginEvent,
+			ImageStore:       dm,
+		},
+		DownloadManager: dm,
+		Schema2Types:    dockerdist.PluginTypes,
+	}
+
+	err = pm.pull(ctx, name, pluginPullConfig, outStream)
 	if err != nil {
 		return err
 	}
 
-	requiredPrivileges, err := computePrivileges(pd)
-	if err != nil {
+	if _, err := pm.createPlugin(name, dm.configDigest, dm.blobs, tmpRootfsDir, &privileges); err != nil {
+		// todo: clear unused blobs
 		return err
 	}
 
-	if !reflect.DeepEqual(privileges, requiredPrivileges) {
-		return errors.New("incorrect privileges")
-	}
-
-	pluginID := stringid.GenerateNonCryptoID()
-	pluginDir := filepath.Join(pm.config.Root, pluginID)
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
-		logrus.Debugf("error in MkdirAll: %v", err)
-		return err
-	}
-
-	defer func() {
-		if err != nil {
-			if delErr := os.RemoveAll(pluginDir); delErr != nil {
-				logrus.Warnf("unable to remove %q from failed plugin pull: %v", pluginDir, delErr)
-			}
-		}
-	}()
-
-	err = distribution.WritePullData(pd, filepath.Join(pm.config.Root, pluginID), true)
-	if err != nil {
-		logrus.Debugf("error in distribution.WritePullData(): %v", err)
-		return err
-	}
 	return nil
-	//
-	// tag := distribution.GetTag(ref)
-	// p := NewPlugin(ref.Name(), pluginID, pm.config.ExecRoot, pm.config.Root, tag)
-	// err = p.InitPlugin()
-	// if err != nil {
-	//   return err
-	// }
-	// pm.config.Store.Add(p)
-	//
-	// pm.config.LogPluginEvent(pluginID, ref.String(), "pull")
-	//
-	// return nil
 }
 
 // List displays the list of plugins and associated metadata.
@@ -392,7 +358,7 @@ func (pm *Manager) Push(ctx context.Context, name string, metaHeader http.Header
 			ProgressOutput:   po,
 			RegistryService:  pm.config.RegistryService,
 			ReferenceStore:   rs,
-			ImageEventLogger: pluginEventLog,
+			ImageEventLogger: pm.config.LogPluginEvent,
 			ImageStore:       is,
 			RequireSchema2:   true,
 		},
@@ -467,17 +433,21 @@ func (s *pluginConfigStore) Get(d digest.Digest) ([]byte, error) {
 }
 
 func (s *pluginConfigStore) RootFSFromConfig(c []byte) (*image.RootFS, error) {
+	return configToRootFS(c)
+}
+
+type pluginLayerProvider struct {
+	pm     *Manager
+	plugin *Plugin
+}
+
+func configToRootFS(c []byte) (*image.RootFS, error) {
 	var pluginConfig types.PluginConfig
 	if err := json.Unmarshal(c, &pluginConfig); err != nil {
 		return nil, err
 	}
 
 	return rootFSFromPlugin(pluginConfig.Rootfs), nil
-}
-
-type pluginLayerProvider struct {
-	pm     *Manager
-	plugin *Plugin
 }
 
 func rootFSFromPlugin(pluginfs *types.PluginConfigRootfs) *image.RootFS {
@@ -692,13 +662,7 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, 
 	}
 	cleanupBlobs = append(cleanupBlobs, configBlobsum)
 
-	logrus.Debugf("rootfs gzip blob: %v", rootFSBlobsum)
-	logrus.Debugf("rootfs diffid: %v", layerDigester.Digest())
-	logrus.Debugf("config: %s %v", config)
-	logrus.Debugf("config blobsum: %v", configBlobsum)
-	logrus.Debugf("rootfs temporarily extracted to: %v", tmpRootfsDir)
-
-	p, err := pm.createPlugin(name, configBlobsum, []digest.Digest{rootFSBlobsum}, tmpRootfsDir)
+	p, err := pm.createPlugin(name, configBlobsum, []digest.Digest{rootFSBlobsum}, tmpRootfsDir, nil)
 	if err == nil {
 		cleanupBlobs = nil
 	}
@@ -783,80 +747,4 @@ func getPluginName(name string) (string, error) {
 		return "", fmt.Errorf("invalid name: %s", named.String())
 	}
 	return ref.String(), nil
-}
-
-type basicBlobStore struct {
-	path string
-}
-
-func newBasicBlobStore(p string) (*basicBlobStore, error) {
-	tmpdir := filepath.Join(p, "_tmp")
-	if err := os.MkdirAll(tmpdir, 0700); err != nil {
-		return nil, errors.Wrapf(err, "failed to mkdir %v", p)
-	}
-	return &basicBlobStore{path: p}, nil
-}
-
-func (b *basicBlobStore) New() (WriteCommitCloser, error) {
-	f, err := ioutil.TempFile(filepath.Join(b.path, "_tmp"), ".insertion")
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create temp file")
-	}
-	return newInsertion(f), nil
-}
-
-func (b *basicBlobStore) Get(dgst digest.Digest) (io.ReadCloser, error) {
-	return os.Open(filepath.Join(b.path, string(dgst.Algorithm()), dgst.Hex()))
-}
-
-func (b *basicBlobStore) Size(dgst digest.Digest) (int64, error) {
-	stat, err := os.Stat(filepath.Join(b.path, string(dgst.Algorithm()), dgst.Hex()))
-	if err != nil {
-		return 0, err
-	}
-	return stat.Size(), nil
-}
-
-type WriteCommitCloser interface {
-	io.WriteCloser
-	Commit() (digest.Digest, error)
-}
-
-type insertion struct {
-	io.Writer
-	f        *os.File
-	digester digest.Digester
-	closed   bool
-}
-
-func newInsertion(tempFile *os.File) *insertion {
-	digester := digest.Canonical.New()
-	return &insertion{f: tempFile, digester: digester, Writer: io.MultiWriter(tempFile, digester.Hash())}
-}
-
-func (i *insertion) Commit() (digest.Digest, error) {
-	p := i.f.Name()
-	d := filepath.Join(filepath.Join(p, "../../"))
-	i.f.Sync()
-	defer os.RemoveAll(p)
-	if err := i.f.Close(); err != nil {
-		return "", err
-	}
-	i.closed = true
-	dgst := i.digester.Digest()
-	if err := os.MkdirAll(filepath.Join(d, string(dgst.Algorithm())), 0700); err != nil {
-		return "", errors.Wrapf(err, "failed to mkdir %v", d)
-	}
-	if err := os.Rename(p, filepath.Join(d, string(dgst.Algorithm()), dgst.Hex())); err != nil {
-		return "", errors.Wrapf(err, "failed to rename %v", p)
-	}
-	return dgst, nil
-}
-
-func (i *insertion) Close() error {
-	if i.closed {
-		return nil
-	}
-	defer os.RemoveAll(i.f.Name())
-	return i.f.Close()
 }

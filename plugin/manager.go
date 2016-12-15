@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -206,7 +207,7 @@ func (pm *Manager) loadPlugin(id string) (*Plugin, error) {
 }
 
 // createPlugin creates a new plugin. take lock before calling.
-func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsums []digest.Digest, rootfsDir string) (p *Plugin, err error) {
+func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsums []digest.Digest, rootfsDir string, privileges *types.PluginPrivileges) (p *Plugin, err error) {
 	if err := pm.config.Store.validateName(name); err != nil { // todo: this check is wrong. remove store
 		return nil, err
 	}
@@ -224,6 +225,16 @@ func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsum
 	}
 	if dec.More() {
 		return nil, errors.New("invalid config json")
+	}
+
+	requiredPrivileges, err := computePrivileges(config)
+	if err != nil {
+		return nil, err
+	}
+	if privileges != nil {
+		if err := validatePrivileges(requiredPrivileges, *privileges); err != nil {
+			return nil, err
+		}
 	}
 
 	p = &Plugin{
@@ -295,4 +306,12 @@ func attachToLog(id string) func(libcontainerd.IOPipe) error {
 		}()
 		return nil
 	}
+}
+
+func validatePrivileges(requiredPrivileges, privileges types.PluginPrivileges) error {
+	// todo: make a better function that doesn't check order
+	if !reflect.DeepEqual(privileges, requiredPrivileges) {
+		return errors.New("incorrect privileges")
+	}
+	return nil
 }
