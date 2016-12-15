@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -20,14 +19,12 @@ import (
 
 // Plugin represents an individual plugin.
 type Plugin struct {
-	mu                sync.RWMutex
-	PluginObj         types.Plugin `json:"plugin"` // todo: embed struct
-	pClient           *plugins.Client
-	runtimeSourcePath string
-	refCount          int
-	LibRoot           string // TODO: make private
-	PropagatedMount   string // TODO: make private
-	Rootfs            string // TODO: make private
+	mu              sync.RWMutex
+	PluginObj       types.Plugin `json:"plugin"` // todo: embed struct
+	pClient         *plugins.Client
+	refCount        int
+	PropagatedMount string // TODO: make private
+	Rootfs          string // TODO: make private
 
 	Config   digest.Digest
 	Blobsums []digest.Digest
@@ -42,33 +39,6 @@ type ErrInadequateCapability struct {
 
 func (e ErrInadequateCapability) Error() string {
 	return fmt.Sprintf("plugin does not provide %q capability", e.cap)
-}
-
-func newPluginObj(name, id, tag string) types.Plugin {
-	return types.Plugin{Name: name, ID: id, Tag: tag}
-}
-
-// NewPlugin creates a plugin.
-func NewPlugin(name, id, runRoot, libRoot, tag string) *Plugin {
-	return &Plugin{
-		PluginObj:         newPluginObj(name, id, tag),
-		runtimeSourcePath: filepath.Join(runRoot, id),
-		LibRoot:           libRoot,
-	}
-}
-
-// Restore restores the plugin
-func (p *Plugin) Restore(runRoot string) {
-	p.runtimeSourcePath = filepath.Join(runRoot, p.GetID())
-}
-
-// GetRuntimeSourcePath gets the Source (host) path of the plugin socket
-// This path gets bind mounted into the plugin.
-func (p *Plugin) GetRuntimeSourcePath() string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	return p.runtimeSourcePath
 }
 
 // BasePath returns the path to which all paths returned by the plugin are relative to.
@@ -114,28 +84,6 @@ func (p *Plugin) FilterByCap(capability string) (*Plugin, error) {
 	return nil, ErrInadequateCapability{capability}
 }
 
-// RemoveFromDisk deletes the plugin's runtime files from disk.
-func (p *Plugin) RemoveFromDisk() error {
-	return os.RemoveAll(p.runtimeSourcePath)
-}
-
-// InitPlugin populates the plugin object from the plugin config file.
-func (p *Plugin) InitPlugin() error {
-	dt, err := os.Open(filepath.Join(p.LibRoot, p.PluginObj.ID, "config.json"))
-	if err != nil {
-		return err
-	}
-	err = json.NewDecoder(dt).Decode(&p.PluginObj.Config)
-	dt.Close()
-	if err != nil {
-		return err
-	}
-
-	p.initEmptySettings()
-
-	return p.writeSettings()
-}
-
 func (p *Plugin) initEmptySettings() {
 	p.PluginObj.Settings.Mounts = make([]types.PluginMount, len(p.PluginObj.Config.Mounts))
 	copy(p.PluginObj.Settings.Mounts, p.PluginObj.Config.Mounts)
@@ -152,13 +100,14 @@ func (p *Plugin) initEmptySettings() {
 }
 
 func (p *Plugin) writeSettings() error {
-	f, err := os.Create(filepath.Join(p.LibRoot, p.PluginObj.ID, "plugin-settings.json"))
-	if err != nil {
-		return err
-	}
-	err = json.NewEncoder(f).Encode(&p.PluginObj.Settings)
-	f.Close()
-	return err
+	// f, err := os.Create(filepath.Join(p.LibRoot, p.PluginObj.ID, "plugin-settings.json"))
+	// if err != nil {
+	//   return err
+	// }
+	// err = json.NewEncoder(f).Encode(&p.PluginObj.Settings)
+	// f.Close()
+	// return err
+	return nil
 }
 
 // Set is used to pass arguments to the plugin.
@@ -312,7 +261,8 @@ func (p *Plugin) Release() {
 }
 
 // InitSpec creates an OCI spec from the plugin's config.
-func (p *Plugin) InitSpec(s specs.Spec) (*specs.Spec, error) {
+func (p *Plugin) InitSpec(execRoot string) (*specs.Spec, error) {
+	s := oci.DefaultSpec()
 	s.Root = specs.Root{
 		Path:     p.Rootfs,
 		Readonly: false, // TODO: all plugins should be readonly? settable in config?
@@ -323,12 +273,13 @@ func (p *Plugin) InitSpec(s specs.Spec) (*specs.Spec, error) {
 		userMounts[m.Destination] = struct{}{}
 	}
 
-	if err := os.MkdirAll(p.runtimeSourcePath, 0755); err != nil {
+	execRoot = filepath.Join(execRoot, p.PluginObj.ID)
+	if err := os.MkdirAll(execRoot, 0700); err != nil {
 		return nil, err
 	}
 
 	mounts := append(p.PluginObj.Config.Mounts, types.PluginMount{
-		Source:      &p.runtimeSourcePath,
+		Source:      &execRoot,
 		Destination: defaultPluginRuntimeDestination,
 		Type:        "bind",
 		Options:     []string{"rbind", "rshared"},

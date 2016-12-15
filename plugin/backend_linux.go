@@ -272,7 +272,7 @@ func (pm *Manager) Privileges(ctx context.Context, name string, metaHeader http.
 
 // Pull pulls a plugin, check if the correct privileges are provided and install the plugin.
 func (pm *Manager) Pull(ctx context.Context, name string, metaHeader http.Header, authConfig *types.AuthConfig, privileges types.PluginPrivileges, outStream io.Writer) (err error) {
-	ref, pd, err := pm.pull(ctx, name, metaHeader, authConfig, outStream)
+	_, pd, err := pm.pull(ctx, name, metaHeader, authConfig, outStream)
 	if err != nil {
 		return err
 	}
@@ -306,18 +306,19 @@ func (pm *Manager) Pull(ctx context.Context, name string, metaHeader http.Header
 		logrus.Debugf("error in distribution.WritePullData(): %v", err)
 		return err
 	}
-
-	tag := distribution.GetTag(ref)
-	p := NewPlugin(ref.Name(), pluginID, pm.config.ExecRoot, pm.config.Root, tag)
-	err = p.InitPlugin()
-	if err != nil {
-		return err
-	}
-	pm.config.Store.Add(p)
-
-	pm.config.LogPluginEvent(pluginID, ref.String(), "pull")
-
 	return nil
+	//
+	// tag := distribution.GetTag(ref)
+	// p := NewPlugin(ref.Name(), pluginID, pm.config.ExecRoot, pm.config.Root, tag)
+	// err = p.InitPlugin()
+	// if err != nil {
+	//   return err
+	// }
+	// pm.config.Store.Add(p)
+	//
+	// pm.config.LogPluginEvent(pluginID, ref.String(), "pull")
+	//
+	// return nil
 }
 
 // List displays the list of plugins and associated metadata.

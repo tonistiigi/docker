@@ -24,7 +24,6 @@ const configFileName = "config.json"
 const rootfsFileName = "rootfs"
 
 func (pm *Manager) restorePlugin(p *Plugin) error {
-	p.Restore(pm.config.ExecRoot)
 	if p.IsEnabled() {
 		return pm.restore(p)
 	}
@@ -114,7 +113,7 @@ func (pm *Manager) StateChanged(id string, e libcontainerd.StateInfo) error {
 		restart := c.restart
 		pm.mu.RUnlock()
 
-		p.RemoveFromDisk()
+		os.RemoveAll(filepath.Join(pm.config.ExecRoot, id))
 
 		if p.PropagatedMount != "" {
 			if err := mount.Unmount(p.PropagatedMount); err != nil {

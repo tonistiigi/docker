@@ -10,7 +10,6 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/libcontainerd"
-	"github.com/docker/docker/oci"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/plugins"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -21,7 +20,7 @@ func (pm *Manager) enable(p *Plugin, c *controller, force bool) error {
 	if p.IsEnabled() && !force {
 		return fmt.Errorf("plugin %s is already enabled", p.Name())
 	}
-	spec, err := p.InitSpec(oci.DefaultSpec())
+	spec, err := p.InitSpec(pm.config.ExecRoot)
 	if err != nil {
 		return err
 	}
