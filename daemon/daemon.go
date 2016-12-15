@@ -28,6 +28,7 @@ import (
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/events"
 	"github.com/docker/docker/daemon/exec"
+	"github.com/docker/docker/daemon/initlayer"
 	"github.com/docker/docker/dockerversion"
 	"github.com/docker/docker/plugin"
 	"github.com/docker/libnetwork/cluster"
@@ -966,7 +967,7 @@ func tempDir(rootDir string, rootUID, rootGID int) (string, error) {
 
 func (daemon *Daemon) setupInitLayer(initPath string) error {
 	rootUID, rootGID := daemon.GetRemappedUIDGID()
-	return setupInitLayer(initPath, rootUID, rootGID)
+	return initlayer.Setup(initPath, rootUID, rootGID)
 }
 
 func setDefaultMtu(config *Config) {

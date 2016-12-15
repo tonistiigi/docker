@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/docker/daemon/initlayer"
 	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/plugins"
@@ -36,6 +37,10 @@ func (pm *Manager) enable(p *Plugin, c *controller, force bool) error {
 		if err := mount.MakeRShared(p.PropagatedMount); err != nil {
 			return err
 		}
+	}
+
+	if err := initlayer.Setup(filepath.Join(pm.config.Root, p.PluginObj.ID, rootfsFileName), 0, 0); err != nil {
+		return err
 	}
 
 	if err := pm.containerdClient.Create(p.GetID(), "", "", specs.Spec(*spec), attachToLog(p.GetID())); err != nil {
