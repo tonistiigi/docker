@@ -1354,9 +1354,6 @@ definitions:
       Name:
         type: "string"
         x-nullable: false
-      Tag:
-        type: "string"
-        x-nullable: false
       Enabled:
         description: "True when the plugin is running. False when the plugin is not running, only installed."
         type: "boolean"

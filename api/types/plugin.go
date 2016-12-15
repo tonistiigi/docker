@@ -25,10 +25,6 @@ type Plugin struct {
 	// settings
 	// Required: true
 	Settings PluginSettings `json:"Settings"`
-
-	// tag
-	// Required: true
-	Tag string `json:"Tag"`
 }
 
 // PluginConfig The config of a plugin.
