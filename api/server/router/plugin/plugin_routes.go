@@ -44,7 +44,7 @@ func (pr *pluginRouter) getPrivileges(ctx context.Context, w http.ResponseWriter
 
 	metaHeaders, authConfig := parseHeaders(r.Header)
 
-	privileges, err := pr.backend.Privileges(ctx, r.FormValue("name"), metaHeaders, authConfig)
+	privileges, err := pr.backend.Privileges(ctx, r.FormValue("remote"), metaHeaders, authConfig)
 	if err != nil {
 		return err
 	}
@@ -70,7 +70,7 @@ func (pr *pluginRouter) pullPlugin(ctx context.Context, w http.ResponseWriter, r
 	w.Header().Set("Content-Type", "application/json")
 	output := ioutils.NewWriteFlusher(w)
 
-	if err := pr.backend.Pull(ctx, r.FormValue("name"), metaHeaders, authConfig, privileges, output); err != nil {
+	if err := pr.backend.Pull(ctx, r.FormValue("name"), r.FormValue("remote"), metaHeaders, authConfig, privileges, output); err != nil {
 		if !output.Flushed() {
 			return err
 		}

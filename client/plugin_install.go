@@ -6,15 +6,19 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	"golang.org/x/net/context"
 )
 
 // PluginInstall installs a plugin
 func (cli *Client) PluginInstall(ctx context.Context, name string, options types.PluginInstallOptions) (rc io.ReadCloser, err error) {
-	// FIXME(vdemeester) name is a ref, we might want to parse/validate it here.
 	query := url.Values{}
-	query.Set("name", name)
+	if _, err := reference.ParseNamed(options.RemoteRef); err != nil {
+		return nil, err
+	}
+	query.Set("remote", options.RemoteRef)
+
 	resp, err := cli.tryPluginPrivileges(ctx, query, options.RegistryAuth)
 	if resp.statusCode == http.StatusUnauthorized && options.PrivilegeFunc != nil {
 		newAuthHeader, privilegeErr := options.PrivilegeFunc()
@@ -46,6 +50,9 @@ func (cli *Client) PluginInstall(ctx context.Context, name string, options types
 			return nil, pluginPermissionDenied{name}
 		}
 	}
+
+	// set name for plugin pull, if empty should default to remote reference
+	query.Set("name", name)
 
 	resp, err = cli.tryPluginPull(ctx, query, privileges, options.RegistryAuth)
 	if err != nil {

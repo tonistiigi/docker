@@ -18,6 +18,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/manifest/schema2"
+	distreference "github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	dockerdist "github.com/docker/docker/distribution"
 	progressutils "github.com/docker/docker/distribution/utils"
@@ -82,16 +83,7 @@ func (pm *Manager) Inspect(refOrID string) (tp *types.Plugin, err error) {
 	return &p.PluginObj, nil
 }
 
-func (pm *Manager) pull(ctx context.Context, name string, config *dockerdist.ImagePullConfig, outStream io.Writer) error {
-	ref, err := reference.ParseNamed(name) // fix pull-by-digest
-	if err != nil {
-		return err
-	}
-	name = reference.WithDefaultTag(ref).String()
-	if err := pm.config.Store.validateName(name); err != nil {
-		return err
-	}
-
+func (pm *Manager) pull(ctx context.Context, ref reference.Named, config *dockerdist.ImagePullConfig, outStream io.Writer) error {
 	if outStream != nil {
 		// Include a buffer so that slow client connections don't affect
 		// transfer performance.
@@ -146,7 +138,7 @@ func (s *tempConfigStore) RootFSFromConfig(c []byte) (*image.RootFS, error) {
 
 func computePrivileges(c types.PluginConfig) (types.PluginPrivileges, error) {
 	var privileges types.PluginPrivileges
-	if c.Network.Type != "null" && c.Network.Type != "bridge" && c.Network.Type != "" {
+	if c.Network.Type != "null" && c.Network.Type != "bridge" {
 		privileges = append(privileges, types.PluginPrivilege{
 			Name:        "network",
 			Description: "permissions to access a network",
@@ -189,8 +181,55 @@ func computePrivileges(c types.PluginConfig) (types.PluginPrivileges, error) {
 	return privileges, nil
 }
 
+// parseRemoteRef parses the remote reference into a reference.Named
+// returning the tag associated with the reference. In the case the
+// given reference string includes both digest and tag, the returned
+// reference will have the digest without the tag, but the tag will
+// be returned.
+func parseRemoteRef(remote string) (reference.Named, string, error) {
+	// Parse remote reference, supporting remotes with name and tag
+	// NOTE: Using distribution reference to handle references
+	// containing both a name and digest
+	remoteRef, err := distreference.ParseNamed(remote)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var tag string
+	if t, ok := remoteRef.(distreference.Tagged); ok {
+		tag = t.Tag()
+	}
+
+	// Convert distribution reference to docker reference
+	// TODO: remove when docker reference changes reconciled upstream
+	ref, err := reference.WithName(remoteRef.Name())
+	if err != nil {
+		return nil, "", err
+	}
+	if d, ok := remoteRef.(distreference.Digested); ok {
+		ref, err = reference.WithDigest(ref, d.Digest())
+		if err != nil {
+			return nil, "", err
+		}
+	} else if tag != "" {
+		ref, err = reference.WithTag(ref, tag)
+		if err != nil {
+			return nil, "", err
+		}
+	} else {
+		ref = reference.WithDefaultTag(ref)
+	}
+
+	return ref, tag, nil
+}
+
 // Privileges pulls a plugin config and computes the privileges required to install it.
-func (pm *Manager) Privileges(ctx context.Context, name string, metaHeader http.Header, authConfig *types.AuthConfig) (types.PluginPrivileges, error) {
+func (pm *Manager) Privileges(ctx context.Context, remote string, metaHeader http.Header, authConfig *types.AuthConfig) (types.PluginPrivileges, error) {
+	ref, _, err := parseRemoteRef(remote)
+	if err != nil {
+		return nil, err
+	}
+
 	// create image store instance
 	cs := &tempConfigStore{}
 
@@ -205,7 +244,7 @@ func (pm *Manager) Privileges(ctx context.Context, name string, metaHeader http.
 		Schema2Types: dockerdist.PluginTypes,
 	}
 
-	if err := pm.pull(ctx, name, pluginPullConfig, nil); err != nil {
+	if err := pm.pull(ctx, ref, pluginPullConfig, nil); err != nil {
 		return nil, err
 	}
 
@@ -221,9 +260,47 @@ func (pm *Manager) Privileges(ctx context.Context, name string, metaHeader http.
 }
 
 // Pull pulls a plugin, check if the correct privileges are provided and install the plugin.
-func (pm *Manager) Pull(ctx context.Context, name string, metaHeader http.Header, authConfig *types.AuthConfig, privileges types.PluginPrivileges, outStream io.Writer) (err error) {
+func (pm *Manager) Pull(ctx context.Context, name, remote string, metaHeader http.Header, authConfig *types.AuthConfig, privileges types.PluginPrivileges, outStream io.Writer) (err error) {
 	pm.muGC.RLock()
 	defer pm.muGC.RUnlock()
+
+	ref, tag, err := parseRemoteRef(remote)
+	if err != nil {
+		return err
+	}
+
+	if name == "" {
+		if _, ok := ref.(reference.Canonical); ok {
+			trimmed := reference.TrimNamed(ref)
+			if tag != "" {
+				nt, err := reference.WithTag(trimmed, tag)
+				if err != nil {
+					return err
+				}
+				name = nt.String()
+			} else {
+				name = reference.WithDefaultTag(trimmed).String()
+			}
+		} else {
+			name = ref.String()
+		}
+	} else {
+		localRef, err := reference.ParseNamed(name)
+		if err != nil {
+			return err
+		}
+		if _, ok := localRef.(reference.Canonical); ok {
+			return errors.New("cannot use digest in plugin tag")
+		}
+		if distreference.IsNameOnly(localRef) {
+			// TODO: log change in name to out stream
+			name = reference.WithDefaultTag(localRef).String()
+		}
+	}
+
+	if err := pm.config.Store.validateName(name); err != nil {
+		return err
+	}
 
 	tmpRootfsDir, err := ioutil.TempDir(pm.tmpDir(), ".rootfs")
 	defer os.RemoveAll(tmpRootfsDir)
@@ -245,7 +322,7 @@ func (pm *Manager) Pull(ctx context.Context, name string, metaHeader http.Header
 		Schema2Types:    dockerdist.PluginTypes,
 	}
 
-	err = pm.pull(ctx, name, pluginPullConfig, outStream)
+	err = pm.pull(ctx, ref, pluginPullConfig, outStream)
 	if err != nil {
 		go pm.GC()
 		return err
@@ -417,9 +494,7 @@ func configToRootFS(c []byte) (*image.RootFS, error) {
 	if err := json.Unmarshal(c, &pluginConfig); err != nil {
 		return nil, err
 	}
-	if pluginConfig.Rootfs == nil {
-		return nil, errors.New("invalid rootfs")
-	}
+
 	return rootFSFromPlugin(pluginConfig.Rootfs), nil
 }
 
@@ -496,7 +571,7 @@ func (l *pluginLayer) Release() {
 }
 
 // Remove deletes plugin's root directory.
-func (pm *Manager) Remove(name string, config *types.PluginRmConfig) (err error) {
+func (pm *Manager) Remove(name string, config *types.PluginRmConfig) error {
 	p, err := pm.config.Store.GetV2Plugin(name)
 	pm.mu.RLock()
 	c := pm.cMap[p]
@@ -526,18 +601,12 @@ func (pm *Manager) Remove(name string, config *types.PluginRmConfig) (err error)
 	}()
 
 	id := p.GetID()
+	pm.config.Store.Remove(p)
 	pluginDir := filepath.Join(pm.config.Root, id)
-
-	defer func() {
-		if err == nil || config.ForceRemove {
-			pm.config.Store.Remove(p)
-			pm.config.LogPluginEvent(id, name, "remove")
-		}
-	}()
-
-	if err = os.RemoveAll(pluginDir); err != nil {
-		return errors.Wrap(err, "failed to remove plugin directory")
+	if err := os.RemoveAll(pluginDir); err != nil {
+		logrus.Warnf("unable to remove %q from plugin remove: %v", pluginDir, err)
 	}
+	pm.config.LogPluginEvent(id, name, "remove")
 	return nil
 }
 
