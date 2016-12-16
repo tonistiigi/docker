@@ -7,16 +7,18 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/image"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/mount"
-	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/plugin/v2"
 	"github.com/docker/docker/registry"
 	"github.com/pkg/errors"
@@ -24,6 +26,8 @@ import (
 
 const configFileName = "config.json"
 const rootFSFileName = "rootfs"
+
+var validFullID = regexp.MustCompile(`^([a-f0-9]{64})$`)
 
 func (pm *Manager) restorePlugin(p *v2.Plugin) error {
 	if p.IsEnabled() {
@@ -209,72 +213,6 @@ func (pm *Manager) loadPlugin(id string) (*v2.Plugin, error) {
 	return &plugin, nil
 }
 
-// createPlugin creates a new plugin. take lock before calling.
-func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsums []digest.Digest, rootfsDir string, privileges *types.PluginPrivileges) (p *v2.Plugin, err error) {
-	if err := pm.config.Store.validateName(name); err != nil { // todo: this check is wrong. remove store
-		return nil, err
-	}
-
-	configRC, err := pm.blobStore.Get(configDigest)
-	if err != nil {
-		return nil, err
-	}
-	defer configRC.Close()
-
-	var config types.PluginConfig
-	dec := json.NewDecoder(configRC)
-	if err := dec.Decode(&config); err != nil {
-		return nil, errors.Wrapf(err, "failed to parse config")
-	}
-	if dec.More() {
-		return nil, errors.New("invalid config json")
-	}
-
-	requiredPrivileges, err := computePrivileges(config)
-	if err != nil {
-		return nil, err
-	}
-	if privileges != nil {
-		if err := validatePrivileges(requiredPrivileges, *privileges); err != nil {
-			return nil, err
-		}
-	}
-
-	p = &v2.Plugin{
-		PluginObj: types.Plugin{
-			Name:   name,
-			ID:     stringid.GenerateRandomID(),
-			Config: config,
-		},
-		Config:   configDigest,
-		Blobsums: blobsums,
-	}
-	p.InitEmptySettings()
-
-	pdir := filepath.Join(pm.config.Root, p.PluginObj.ID)
-	if err := os.MkdirAll(pdir, 0700); err != nil {
-		return nil, errors.Wrapf(err, "failed to mkdir %v", pdir)
-	}
-
-	defer func() {
-		if err != nil {
-			os.RemoveAll(pdir)
-		}
-	}()
-
-	if err := os.Rename(rootfsDir, filepath.Join(pdir, rootFSFileName)); err != nil {
-		return nil, errors.Wrap(err, "failed to rename rootfs")
-	}
-
-	if err := pm.save(p); err != nil {
-		return nil, err
-	}
-
-	pm.config.Store.Add(p) // todo: remove
-
-	return p, nil
-}
-
 func (pm *Manager) save(p *v2.Plugin) error {
 	pluginJSON, err := json.Marshal(p)
 	if err != nil {
@@ -338,4 +276,25 @@ func validatePrivileges(requiredPrivileges, privileges types.PluginPrivileges) e
 		return errors.New("incorrect privileges")
 	}
 	return nil
+}
+
+func configToRootFS(c []byte) (*image.RootFS, error) {
+	var pluginConfig types.PluginConfig
+	if err := json.Unmarshal(c, &pluginConfig); err != nil {
+		return nil, err
+	}
+
+	return rootFSFromPlugin(pluginConfig.Rootfs), nil
+}
+
+func rootFSFromPlugin(pluginfs *types.PluginConfigRootfs) *image.RootFS {
+	rootfs := image.RootFS{
+		Type:    pluginfs.Type,
+		DiffIDs: make([]layer.DiffID, len(pluginfs.DiffIds)),
+	}
+	for i := range pluginfs.DiffIds {
+		rootfs.DiffIDs[i] = layer.DiffID(pluginfs.DiffIds[i])
+	}
+
+	return &rootfs
 }

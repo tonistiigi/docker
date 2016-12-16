@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/Sirupsen/logrus"
@@ -32,10 +31,6 @@ import (
 	"github.com/docker/docker/reference"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
-)
-
-var (
-	validFullID = regexp.MustCompile(`^([a-f0-9]{64})$`)
 )
 
 // Disable deactivates a plugin. This means resources (volumes, networks) cant use them.
@@ -488,27 +483,6 @@ func (s *pluginConfigStore) RootFSFromConfig(c []byte) (*image.RootFS, error) {
 type pluginLayerProvider struct {
 	pm     *Manager
 	plugin *v2.Plugin
-}
-
-func configToRootFS(c []byte) (*image.RootFS, error) {
-	var pluginConfig types.PluginConfig
-	if err := json.Unmarshal(c, &pluginConfig); err != nil {
-		return nil, err
-	}
-
-	return rootFSFromPlugin(pluginConfig.Rootfs), nil
-}
-
-func rootFSFromPlugin(pluginfs *types.PluginConfigRootfs) *image.RootFS {
-	rootfs := image.RootFS{
-		Type:    pluginfs.Type,
-		DiffIDs: make([]layer.DiffID, len(pluginfs.DiffIds)),
-	}
-	for i := range pluginfs.DiffIds {
-		rootfs.DiffIDs[i] = layer.DiffID(pluginfs.DiffIds[i])
-	}
-
-	return &rootfs
 }
 
 func (p *pluginLayerProvider) Get(id layer.ChainID) (distribution.PushLayer, error) {

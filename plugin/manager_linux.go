@@ -3,18 +3,24 @@
 package plugin
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/digest"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/daemon/initlayer"
 	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/plugins"
+	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/plugin/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/pkg/errors"
 )
 
 func (pm *Manager) enable(p *v2.Plugin, c *controller, force bool) error {
@@ -141,4 +147,70 @@ func (pm *Manager) Shutdown() {
 			shutdownPlugin(p, c, pm.containerdClient)
 		}
 	}
+}
+
+// createPlugin creates a new plugin. take lock before calling.
+func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsums []digest.Digest, rootfsDir string, privileges *types.PluginPrivileges) (p *v2.Plugin, err error) {
+	if err := pm.config.Store.validateName(name); err != nil { // todo: this check is wrong. remove store
+		return nil, err
+	}
+
+	configRC, err := pm.blobStore.Get(configDigest)
+	if err != nil {
+		return nil, err
+	}
+	defer configRC.Close()
+
+	var config types.PluginConfig
+	dec := json.NewDecoder(configRC)
+	if err := dec.Decode(&config); err != nil {
+		return nil, errors.Wrapf(err, "failed to parse config")
+	}
+	if dec.More() {
+		return nil, errors.New("invalid config json")
+	}
+
+	requiredPrivileges, err := computePrivileges(config)
+	if err != nil {
+		return nil, err
+	}
+	if privileges != nil {
+		if err := validatePrivileges(requiredPrivileges, *privileges); err != nil {
+			return nil, err
+		}
+	}
+
+	p = &v2.Plugin{
+		PluginObj: types.Plugin{
+			Name:   name,
+			ID:     stringid.GenerateRandomID(),
+			Config: config,
+		},
+		Config:   configDigest,
+		Blobsums: blobsums,
+	}
+	p.InitEmptySettings()
+
+	pdir := filepath.Join(pm.config.Root, p.PluginObj.ID)
+	if err := os.MkdirAll(pdir, 0700); err != nil {
+		return nil, errors.Wrapf(err, "failed to mkdir %v", pdir)
+	}
+
+	defer func() {
+		if err != nil {
+			os.RemoveAll(pdir)
+		}
+	}()
+
+	if err := os.Rename(rootfsDir, filepath.Join(pdir, rootFSFileName)); err != nil {
+		return nil, errors.Wrap(err, "failed to rename rootfs")
+	}
+
+	if err := pm.save(p); err != nil {
+		return nil, err
+	}
+
+	pm.config.Store.Add(p) // todo: remove
+
+	return p, nil
 }
