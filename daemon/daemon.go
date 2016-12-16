@@ -560,7 +560,7 @@ func NewDaemon(config *Config, registryService registry.Service, containerdRemot
 	// Plugin system initialization should happen before restore. Do not change order.
 	d.pluginManager, err = plugin.NewManager(plugin.ManagerConfig{
 		Root:               filepath.Join(config.Root, "plugins"),
-		ExecRoot:           filepath.Join(config.GetExecRoot(), "plugins"),
+		ExecRoot:           "/run/docker/plugins", // possibly needs fixing
 		Store:              d.PluginStore,
 		Executor:           containerdRemote,
 		RegistryService:    registryService,

@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	authzPluginName            = "riyaz/authz-no-volume-plugin"
+	authzPluginName            = "tonistiigi/authz-no-volume-plugin"
 	authzPluginTag             = "latest"
 	authzPluginNameWithTag     = authzPluginName + ":" + authzPluginTag
 	authzPluginBadManifestName = "riyaz/authz-plugin-bad-manifest"
