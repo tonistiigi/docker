@@ -40,7 +40,7 @@ func (pm *Manager) enable(p *v2.Plugin, c *controller, force bool) error {
 		}
 	}
 
-	if err := initlayer.Setup(filepath.Join(pm.config.Root, p.PluginObj.ID, rootfsFileName), 0, 0); err != nil {
+	if err := initlayer.Setup(filepath.Join(pm.config.Root, p.PluginObj.ID, rootFSFileName), 0, 0); err != nil {
 		return err
 	}
 

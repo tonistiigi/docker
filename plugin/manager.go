@@ -23,7 +23,7 @@ import (
 )
 
 const configFileName = "config.json"
-const rootfsFileName = "rootfs"
+const rootFSFileName = "rootfs"
 
 func (pm *Manager) restorePlugin(p *v2.Plugin) error {
 	if p.IsEnabled() {
@@ -262,7 +262,7 @@ func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsum
 		}
 	}()
 
-	if err := os.Rename(rootfsDir, filepath.Join(pdir, rootfsFileName)); err != nil {
+	if err := os.Rename(rootfsDir, filepath.Join(pdir, rootFSFileName)); err != nil {
 		return nil, errors.Wrap(err, "failed to rename rootfs")
 	}
 

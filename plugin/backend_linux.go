@@ -20,7 +20,7 @@ import (
 	"github.com/docker/distribution/manifest/schema2"
 	distreference "github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
-	dockerdist "github.com/docker/docker/distribution"
+	"github.com/docker/docker/distribution"
 	progressutils "github.com/docker/docker/distribution/utils"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
@@ -84,7 +84,7 @@ func (pm *Manager) Inspect(refOrID string) (tp *types.Plugin, err error) {
 	return &p.PluginObj, nil
 }
 
-func (pm *Manager) pull(ctx context.Context, ref reference.Named, config *dockerdist.ImagePullConfig, outStream io.Writer) error {
+func (pm *Manager) pull(ctx context.Context, ref reference.Named, config *distribution.ImagePullConfig, outStream io.Writer) error {
 	if outStream != nil {
 		// Include a buffer so that slow client connections don't affect
 		// transfer performance.
@@ -109,7 +109,7 @@ func (pm *Manager) pull(ctx context.Context, ref reference.Named, config *docker
 	} else {
 		config.ProgressOutput = progress.DiscardOutput()
 	}
-	return dockerdist.Pull(ctx, ref, config)
+	return distribution.Pull(ctx, ref, config)
 }
 
 type tempConfigStore struct {
@@ -234,15 +234,15 @@ func (pm *Manager) Privileges(ctx context.Context, remote string, metaHeader htt
 	// create image store instance
 	cs := &tempConfigStore{}
 
-	pluginPullConfig := &dockerdist.ImagePullConfig{
-		Config: dockerdist.Config{
+	pluginPullConfig := &distribution.ImagePullConfig{
+		Config: distribution.Config{
 			MetaHeaders:      metaHeader,
 			AuthConfig:       authConfig,
 			RegistryService:  pm.config.RegistryService,
 			ImageEventLogger: func(string, string, string) {},
 			ImageStore:       cs,
 		},
-		Schema2Types: dockerdist.PluginTypes,
+		Schema2Types: distribution.PluginTypes,
 	}
 
 	if err := pm.pull(ctx, ref, pluginPullConfig, nil); err != nil {
@@ -311,8 +311,8 @@ func (pm *Manager) Pull(ctx context.Context, name, remote string, metaHeader htt
 		blobStore: pm.blobStore,
 	}
 
-	pluginPullConfig := &dockerdist.ImagePullConfig{
-		Config: dockerdist.Config{
+	pluginPullConfig := &distribution.ImagePullConfig{
+		Config: distribution.Config{
 			MetaHeaders:      metaHeader,
 			AuthConfig:       authConfig,
 			RegistryService:  pm.config.RegistryService,
@@ -320,7 +320,7 @@ func (pm *Manager) Pull(ctx context.Context, name, remote string, metaHeader htt
 			ImageStore:       dm,
 		},
 		DownloadManager: dm,
-		Schema2Types:    dockerdist.PluginTypes,
+		Schema2Types:    distribution.PluginTypes,
 	}
 
 	err = pm.pull(ctx, ref, pluginPullConfig, outStream)
@@ -400,8 +400,8 @@ func (pm *Manager) Push(ctx context.Context, name string, metaHeader http.Header
 
 	uploadManager := xfer.NewLayerUploadManager(3)
 
-	imagePushConfig := &dockerdist.ImagePushConfig{
-		Config: dockerdist.Config{
+	imagePushConfig := &distribution.ImagePushConfig{
+		Config: distribution.Config{
 			MetaHeaders:      metaHeader,
 			AuthConfig:       authConfig,
 			ProgressOutput:   po,
@@ -416,7 +416,7 @@ func (pm *Manager) Push(ctx context.Context, name string, metaHeader http.Header
 		UploadManager:   uploadManager,
 	}
 
-	return dockerdist.Push(ctx, ref, imagePushConfig)
+	return distribution.Push(ctx, ref, imagePushConfig)
 }
 
 type pluginReference struct {
@@ -511,7 +511,7 @@ func rootFSFromPlugin(pluginfs *types.PluginConfigRootfs) *image.RootFS {
 	return &rootfs
 }
 
-func (p *pluginLayerProvider) Get(id layer.ChainID) (dockerdist.PushLayer, error) {
+func (p *pluginLayerProvider) Get(id layer.ChainID) (distribution.PushLayer, error) {
 	rootfs := rootFSFromPlugin(p.plugin.PluginObj.Config.Rootfs)
 	var i int
 	for i = 0; i < len(rootfs.DiffIDs); i++ {
@@ -543,7 +543,7 @@ func (l *pluginLayer) DiffID() layer.DiffID {
 	return l.diffIDs[0]
 }
 
-func (l *pluginLayer) Parent() dockerdist.PushLayer {
+func (l *pluginLayer) Parent() distribution.PushLayer {
 	if len(l.diffIDs) == 1 {
 		return nil
 	}
@@ -734,12 +734,12 @@ func splitConfigRootFSFromTar(in io.ReadCloser, config *[]byte) io.ReadCloser {
 		tarWriter := tar.NewWriter(pw)
 		defer in.Close()
 
-		hasRootfs := false
+		hasRootFS := false
 
 		for {
 			hdr, err := tarReader.Next()
 			if err == io.EOF {
-				if !hasRootfs {
+				if !hasRootFS {
 					pw.CloseWithError(errors.Wrap(err, "no rootfs found"))
 					return
 				}
@@ -766,10 +766,10 @@ func splitConfigRootFSFromTar(in io.ReadCloser, config *[]byte) io.ReadCloser {
 				}
 				*config = dt
 			}
-			if parts := strings.Split(name, string(filepath.Separator)); len(parts) != 0 && parts[0] == rootfsFileName {
+			if parts := strings.Split(name, string(filepath.Separator)); len(parts) != 0 && parts[0] == rootFSFileName {
 				hdr.Name = filepath.Clean(filepath.Join(parts[1:]...))
-				if strings.HasPrefix(strings.ToLower(hdr.Linkname), rootfsFileName+"/") {
-					hdr.Linkname = hdr.Linkname[len(rootfsFileName):]
+				if strings.HasPrefix(strings.ToLower(hdr.Linkname), rootFSFileName+"/") {
+					hdr.Linkname = hdr.Linkname[len(rootFSFileName):]
 				}
 				if err := tarWriter.WriteHeader(hdr); err != nil {
 					pw.CloseWithError(errors.Wrap(err, "error writing tar header"))
@@ -779,7 +779,7 @@ func splitConfigRootFSFromTar(in io.ReadCloser, config *[]byte) io.ReadCloser {
 					pw.CloseWithError(errors.Wrap(err, "error copying tar data"))
 					return
 				}
-				hasRootfs = true
+				hasRootFS = true
 			} else {
 				io.Copy(ioutil.Discard, content)
 			}
