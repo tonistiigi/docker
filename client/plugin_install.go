@@ -8,6 +8,7 @@ import (
 
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
 
@@ -15,7 +16,7 @@ import (
 func (cli *Client) PluginInstall(ctx context.Context, name string, options types.PluginInstallOptions) (rc io.ReadCloser, err error) {
 	query := url.Values{}
 	if _, err := reference.ParseNamed(options.RemoteRef); err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "invalid remote reference")
 	}
 	query.Set("remote", options.RemoteRef)
 

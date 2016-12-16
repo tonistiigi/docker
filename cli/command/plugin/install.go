@@ -63,6 +63,10 @@ func getRepoIndex(ref distreference.Named) (*registrytypes.IndexInfo, error) {
 }
 
 func runInstall(dockerCli *command.DockerCli, opts pluginOptions) error {
+	// Parse name using distribution reference package to support name
+	// containing both tag and digest. Names with both tag and digest
+	// will be treated by the daemon as a pull by digest with
+	// an alias for the tag (if no alias is provided).
 	ref, err := distreference.ParseNamed(opts.name)
 	if err != nil {
 		return err

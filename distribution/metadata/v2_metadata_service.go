@@ -159,6 +159,9 @@ func (serv *v2MetadataService) GetDiffID(dgst digest.Digest) (layer.DiffID, erro
 // present, the oldest one is dropped.
 func (serv *v2MetadataService) Add(diffID layer.DiffID, metadata V2Metadata) error {
 	if serv.store == nil {
+		// Support a service which has no backend storage, in this case
+		// an add becomes a no-op.
+		// TODO: implement in memory storage
 		return nil
 	}
 	oldMetadata, err := serv.GetMetadata(diffID)
@@ -203,6 +206,9 @@ func (serv *v2MetadataService) TagAndAdd(diffID layer.DiffID, hmacKey []byte, me
 // Remove unassociates a metadata entry from a layer DiffID.
 func (serv *v2MetadataService) Remove(metadata V2Metadata) error {
 	if serv.store == nil {
+		// Support a service which has no backend storage, in this case
+		// an remove becomes a no-op.
+		// TODO: implement in memory storage
 		return nil
 	}
 	diffID, err := serv.GetDiffID(metadata.Digest)
