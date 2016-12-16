@@ -48,7 +48,7 @@ func (cli *Client) PluginInstall(ctx context.Context, name string, options types
 			return nil, err
 		}
 		if !accept {
-			return nil, pluginPermissionDenied{name}
+			return nil, pluginPermissionDenied{options.RemoteRef}
 		}
 	}
 
@@ -59,6 +59,8 @@ func (cli *Client) PluginInstall(ctx context.Context, name string, options types
 	if err != nil {
 		return nil, err
 	}
+
+	name = resp.header.Get("Docker-Plugin-Name")
 
 	pr, pw := io.Pipe()
 	go func() { // todo: the client should probably be designed more around the actual api

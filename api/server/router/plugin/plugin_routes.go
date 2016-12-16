@@ -7,10 +7,12 @@ import (
 	"strconv"
 	"strings"
 
+	distreference "github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/server/httputils"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/streamformatter"
+	"github.com/docker/docker/reference"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
@@ -37,6 +39,48 @@ func parseHeaders(headers http.Header) (map[string][]string, *types.AuthConfig) 
 	return metaHeaders, authConfig
 }
 
+// parseRemoteRef parses the remote reference into a reference.Named
+// returning the tag associated with the reference. In the case the
+// given reference string includes both digest and tag, the returned
+// reference will have the digest without the tag, but the tag will
+// be returned.
+func parseRemoteRef(remote string) (reference.Named, string, error) {
+	// Parse remote reference, supporting remotes with name and tag
+	// NOTE: Using distribution reference to handle references
+	// containing both a name and digest
+	remoteRef, err := distreference.ParseNamed(remote)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var tag string
+	if t, ok := remoteRef.(distreference.Tagged); ok {
+		tag = t.Tag()
+	}
+
+	// Convert distribution reference to docker reference
+	// TODO: remove when docker reference changes reconciled upstream
+	ref, err := reference.WithName(remoteRef.Name())
+	if err != nil {
+		return nil, "", err
+	}
+	if d, ok := remoteRef.(distreference.Digested); ok {
+		ref, err = reference.WithDigest(ref, d.Digest())
+		if err != nil {
+			return nil, "", err
+		}
+	} else if tag != "" {
+		ref, err = reference.WithTag(ref, tag)
+		if err != nil {
+			return nil, "", err
+		}
+	} else {
+		ref = reference.WithDefaultTag(ref)
+	}
+
+	return ref, tag, nil
+}
+
 func (pr *pluginRouter) getPrivileges(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	if err := httputils.ParseForm(r); err != nil {
 		return err
@@ -44,7 +88,12 @@ func (pr *pluginRouter) getPrivileges(ctx context.Context, w http.ResponseWriter
 
 	metaHeaders, authConfig := parseHeaders(r.Header)
 
-	privileges, err := pr.backend.Privileges(ctx, r.FormValue("remote"), metaHeaders, authConfig)
+	ref, _, err := parseRemoteRef(r.FormValue("remote"))
+	if err != nil {
+		return err
+	}
+
+	privileges, err := pr.backend.Privileges(ctx, ref, metaHeaders, authConfig)
 	if err != nil {
 		return err
 	}
@@ -67,10 +116,46 @@ func (pr *pluginRouter) pullPlugin(ctx context.Context, w http.ResponseWriter, r
 
 	metaHeaders, authConfig := parseHeaders(r.Header)
 
+	ref, tag, err := parseRemoteRef(r.FormValue("remote"))
+	if err != nil {
+		return err
+	}
+
+	name := r.FormValue("name")
+	if name == "" {
+		if _, ok := ref.(reference.Canonical); ok {
+			trimmed := reference.TrimNamed(ref)
+			if tag != "" {
+				nt, err := reference.WithTag(trimmed, tag)
+				if err != nil {
+					return err
+				}
+				name = nt.String()
+			} else {
+				name = reference.WithDefaultTag(trimmed).String()
+			}
+		} else {
+			name = ref.String()
+		}
+	} else {
+		localRef, err := reference.ParseNamed(name)
+		if err != nil {
+			return err
+		}
+		if _, ok := localRef.(reference.Canonical); ok {
+			return errors.New("cannot use digest in plugin tag")
+		}
+		if distreference.IsNameOnly(localRef) {
+			// TODO: log change in name to out stream
+			name = reference.WithDefaultTag(localRef).String()
+		}
+	}
+	w.Header().Set("Docker-Plugin-Name", name)
+
 	w.Header().Set("Content-Type", "application/json")
 	output := ioutils.NewWriteFlusher(w)
 
-	if err := pr.backend.Pull(ctx, r.FormValue("name"), r.FormValue("remote"), metaHeaders, authConfig, privileges, output); err != nil {
+	if err := pr.backend.Pull(ctx, ref, name, metaHeaders, authConfig, privileges, output); err != nil {
 		if !output.Flushed() {
 			return err
 		}

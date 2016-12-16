@@ -17,7 +17,6 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/manifest/schema2"
-	distreference "github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/distribution"
 	progressutils "github.com/docker/docker/distribution/utils"
@@ -177,55 +176,8 @@ func computePrivileges(c types.PluginConfig) (types.PluginPrivileges, error) {
 	return privileges, nil
 }
 
-// parseRemoteRef parses the remote reference into a reference.Named
-// returning the tag associated with the reference. In the case the
-// given reference string includes both digest and tag, the returned
-// reference will have the digest without the tag, but the tag will
-// be returned.
-func parseRemoteRef(remote string) (reference.Named, string, error) {
-	// Parse remote reference, supporting remotes with name and tag
-	// NOTE: Using distribution reference to handle references
-	// containing both a name and digest
-	remoteRef, err := distreference.ParseNamed(remote)
-	if err != nil {
-		return nil, "", err
-	}
-
-	var tag string
-	if t, ok := remoteRef.(distreference.Tagged); ok {
-		tag = t.Tag()
-	}
-
-	// Convert distribution reference to docker reference
-	// TODO: remove when docker reference changes reconciled upstream
-	ref, err := reference.WithName(remoteRef.Name())
-	if err != nil {
-		return nil, "", err
-	}
-	if d, ok := remoteRef.(distreference.Digested); ok {
-		ref, err = reference.WithDigest(ref, d.Digest())
-		if err != nil {
-			return nil, "", err
-		}
-	} else if tag != "" {
-		ref, err = reference.WithTag(ref, tag)
-		if err != nil {
-			return nil, "", err
-		}
-	} else {
-		ref = reference.WithDefaultTag(ref)
-	}
-
-	return ref, tag, nil
-}
-
 // Privileges pulls a plugin config and computes the privileges required to install it.
-func (pm *Manager) Privileges(ctx context.Context, remote string, metaHeader http.Header, authConfig *types.AuthConfig) (types.PluginPrivileges, error) {
-	ref, _, err := parseRemoteRef(remote)
-	if err != nil {
-		return nil, err
-	}
-
+func (pm *Manager) Privileges(ctx context.Context, ref reference.Named, metaHeader http.Header, authConfig *types.AuthConfig) (types.PluginPrivileges, error) {
 	// create image store instance
 	cs := &tempConfigStore{}
 
@@ -256,43 +208,9 @@ func (pm *Manager) Privileges(ctx context.Context, remote string, metaHeader htt
 }
 
 // Pull pulls a plugin, check if the correct privileges are provided and install the plugin.
-func (pm *Manager) Pull(ctx context.Context, name, remote string, metaHeader http.Header, authConfig *types.AuthConfig, privileges types.PluginPrivileges, outStream io.Writer) (err error) {
+func (pm *Manager) Pull(ctx context.Context, ref reference.Named, name string, metaHeader http.Header, authConfig *types.AuthConfig, privileges types.PluginPrivileges, outStream io.Writer) (err error) {
 	pm.muGC.RLock()
 	defer pm.muGC.RUnlock()
-
-	ref, tag, err := parseRemoteRef(remote)
-	if err != nil {
-		return err
-	}
-
-	if name == "" {
-		if _, ok := ref.(reference.Canonical); ok {
-			trimmed := reference.TrimNamed(ref)
-			if tag != "" {
-				nt, err := reference.WithTag(trimmed, tag)
-				if err != nil {
-					return err
-				}
-				name = nt.String()
-			} else {
-				name = reference.WithDefaultTag(trimmed).String()
-			}
-		} else {
-			name = ref.String()
-		}
-	} else {
-		localRef, err := reference.ParseNamed(name)
-		if err != nil {
-			return err
-		}
-		if _, ok := localRef.(reference.Canonical); ok {
-			return errors.New("cannot use digest in plugin tag")
-		}
-		if distreference.IsNameOnly(localRef) {
-			// TODO: log change in name to out stream
-			name = reference.WithDefaultTag(localRef).String()
-		}
-	}
 
 	if err := pm.config.Store.validateName(name); err != nil {
 		return err
