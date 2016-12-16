@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/plugins"
 	"github.com/docker/docker/plugin/v2"
@@ -234,7 +235,8 @@ func (ps *Store) resolvePluginID(idOrName string) (string, error) {
 		return "", errors.Wrapf(err, "failed to parse %v", idOrName)
 	}
 	if _, ok := ref.(reference.Canonical); ok {
-		return "", errors.New("canonical references cannot be resolved")
+		logrus.Warnf("canonical references cannot be resolved: %v", ref.String())
+		return "", errors.WithStack(ErrNotFound(idOrName))
 	}
 
 	fullRef := reference.WithDefaultTag(ref)
