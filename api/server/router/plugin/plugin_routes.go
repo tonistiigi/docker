@@ -9,6 +9,9 @@ import (
 
 	"github.com/docker/docker/api/server/httputils"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/pkg/ioutils"
+	"github.com/docker/docker/pkg/streamformatter"
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
 
@@ -50,21 +53,31 @@ func (pr *pluginRouter) getPrivileges(ctx context.Context, w http.ResponseWriter
 
 func (pr *pluginRouter) pullPlugin(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	if err := httputils.ParseForm(r); err != nil {
-		return err
+		return errors.Wrap(err, "failed to parse form")
 	}
 
 	var privileges types.PluginPrivileges
-	if err := json.NewDecoder(r.Body).Decode(&privileges); err != nil {
-		return err
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&privileges); err != nil {
+		return errors.Wrap(err, "failed to parse privileges")
+	}
+	if dec.More() {
+		return errors.New("invalid privileges")
 	}
 
 	metaHeaders, authConfig := parseHeaders(r.Header)
 
+	w.Header().Set("Content-Type", "application/json")
+	output := ioutils.NewWriteFlusher(w)
+
 	// TODO: Support output stream
-	if err := pr.backend.Pull(ctx, r.FormValue("name"), metaHeaders, authConfig, privileges, nil); err != nil {
-		return err
+	if err := pr.backend.Pull(ctx, r.FormValue("name"), metaHeaders, authConfig, privileges, output); err != nil {
+		if !output.Flushed() {
+			return err
+		}
+		output.Write(streamformatter.NewJSONStreamFormatter().FormatError(err))
 	}
-	w.WriteHeader(http.StatusCreated)
+
 	return nil
 }
 

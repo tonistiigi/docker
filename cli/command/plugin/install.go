@@ -8,6 +8,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/cli"
 	"github.com/docker/docker/cli/command"
+	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 	"github.com/spf13/cobra"
@@ -81,10 +82,15 @@ func runInstall(dockerCli *command.DockerCli, opts pluginOptions) error {
 		PrivilegeFunc: registryAuthFunc,
 		Args:          opts.args,
 	}
-	if err := dockerCli.Client().PluginInstall(ctx, ref.String(), options); err != nil {
+	responseBody, err := dockerCli.Client().PluginInstall(ctx, ref.String(), options)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintln(dockerCli.Out(), opts.name)
+	defer responseBody.Close()
+	if err := jsonmessage.DisplayJSONMessagesToStream(responseBody, dockerCli.Out(), nil); err != nil {
+		return err
+	}
+	fmt.Fprintf(dockerCli.Out(), "Installed plugin %v\n", opts.name) // todo: return proper values from the API for this result
 	return nil
 }
 

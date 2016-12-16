@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 
@@ -10,7 +11,7 @@ import (
 )
 
 // PluginInstall installs a plugin
-func (cli *Client) PluginInstall(ctx context.Context, name string, options types.PluginInstallOptions) (err error) {
+func (cli *Client) PluginInstall(ctx context.Context, name string, options types.PluginInstallOptions) (rc io.ReadCloser, err error) {
 	// FIXME(vdemeester) name is a ref, we might want to parse/validate it here.
 	query := url.Values{}
 	query.Set("name", name)
@@ -19,56 +20,67 @@ func (cli *Client) PluginInstall(ctx context.Context, name string, options types
 		newAuthHeader, privilegeErr := options.PrivilegeFunc()
 		if privilegeErr != nil {
 			ensureReaderClosed(resp)
-			return privilegeErr
+			return nil, privilegeErr
 		}
 		options.RegistryAuth = newAuthHeader
 		resp, err = cli.tryPluginPrivileges(ctx, query, options.RegistryAuth)
 	}
 	if err != nil {
 		ensureReaderClosed(resp)
-		return err
+		return nil, err
 	}
 
 	var privileges types.PluginPrivileges
 	if err := json.NewDecoder(resp.body).Decode(&privileges); err != nil {
 		ensureReaderClosed(resp)
-		return err
+		return nil, err
 	}
 	ensureReaderClosed(resp)
 
 	if !options.AcceptAllPermissions && options.AcceptPermissionsFunc != nil && len(privileges) > 0 {
 		accept, err := options.AcceptPermissionsFunc(privileges)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !accept {
-			return pluginPermissionDenied{name}
+			return nil, pluginPermissionDenied{name}
 		}
 	}
 
-	_, err = cli.tryPluginPull(ctx, query, privileges, options.RegistryAuth)
+	resp, err = cli.tryPluginPull(ctx, query, privileges, options.RegistryAuth)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	defer func() {
+	pr, pw := io.Pipe()
+	go func() { // todo: the client should probably be designed more around the actual api
+		_, err := io.Copy(pw, resp.body)
 		if err != nil {
-			delResp, _ := cli.delete(ctx, "/plugins/"+name, nil, nil)
-			ensureReaderClosed(delResp)
+			pw.CloseWithError(err)
+			return
 		}
+		defer func() {
+			if err != nil {
+				delResp, _ := cli.delete(ctx, "/plugins/"+name, nil, nil)
+				ensureReaderClosed(delResp)
+			}
+		}()
+		if len(options.Args) > 0 {
+			if err := cli.PluginSet(ctx, name, options.Args); err != nil {
+				pw.CloseWithError(err)
+				return
+			}
+		}
+
+		if options.Disabled {
+			pw.Close()
+			return
+		}
+
+		err = cli.PluginEnable(ctx, name, types.PluginEnableOptions{Timeout: 0})
+		pw.CloseWithError(err)
 	}()
-
-	if len(options.Args) > 0 {
-		if err := cli.PluginSet(ctx, name, options.Args); err != nil {
-			return err
-		}
-	}
-
-	if options.Disabled {
-		return nil
-	}
-
-	return cli.PluginEnable(ctx, name, types.PluginEnableOptions{Timeout: 0})
+	return pr, nil
 }
 
 func (cli *Client) tryPluginPrivileges(ctx context.Context, query url.Values, registryAuth string) (serverResponse, error) {

@@ -111,7 +111,7 @@ type PluginAPIClient interface {
 	PluginRemove(ctx context.Context, name string, options types.PluginRemoveOptions) error
 	PluginEnable(ctx context.Context, name string, options types.PluginEnableOptions) error
 	PluginDisable(ctx context.Context, name string, options types.PluginDisableOptions) error
-	PluginInstall(ctx context.Context, name string, options types.PluginInstallOptions) error
+	PluginInstall(ctx context.Context, name string, options types.PluginInstallOptions) (io.ReadCloser, error)
 	PluginPush(ctx context.Context, name string, registryAuth string) error
 	PluginSet(ctx context.Context, name string, args []string) error
 	PluginInspectWithRaw(ctx context.Context, name string) (*types.Plugin, []byte, error)
