@@ -31,7 +31,7 @@ func (r *pluginRouter) initRoutes() {
 		router.NewPostRoute("/plugins/{name:.*}/enable", r.enablePlugin), // PATCH?
 		router.NewPostRoute("/plugins/{name:.*}/disable", r.disablePlugin),
 		router.Cancellable(router.NewPostRoute("/plugins/pull", r.pullPlugin)),
-		router.NewPostRoute("/plugins/{name:.*}/push", r.pushPlugin),
+		router.Cancellable(router.NewPostRoute("/plugins/{name:.*}/push", r.pushPlugin)),
 		router.NewPostRoute("/plugins/{name:.*}/set", r.setPlugin),
 		router.NewPostRoute("/plugins/create", r.createPlugin),
 	}

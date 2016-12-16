@@ -70,7 +70,6 @@ func (pr *pluginRouter) pullPlugin(ctx context.Context, w http.ResponseWriter, r
 	w.Header().Set("Content-Type", "application/json")
 	output := ioutils.NewWriteFlusher(w)
 
-	// TODO: Support output stream
 	if err := pr.backend.Pull(ctx, r.FormValue("name"), metaHeaders, authConfig, privileges, output); err != nil {
 		if !output.Flushed() {
 			return err
@@ -139,12 +138,21 @@ func (pr *pluginRouter) removePlugin(ctx context.Context, w http.ResponseWriter,
 
 func (pr *pluginRouter) pushPlugin(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	if err := httputils.ParseForm(r); err != nil {
-		return err
+		return errors.Wrap(err, "failed to parse form")
 	}
 
 	metaHeaders, authConfig := parseHeaders(r.Header)
 
-	return pr.backend.Push(ctx, vars["name"], metaHeaders, authConfig, nil)
+	w.Header().Set("Content-Type", "application/json")
+	output := ioutils.NewWriteFlusher(w)
+
+	if err := pr.backend.Push(ctx, vars["name"], metaHeaders, authConfig, output); err != nil {
+		if !output.Flushed() {
+			return err
+		}
+		output.Write(streamformatter.NewJSONStreamFormatter().FormatError(err))
+	}
+	return nil
 }
 
 func (pr *pluginRouter) setPlugin(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
