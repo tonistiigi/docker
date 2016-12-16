@@ -1347,7 +1347,7 @@ definitions:
   Plugin:
     description: "A plugin for the Engine API"
     type: "object"
-    required: [Settings, Enabled, Config, Name, Tag]
+    required: [Settings, Enabled, Config, Name]
     properties:
       Id:
         type: "string"
@@ -1496,7 +1496,6 @@ definitions:
                 type: "array"
                 items:
                   type: "string"
-                
     example:
       Id: "5724e2c8652da337ab2eedd19fc6fc0ec908e4bd907c7421bf6a8dfc70c4c078"
       Name: "tiborvass/no-remove"

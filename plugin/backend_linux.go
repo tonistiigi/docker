@@ -28,6 +28,7 @@ import (
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/pools"
 	"github.com/docker/docker/pkg/progress"
+	"github.com/docker/docker/plugin/v2"
 	"github.com/docker/docker/reference"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
@@ -461,7 +462,7 @@ func (r *pluginReference) Delete(ref reference.Named) (bool, error) {
 
 type pluginConfigStore struct {
 	pm     *Manager
-	plugin *Plugin
+	plugin *v2.Plugin
 }
 
 func (s *pluginConfigStore) Put([]byte) (digest.Digest, error) {
@@ -486,7 +487,7 @@ func (s *pluginConfigStore) RootFSFromConfig(c []byte) (*image.RootFS, error) {
 
 type pluginLayerProvider struct {
 	pm     *Manager
-	plugin *Plugin
+	plugin *v2.Plugin
 }
 
 func configToRootFS(c []byte) (*image.RootFS, error) {
@@ -767,6 +768,9 @@ func splitConfigRootFSFromTar(in io.ReadCloser, config *[]byte) io.ReadCloser {
 			}
 			if parts := strings.Split(name, string(filepath.Separator)); len(parts) != 0 && parts[0] == rootfsFileName {
 				hdr.Name = filepath.Clean(filepath.Join(parts[1:]...))
+				if strings.HasPrefix(strings.ToLower(hdr.Linkname), rootfsFileName+"/") {
+					hdr.Linkname = hdr.Linkname[len(rootfsFileName):]
+				}
 				if err := tarWriter.WriteHeader(hdr); err != nil {
 					pw.CloseWithError(errors.Wrap(err, "error writing tar header"))
 					return
@@ -782,19 +786,4 @@ func splitConfigRootFSFromTar(in io.ReadCloser, config *[]byte) io.ReadCloser {
 		}
 	}()
 	return pr
-}
-
-func getPluginName(name string) (string, error) {
-	named, err := reference.ParseNamed(name) // FIXME: validate
-	if err != nil {
-		return "", err
-	}
-	if reference.IsNameOnly(named) {
-		named = reference.WithDefaultTag(named)
-	}
-	ref, ok := named.(reference.NamedTagged)
-	if !ok {
-		return "", fmt.Errorf("invalid name: %s", named.String())
-	}
-	return ref.String(), nil
 }

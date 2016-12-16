@@ -11,6 +11,8 @@ import (
 	"github.com/docker/docker/pkg/streamformatter"
 )
 
+// WriteDistributionProgress is a helper for writing progress from chan to JSON
+// stream with an optional cancel function.
 func WriteDistributionProgress(cancelFunc func(), outStream io.Writer, progressChan <-chan progress.Progress) {
 	progressOutput := streamformatter.NewJSONStreamFormatter().NewProgressOutput(outStream, false)
 	operationCancelled := false

@@ -6,6 +6,7 @@ import (
 
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/plugins"
+	"github.com/docker/docker/plugin/v2"
 	"github.com/docker/docker/reference"
 	"github.com/pkg/errors"
 )
@@ -34,8 +35,8 @@ func (name ErrAmbiguous) Error() string {
 	return fmt.Sprintf("multiple plugins found for %q", string(name))
 }
 
-// GetByName retreives a plugin by name.
-func (ps *Store) GetV2Plugin(refOrID string) (*Plugin, error) {
+// GetV2Plugin retreives a plugin by name, id or partial ID.
+func (ps *Store) GetV2Plugin(refOrID string) (*v2.Plugin, error) {
 	ps.RLock()
 	defer ps.RUnlock()
 
@@ -63,14 +64,14 @@ func (ps *Store) validateName(name string) error {
 }
 
 // GetAll retreives all plugins.
-func (ps *Store) GetAll() map[string]*Plugin {
+func (ps *Store) GetAll() map[string]*v2.Plugin {
 	ps.RLock()
 	defer ps.RUnlock()
 	return ps.plugins
 }
 
 // SetAll initialized plugins during daemon restore.
-func (ps *Store) SetAll(plugins map[string]*Plugin) {
+func (ps *Store) SetAll(plugins map[string]*v2.Plugin) {
 	ps.Lock()
 	defer ps.Unlock()
 	ps.plugins = plugins
@@ -92,7 +93,7 @@ func (ps *Store) getAllByCap(capability string) []plugingetter.CompatPlugin {
 }
 
 // SetState sets the active state of the plugin and updates plugindb.
-func (ps *Store) SetState(p *Plugin, state bool) {
+func (ps *Store) SetState(p *v2.Plugin, state bool) {
 	ps.Lock()
 	defer ps.Unlock()
 
@@ -101,7 +102,7 @@ func (ps *Store) SetState(p *Plugin, state bool) {
 
 // Add adds a plugin to memory and plugindb.
 // An error will be returned if there is a collision.
-func (ps *Store) Add(p *Plugin) error {
+func (ps *Store) Add(p *v2.Plugin) error {
 	ps.Lock()
 	defer ps.Unlock()
 
@@ -113,7 +114,7 @@ func (ps *Store) Add(p *Plugin) error {
 }
 
 // Remove removes a plugin from memory and plugindb.
-func (ps *Store) Remove(p *Plugin) {
+func (ps *Store) Remove(p *v2.Plugin) {
 	ps.Lock()
 	delete(ps.plugins, p.GetID())
 	ps.Unlock()
@@ -122,7 +123,7 @@ func (ps *Store) Remove(p *Plugin) {
 // Get returns an enabled plugin matching the given name and capability.
 func (ps *Store) Get(name, capability string, mode int) (plugingetter.CompatPlugin, error) {
 	var (
-		p   *Plugin
+		p   *v2.Plugin
 		err error
 	)
 
@@ -212,7 +213,7 @@ func (ps *Store) Handle(capability string, callback func(string, *plugins.Client
 }
 
 // CallHandler calls the registered callback. It is invoked during plugin enable.
-func (ps *Store) CallHandler(p *Plugin) {
+func (ps *Store) CallHandler(p *v2.Plugin) {
 	for _, typ := range p.GetTypes() {
 		for _, handler := range ps.handlers[typ.String()] {
 			handler(p.Name(), p.Client())
@@ -238,7 +239,7 @@ func (ps *Store) resolvePluginID(idOrName string) (string, error) {
 
 	fullRef := reference.WithDefaultTag(ref)
 
-	var found *Plugin
+	var found *v2.Plugin
 	for id, p := range ps.plugins { // this can be optimized
 		if p.PluginObj.Name == ref.String() || p.PluginObj.Name == fullRef.String() {
 			return p.PluginObj.ID, nil

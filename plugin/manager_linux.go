@@ -13,10 +13,11 @@ import (
 	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/plugins"
+	"github.com/docker/docker/plugin/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
-func (pm *Manager) enable(p *Plugin, c *controller, force bool) error {
+func (pm *Manager) enable(p *v2.Plugin, c *controller, force bool) error {
 	p.Rootfs = filepath.Join(pm.config.Root, p.PluginObj.ID, "rootfs")
 	if p.IsEnabled() && !force {
 		return fmt.Errorf("plugin %s is already enabled", p.Name())
@@ -55,7 +56,7 @@ func (pm *Manager) enable(p *Plugin, c *controller, force bool) error {
 	return pm.pluginPostStart(p, c)
 }
 
-func (pm *Manager) pluginPostStart(p *Plugin, c *controller) error {
+func (pm *Manager) pluginPostStart(p *v2.Plugin, c *controller) error {
 	client, err := plugins.NewClientWithTimeout("unix://"+filepath.Join(pm.config.ExecRoot, p.GetID(), p.GetSocket()), nil, c.timeoutInSecs)
 	if err != nil {
 		c.restart = false
@@ -70,7 +71,7 @@ func (pm *Manager) pluginPostStart(p *Plugin, c *controller) error {
 	return pm.save(p)
 }
 
-func (pm *Manager) restore(p *Plugin) error {
+func (pm *Manager) restore(p *v2.Plugin) error {
 	if err := pm.containerdClient.Restore(p.GetID(), attachToLog(p.GetID())); err != nil {
 		return err
 	}
@@ -93,7 +94,7 @@ func (pm *Manager) restore(p *Plugin) error {
 	return nil
 }
 
-func shutdownPlugin(p *Plugin, c *controller, containerdClient libcontainerd.Client) {
+func shutdownPlugin(p *v2.Plugin, c *controller, containerdClient libcontainerd.Client) {
 	pluginID := p.GetID()
 
 	err := containerdClient.Signal(pluginID, int(syscall.SIGTERM))
@@ -112,7 +113,7 @@ func shutdownPlugin(p *Plugin, c *controller, containerdClient libcontainerd.Cli
 	}
 }
 
-func (pm *Manager) disable(p *Plugin, c *controller) error {
+func (pm *Manager) disable(p *v2.Plugin, c *controller) error {
 	if !p.IsEnabled() {
 		return fmt.Errorf("plugin %s is already disabled", p.Name())
 	}

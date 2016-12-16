@@ -1,4 +1,4 @@
-package plugin
+package v2
 
 import (
 	"errors"
@@ -84,7 +84,8 @@ func (p *Plugin) FilterByCap(capability string) (*Plugin, error) {
 	return nil, ErrInadequateCapability{capability}
 }
 
-func (p *Plugin) initEmptySettings() {
+// InitEmptySettings initializes empty settings for a plugin.
+func (p *Plugin) InitEmptySettings() {
 	p.PluginObj.Settings.Mounts = make([]types.PluginMount, len(p.PluginObj.Config.Mounts))
 	copy(p.PluginObj.Settings.Mounts, p.PluginObj.Config.Mounts)
 	p.PluginObj.Settings.Devices = make([]types.PluginDevice, len(p.PluginObj.Config.Linux.Devices))

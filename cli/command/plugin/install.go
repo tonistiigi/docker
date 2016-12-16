@@ -118,7 +118,7 @@ func runInstall(dockerCli *command.DockerCli, opts pluginOptions) error {
 	if err := jsonmessage.DisplayJSONMessagesToStream(responseBody, dockerCli.Out(), nil); err != nil {
 		return err
 	}
-	fmt.Fprintf(dockerCli.Out(), "Installed plugin %v\n", opts.name) // todo: return proper values from the API for this result
+	fmt.Fprintf(dockerCli.Out(), "Installed plugin %s\n", opts.name) // todo: return proper values from the API for this result
 	return nil
 }
 

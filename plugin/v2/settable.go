@@ -1,4 +1,4 @@
-package plugin
+package v2
 
 import (
 	"errors"

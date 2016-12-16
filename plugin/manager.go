@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/stringid"
+	"github.com/docker/docker/plugin/v2"
 	"github.com/docker/docker/registry"
 	"github.com/pkg/errors"
 )
@@ -24,7 +25,7 @@ import (
 const configFileName = "config.json"
 const rootfsFileName = "rootfs"
 
-func (pm *Manager) restorePlugin(p *Plugin) error {
+func (pm *Manager) restorePlugin(p *v2.Plugin) error {
 	if p.IsEnabled() {
 		return pm.restore(p)
 	}
@@ -33,6 +34,7 @@ func (pm *Manager) restorePlugin(p *Plugin) error {
 
 type eventLogger func(id, name, action string)
 
+// ManagerConfig defines configuration needed to start new manager.
 type ManagerConfig struct {
 	Store              *Store // remove
 	Executor           libcontainerd.Remote
@@ -48,7 +50,7 @@ type Manager struct {
 	config           ManagerConfig
 	mu               sync.RWMutex // protects cMap
 	muGC             sync.RWMutex // protects blobstore deletions
-	cMap             map[*Plugin]*controller
+	cMap             map[*v2.Plugin]*controller
 	containerdClient libcontainerd.Client
 	blobStore        *basicBlobStore
 }
@@ -84,7 +86,7 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 		return nil, err
 	}
 
-	manager.cMap = make(map[*Plugin]*controller)
+	manager.cMap = make(map[*v2.Plugin]*controller)
 	if err := manager.reload(); err != nil {
 		return nil, errors.Wrap(err, "failed to restore plugins")
 	}
@@ -136,7 +138,7 @@ func (pm *Manager) reload() error { // todo: restore
 	if err != nil {
 		return errors.Wrapf(err, "failed to read %v", pm.config.Root)
 	}
-	plugins := make(map[string]*Plugin)
+	plugins := make(map[string]*v2.Plugin)
 	for _, v := range dir {
 		if validFullID.MatchString(v.Name()) {
 			p, err := pm.loadPlugin(v.Name())
@@ -154,7 +156,7 @@ func (pm *Manager) reload() error { // todo: restore
 	for _, p := range plugins {
 		c := &controller{} // todo: remove this
 		pm.cMap[p] = c
-		go func(p *Plugin) {
+		go func(p *v2.Plugin) {
 			defer wg.Done()
 			if err := pm.restorePlugin(p); err != nil {
 				logrus.Errorf("failed to restore plugin '%s': %s", p.Name(), err)
@@ -194,13 +196,13 @@ func (pm *Manager) reload() error { // todo: restore
 	return nil
 }
 
-func (pm *Manager) loadPlugin(id string) (*Plugin, error) {
+func (pm *Manager) loadPlugin(id string) (*v2.Plugin, error) {
 	p := filepath.Join(pm.config.Root, id, configFileName)
 	dt, err := ioutil.ReadFile(p)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error reading %v", p)
 	}
-	var plugin Plugin
+	var plugin v2.Plugin
 	if err := json.Unmarshal(dt, &plugin); err != nil {
 		return nil, errors.Wrapf(err, "error decoding %v", p)
 	}
@@ -208,7 +210,7 @@ func (pm *Manager) loadPlugin(id string) (*Plugin, error) {
 }
 
 // createPlugin creates a new plugin. take lock before calling.
-func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsums []digest.Digest, rootfsDir string, privileges *types.PluginPrivileges) (p *Plugin, err error) {
+func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsums []digest.Digest, rootfsDir string, privileges *types.PluginPrivileges) (p *v2.Plugin, err error) {
 	if err := pm.config.Store.validateName(name); err != nil { // todo: this check is wrong. remove store
 		return nil, err
 	}
@@ -238,7 +240,7 @@ func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsum
 		}
 	}
 
-	p = &Plugin{
+	p = &v2.Plugin{
 		PluginObj: types.Plugin{
 			Name:   name,
 			ID:     stringid.GenerateRandomID(),
@@ -247,7 +249,7 @@ func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsum
 		Config:   configDigest,
 		Blobsums: blobsums,
 	}
-	p.initEmptySettings()
+	p.InitEmptySettings()
 
 	pdir := filepath.Join(pm.config.Root, p.PluginObj.ID)
 	if err := os.MkdirAll(pdir, 0700); err != nil {
@@ -273,7 +275,7 @@ func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsum
 	return p, nil
 }
 
-func (pm *Manager) save(p *Plugin) error {
+func (pm *Manager) save(p *v2.Plugin) error {
 	pluginJSON, err := json.Marshal(p)
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal plugin json")
@@ -284,7 +286,7 @@ func (pm *Manager) save(p *Plugin) error {
 	return nil
 }
 
-// Run GC to cleanup unrefrenced blobs. This is recommended to run in a goroutine
+// GC cleans up unrefrenced blobs. This is recommended to run in a goroutine
 func (pm *Manager) GC() {
 	pm.muGC.Lock()
 	defer pm.muGC.Unlock()
