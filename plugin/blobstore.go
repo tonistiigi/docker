@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
@@ -52,6 +53,23 @@ func (b *basicBlobStore) Size(dgst digest.Digest) (int64, error) {
 		return 0, err
 	}
 	return stat.Size(), nil
+}
+
+func (b *basicBlobStore) gc(whitelist map[digest.Digest]struct{}) {
+	for _, alg := range []string{string(digest.Canonical)} {
+		items, err := ioutil.ReadDir(filepath.Join(b.path, alg))
+		if err != nil {
+			continue
+		}
+		for _, fi := range items {
+			if _, exists := whitelist[digest.Digest(alg+":"+fi.Name())]; !exists {
+				p := filepath.Join(b.path, alg, fi.Name())
+				err := os.RemoveAll(p)
+				logrus.Debugf("cleaned up blob %v: %v", p, err)
+			}
+		}
+	}
+
 }
 
 type WriteCommitCloser interface {

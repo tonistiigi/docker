@@ -254,6 +254,9 @@ func (pm *Manager) Privileges(ctx context.Context, name string, metaHeader http.
 
 // Pull pulls a plugin, check if the correct privileges are provided and install the plugin.
 func (pm *Manager) Pull(ctx context.Context, name string, metaHeader http.Header, authConfig *types.AuthConfig, privileges types.PluginPrivileges, outStream io.Writer) (err error) {
+	pm.muGC.RLock()
+	defer pm.muGC.RUnlock()
+
 	tmpRootfsDir, err := ioutil.TempDir(pm.tmpDir(), ".rootfs")
 	defer os.RemoveAll(tmpRootfsDir)
 
@@ -276,11 +279,11 @@ func (pm *Manager) Pull(ctx context.Context, name string, metaHeader http.Header
 
 	err = pm.pull(ctx, name, pluginPullConfig, outStream)
 	if err != nil {
+		go pm.GC()
 		return err
 	}
 
 	if _, err := pm.createPlugin(name, dm.configDigest, dm.blobs, tmpRootfsDir, &privileges); err != nil {
-		// todo: clear unused blobs
 		return err
 	}
 
@@ -550,6 +553,10 @@ func (pm *Manager) Remove(name string, config *types.PluginRmConfig) (err error)
 		}
 	}
 
+	defer func() {
+		go pm.GC()
+	}()
+
 	id := p.GetID()
 	pluginDir := filepath.Join(pm.config.Root, id)
 
@@ -580,7 +587,10 @@ func (pm *Manager) Set(name string, args []string) error {
 
 // CreateFromContext creates a plugin from the given pluginDir which contains
 // both the rootfs and the config.json and a repoName with optional tag.
-func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, options *types.PluginCreateOptions) error {
+func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, options *types.PluginCreateOptions) (err error) {
+	pm.muGC.RLock()
+	defer pm.muGC.RUnlock()
+
 	ref, err := reference.ParseNamed(options.RepoName)
 	if err != nil {
 		return errors.Wrapf(err, "failed to parse reference %v", options.RepoName)
@@ -638,16 +648,15 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, 
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	var cleanupBlobs []digest.Digest
-	defer func() {
-		pm.cleanupUnusedBlobs(cleanupBlobs...)
-	}()
-
 	rootFSBlobsum, err := rootFSBlob.Commit()
 	if err != nil {
 		return err
 	}
-	cleanupBlobs = append(cleanupBlobs, rootFSBlobsum)
+	defer func() {
+		if err != nil {
+			go pm.GC()
+		}
+	}()
 
 	config.Rootfs = &types.PluginConfigRootfs{
 		Type:    "layers",
@@ -665,16 +674,15 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, 
 	if err != nil {
 		return err
 	}
-	cleanupBlobs = append(cleanupBlobs, configBlobsum)
 
 	p, err := pm.createPlugin(name, configBlobsum, []digest.Digest{rootFSBlobsum}, tmpRootfsDir, nil)
-	if err == nil {
-		cleanupBlobs = nil
+	if err != nil {
+		return err
 	}
 
 	pm.config.LogPluginEvent(p.PluginObj.ID, name, "create")
 
-	return err
+	return nil
 }
 
 func (pm *Manager) validateConfig(config types.PluginConfig) error {

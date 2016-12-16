@@ -1,12 +1,9 @@
 package plugin
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/plugins"
 	"github.com/docker/docker/reference"
@@ -115,30 +112,11 @@ func (ps *Store) Add(p *Plugin) error {
 	return nil
 }
 
-// Update updates a plugin to memory and plugindb.
-func (ps *Store) Update(p *Plugin) {
-	ps.Lock()
-	defer ps.Unlock()
-
-	ps.plugins[p.GetID()] = p
-}
-
 // Remove removes a plugin from memory and plugindb.
 func (ps *Store) Remove(p *Plugin) {
 	ps.Lock()
 	delete(ps.plugins, p.GetID())
 	ps.Unlock()
-}
-
-// Callers are expected to hold the store lock.
-func (ps *Store) updatePluginDB() error {
-	jsonData, err := json.Marshal(ps.plugins)
-	if err != nil {
-		logrus.Debugf("Error in json.Marshal: %v", err)
-		return err
-	}
-	ioutils.AtomicWriteFile(ps.plugindb, jsonData, 0600)
-	return nil
 }
 
 // Get returns an enabled plugin matching the given name and capability.

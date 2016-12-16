@@ -47,6 +47,7 @@ type ManagerConfig struct {
 type Manager struct {
 	config           ManagerConfig
 	mu               sync.RWMutex // protects cMap
+	muGC             sync.RWMutex // protects blobstore deletions
 	cMap             map[*Plugin]*controller
 	containerdClient libcontainerd.Client
 	blobStore        *basicBlobStore
@@ -178,7 +179,7 @@ func (pm *Manager) reload() error { // todo: restore
 				}
 			}
 
-			pm.config.Store.Update(p)
+			pm.save(p)
 			requiresManualRestore := !pm.config.LiveRestoreEnabled && p.IsEnabled()
 
 			if requiresManualRestore {
@@ -283,8 +284,20 @@ func (pm *Manager) save(p *Plugin) error {
 	return nil
 }
 
-func (pm *Manager) cleanupUnusedBlobs(d ...digest.Digest) {
-	// todo:
+// Run GC to cleanup unrefrenced blobs. This is recommended to run in a goroutine
+func (pm *Manager) GC() {
+	pm.muGC.Lock()
+	defer pm.muGC.Unlock()
+
+	whitelist := make(map[digest.Digest]struct{})
+	for _, p := range pm.config.Store.GetAll() {
+		whitelist[p.Config] = struct{}{}
+		for _, b := range p.Blobsums {
+			whitelist[b] = struct{}{}
+		}
+	}
+
+	pm.blobStore.gc(whitelist)
 }
 
 type logHook struct{ id string }
