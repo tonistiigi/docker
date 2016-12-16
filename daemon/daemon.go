@@ -8,7 +8,6 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net"
 	"os"
@@ -17,7 +16,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -43,10 +41,8 @@ import (
 	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/plugingetter"
-	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/registrar"
 	"github.com/docker/docker/pkg/signal"
-	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/sysinfo"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/pkg/truncindex"
@@ -904,36 +900,6 @@ func (daemon *Daemon) V6Subnets() []net.IPNet {
 	}
 
 	return subnets
-}
-
-func writeDistributionProgress(cancelFunc func(), outStream io.Writer, progressChan <-chan progress.Progress) {
-	progressOutput := streamformatter.NewJSONStreamFormatter().NewProgressOutput(outStream, false)
-	operationCancelled := false
-
-	for prog := range progressChan {
-		if err := progressOutput.WriteProgress(prog); err != nil && !operationCancelled {
-			// don't log broken pipe errors as this is the normal case when a client aborts
-			if isBrokenPipe(err) {
-				logrus.Info("Pull session cancelled")
-			} else {
-				logrus.Errorf("error writing progress to client: %v", err)
-			}
-			cancelFunc()
-			operationCancelled = true
-			// Don't return, because we need to continue draining
-			// progressChan until it's closed to avoid a deadlock.
-		}
-	}
-}
-
-func isBrokenPipe(e error) bool {
-	if netErr, ok := e.(*net.OpError); ok {
-		e = netErr.Err
-		if sysErr, ok := netErr.Err.(*os.SyscallError); ok {
-			e = sysErr.Err
-		}
-	}
-	return e == syscall.EPIPE
 }
 
 // GraphDriverName returns the name of the graph driver used by the layer.Store

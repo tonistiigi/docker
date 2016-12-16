@@ -9,26 +9,24 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/digest"
 	"github.com/docker/distribution/manifest/schema2"
 	"github.com/docker/docker/api/types"
 	dockerdist "github.com/docker/docker/distribution"
+	progressutils "github.com/docker/docker/distribution/utils"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/pools"
 	"github.com/docker/docker/pkg/progress"
-	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/reference"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
@@ -110,7 +108,7 @@ func (pm *Manager) pull(ctx context.Context, name string, config *dockerdist.Ima
 		ctx, cancelFunc = context.WithCancel(ctx)
 
 		go func() {
-			writeDistributionProgress(cancelFunc, outStream, progressChan)
+			progressutils.WriteDistributionProgress(cancelFunc, outStream, progressChan)
 			close(writesDone)
 		}()
 
@@ -144,36 +142,6 @@ func (s *tempConfigStore) Get(d digest.Digest) ([]byte, error) {
 
 func (s *tempConfigStore) RootFSFromConfig(c []byte) (*image.RootFS, error) {
 	return configToRootFS(c)
-}
-
-func writeDistributionProgress(cancelFunc func(), outStream io.Writer, progressChan <-chan progress.Progress) {
-	progressOutput := streamformatter.NewJSONStreamFormatter().NewProgressOutput(outStream, false)
-	operationCancelled := false
-
-	for prog := range progressChan {
-		if err := progressOutput.WriteProgress(prog); err != nil && !operationCancelled {
-			// don't log broken pipe errors as this is the normal case when a client aborts
-			if isBrokenPipe(err) {
-				logrus.Info("Pull session cancelled")
-			} else {
-				logrus.Errorf("error writing progress to client: %v", err)
-			}
-			cancelFunc()
-			operationCancelled = true
-			// Don't return, because we need to continue draining
-			// progressChan until it's closed to avoid a deadlock.
-		}
-	}
-}
-
-func isBrokenPipe(e error) bool {
-	if netErr, ok := e.(*net.OpError); ok {
-		e = netErr.Err
-		if sysErr, ok := netErr.Err.(*os.SyscallError); ok {
-			e = sysErr.Err
-		}
-	}
-	return e == syscall.EPIPE
 }
 
 func computePrivileges(c types.PluginConfig) (types.PluginPrivileges, error) {
@@ -329,7 +297,7 @@ func (pm *Manager) Push(ctx context.Context, name string, metaHeader http.Header
 		ctx, cancelFunc = context.WithCancel(ctx)
 
 		go func() {
-			writeDistributionProgress(cancelFunc, outStream, progressChan)
+			progressutils.WriteDistributionProgress(cancelFunc, outStream, progressChan)
 			close(writesDone)
 		}()
 
