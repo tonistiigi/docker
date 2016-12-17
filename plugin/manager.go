@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/plugin/v2"
+	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 	"github.com/pkg/errors"
 )
@@ -66,8 +67,25 @@ type controller struct {
 	timeoutInSecs int
 }
 
+// pluginRegistryService ensures that all resolved repositories
+// are of the plugin class.
+type pluginRegistryService struct {
+	registry.Service
+}
+
+func (s pluginRegistryService) ResolveRepository(name reference.Named) (repoInfo *registry.RepositoryInfo, err error) {
+	repoInfo, err = s.Service.ResolveRepository(name)
+	if repoInfo != nil {
+		repoInfo.Class = "plugin"
+	}
+	return
+}
+
 // NewManager returns a new plugin manager.
 func NewManager(config ManagerConfig) (*Manager, error) {
+	if config.RegistryService != nil {
+		config.RegistryService = pluginRegistryService{config.RegistryService}
+	}
 	manager := &Manager{
 		config: config,
 	}
