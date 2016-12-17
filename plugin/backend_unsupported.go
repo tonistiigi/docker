@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/reference"
 	"golang.org/x/net/context"
 )
 
@@ -29,12 +30,12 @@ func (pm *Manager) Inspect(refOrID string) (tp *types.Plugin, err error) {
 }
 
 // Privileges pulls a plugin config and computes the privileges required to install it.
-func (pm *Manager) Privileges(ctx context.Context, name string, metaHeaders http.Header, authConfig *types.AuthConfig) (types.PluginPrivileges, error) {
+func (pm *Manager) Privileges(ctx context.Context, ref reference.Named, metaHeader http.Header, authConfig *types.AuthConfig) (types.PluginPrivileges, error) {
 	return nil, errNotSupported
 }
 
 // Pull pulls a plugin, check if the correct privileges are provided and install the plugin.
-func (pm *Manager) Pull(ctx context.Context, name, remote string, metaHeader http.Header, authConfig *types.AuthConfig, privileges types.PluginPrivileges, out io.Writer) error {
+func (pm *Manager) Pull(ctx context.Context, ref reference.Named, name string, metaHeader http.Header, authConfig *types.AuthConfig, privileges types.PluginPrivileges, out io.Writer) error {
 	return errNotSupported
 }
 
