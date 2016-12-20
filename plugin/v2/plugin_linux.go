@@ -106,7 +106,7 @@ func (p *Plugin) InitSpec(execRoot string) (*specs.Spec, error) {
 	envs = append(envs, p.PluginObj.Settings.Env...)
 
 	args := append(p.PluginObj.Config.Entrypoint, p.PluginObj.Settings.Args...)
-	cwd := p.PluginObj.Config.Workdir
+	cwd := p.PluginObj.Config.WorkDir
 	if len(cwd) == 0 {
 		cwd = "/"
 	}

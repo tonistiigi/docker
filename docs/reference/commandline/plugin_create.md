@@ -16,7 +16,7 @@ keywords: "plugin, create"
 # plugin create
 
 ```markdown
-Usage:  docker plugin create [OPTIONS] PLUGIN[:tag] PATH-TO-ROOTFS(rootfs + config.json)
+Usage:  docker plugin create [OPTIONS] PLUGIN PATH-TO-ROOTFS(rootfs + config.json)
 
 Create a plugin from a rootfs and configuration
 

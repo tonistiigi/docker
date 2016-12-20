@@ -450,9 +450,8 @@ func (l *pluginLayer) Open() (io.ReadCloser, error) {
 	return l.pm.blobStore.Get(l.blobs[0])
 }
 
-func (l *pluginLayer) Size() int64 {
-	size, _ := l.pm.blobStore.Size(l.blobs[0])
-	return size
+func (l *pluginLayer) Size() (int64, error) {
+	return l.pm.blobStore.Size(l.blobs[0])
 }
 
 func (l *pluginLayer) MediaType() string {
@@ -597,6 +596,7 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, 
 	if err != nil {
 		return err
 	}
+	defer configBlob.Close()
 	if err := json.NewEncoder(configBlob).Encode(config); err != nil {
 		return errors.Wrap(err, "error encoding json config")
 	}
@@ -653,7 +653,7 @@ func splitConfigRootFSFromTar(in io.ReadCloser, config *[]byte) io.ReadCloser {
 			if name == configFileName {
 				dt, err := ioutil.ReadAll(content)
 				if err != nil {
-					pw.CloseWithError(errors.Wrap(err, "failed to read config.json"))
+					pw.CloseWithError(errors.Wrapf(err, "failed to read %s", configFileName))
 					return
 				}
 				*config = dt

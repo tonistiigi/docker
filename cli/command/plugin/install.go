@@ -43,7 +43,7 @@ func newInstallCommand(dockerCli *command.DockerCli) *cobra.Command {
 	flags := cmd.Flags()
 	flags.BoolVar(&options.grantPerms, "grant-all-permissions", false, "Grant all permissions necessary to run the plugin")
 	flags.BoolVar(&options.disable, "disable", false, "Do not enable the plugin on install")
-	flags.StringVar(&options.alias, "alias", "", "Local tag reference for plugin")
+	flags.StringVar(&options.alias, "alias", "", "Local name for plugin")
 
 	return cmd
 }

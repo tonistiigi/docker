@@ -74,9 +74,9 @@ type PluginConfig struct {
 	// user
 	User PluginConfigUser `json:"User,omitempty"`
 
-	// workdir
+	// work dir
 	// Required: true
-	Workdir string `json:"Workdir"`
+	WorkDir string `json:"WorkDir"`
 
 	// rootfs
 	Rootfs *PluginConfigRootfs `json:"rootfs,omitempty"`
