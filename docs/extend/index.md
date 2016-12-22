@@ -119,17 +119,17 @@ plugin's filesystem for docker to communicate with the plugin.
 ```bash
 $ git clone https://github.com/vieux/docker-volume-sshfs
 $ cd docker-volume-sshfs
-$ docker build -t rootfs .
-$ id=$(docker create rootfs true) # id was cd851ce43a403 when the image was created
+$ docker build -t rootfsimage .
+$ id=$(docker create rootfsimage true) # id was cd851ce43a403 when the image was created
 $ sudo mkdir -p myplugin/rootfs
 $ sudo docker export "$id" | sudo tar -x -C myplugin/rootfs
 $ docker rm -vf "$id"
-$ docker rmi rootfs
+$ docker rmi rootfsimage
 ```
 
 #### The config.json file
 
-The `config.json` file describes the plugin. [See the Plugins Config reference](config.md).
+The `config.json` file describes the plugin. See the [plugins config reference](config.md).
 
 Consider the following `config.json` file.
 
@@ -156,6 +156,11 @@ with Docker Engine. This plugin has no runtime parameters.
 
 ### Creating the plugin
 
-New plugin can be created by running `docker plugin create <plugin-name> ./path/to/plugin/data` where the plugin data contains plugin configuration file `config.json` and a root filesystem in subdirectory `rootfs`. 
+A new plugin can be created by running
+`docker plugin create <plugin-name> ./path/to/plugin/data` where the plugin
+data contains a plugin configuration file `config.json` and a root filesystem
+in subdirectory `rootfs`. 
 
-After that plugin `<plugin-name>` will show up in `docker plugin ls`. Plugins can be pushed to remote registries with `docker plugin push <plugin-name>`.
+After that the plugin `<plugin-name>` will show up in `docker plugin ls`.
+Plugins can be pushed to remote registries with
+`docker plugin push <plugin-name>`.

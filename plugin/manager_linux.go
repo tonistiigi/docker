@@ -150,7 +150,7 @@ func (pm *Manager) Shutdown() {
 }
 
 // createPlugin creates a new plugin. take lock before calling.
-func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsums []digest.Digest, rootfsDir string, privileges *types.PluginPrivileges) (p *v2.Plugin, err error) {
+func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsums []digest.Digest, rootFSDir string, privileges *types.PluginPrivileges) (p *v2.Plugin, err error) {
 	if err := pm.config.Store.validateName(name); err != nil { // todo: this check is wrong. remove store
 		return nil, err
 	}
@@ -202,7 +202,7 @@ func (pm *Manager) createPlugin(name string, configDigest digest.Digest, blobsum
 		}
 	}()
 
-	if err := os.Rename(rootfsDir, filepath.Join(pdir, rootFSFileName)); err != nil {
+	if err := os.Rename(rootFSDir, filepath.Join(pdir, rootFSFileName)); err != nil {
 		return nil, errors.Wrap(err, "failed to rename rootfs")
 	}
 

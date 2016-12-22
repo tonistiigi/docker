@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -48,7 +49,7 @@ func newInstallCommand(dockerCli *command.DockerCli) *cobra.Command {
 	return cmd
 }
 
-func getRepoIndex(ref distreference.Named) (*registrytypes.IndexInfo, error) {
+func getRepoIndexFromUnnormalizedRef(ref distreference.Named) (*registrytypes.IndexInfo, error) {
 	named, err := reference.ParseNamed(ref.Name())
 	if err != nil {
 		return nil, err
@@ -78,16 +79,14 @@ func runInstall(dockerCli *command.DockerCli, opts pluginOptions) error {
 		if err != nil {
 			return err
 		}
-		if reference.IsNameOnly(aref) {
-			aref = reference.WithDefaultTag(aref)
-		}
+		aref = reference.WithDefaultTag(aref)
 		if _, ok := aref.(reference.NamedTagged); !ok {
 			return fmt.Errorf("invalid name: %s", opts.alias)
 		}
 		alias = aref.String()
 	}
 
-	index, err := getRepoIndex(ref)
+	index, err := getRepoIndexFromUnnormalizedRef(ref)
 	if err != nil {
 		return err
 	}
@@ -116,6 +115,9 @@ func runInstall(dockerCli *command.DockerCli, opts pluginOptions) error {
 
 	responseBody, err := dockerCli.Client().PluginInstall(ctx, alias, options)
 	if err != nil {
+		if strings.Contains(err.Error(), "target is image") {
+			return errors.New(err.Error() + " - Use `docker image pull`")
+		}
 		return err
 	}
 	defer responseBody.Close()

@@ -28,7 +28,7 @@ type basicBlobStore struct {
 }
 
 func newBasicBlobStore(p string) (*basicBlobStore, error) {
-	tmpdir := filepath.Join(p, "_tmp")
+	tmpdir := filepath.Join(p, "tmp")
 	if err := os.MkdirAll(tmpdir, 0700); err != nil {
 		return nil, errors.Wrapf(err, "failed to mkdir %v", p)
 	}
@@ -36,7 +36,7 @@ func newBasicBlobStore(p string) (*basicBlobStore, error) {
 }
 
 func (b *basicBlobStore) New() (WriteCommitCloser, error) {
-	f, err := ioutil.TempFile(filepath.Join(b.path, "_tmp"), ".insertion")
+	f, err := ioutil.TempFile(filepath.Join(b.path, "tmp"), ".insertion")
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create temp file")
 	}

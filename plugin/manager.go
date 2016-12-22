@@ -103,7 +103,7 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create containerd client")
 	}
-	manager.blobStore, err = newBasicBlobStore(filepath.Join(manager.config.Root, "storage"))
+	manager.blobStore, err = newBasicBlobStore(filepath.Join(manager.config.Root, "storage/blobs"))
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 }
 
 func (pm *Manager) tmpDir() string {
-	return filepath.Join(pm.config.Root, "_tmp")
+	return filepath.Join(pm.config.Root, "tmp")
 }
 
 // StateChanged updates plugin internals using libcontainerd events.
@@ -306,13 +306,13 @@ func configToRootFS(c []byte) (*image.RootFS, error) {
 }
 
 func rootFSFromPlugin(pluginfs *types.PluginConfigRootfs) *image.RootFS {
-	rootfs := image.RootFS{
+	rootFS := image.RootFS{
 		Type:    pluginfs.Type,
 		DiffIDs: make([]layer.DiffID, len(pluginfs.DiffIds)),
 	}
 	for i := range pluginfs.DiffIds {
-		rootfs.DiffIDs[i] = layer.DiffID(pluginfs.DiffIds[i])
+		rootFS.DiffIDs[i] = layer.DiffID(pluginfs.DiffIds[i])
 	}
 
-	return &rootfs
+	return &rootFS
 }

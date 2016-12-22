@@ -241,11 +241,14 @@ func (ps *Store) resolvePluginID(idOrName string) (string, error) {
 
 	fullRef := reference.WithDefaultTag(ref)
 
-	var found *v2.Plugin
-	for id, p := range ps.plugins { // this can be optimized
-		if p.PluginObj.Name == ref.String() || p.PluginObj.Name == fullRef.String() {
+	for _, p := range ps.plugins {
+		if p.PluginObj.Name == fullRef.String() {
 			return p.PluginObj.ID, nil
 		}
+	}
+
+	var found *v2.Plugin
+	for id, p := range ps.plugins { // this can be optimized
 		if strings.HasPrefix(id, idOrName) {
 			if found != nil {
 				return "", errors.WithStack(ErrAmbiguous(idOrName))

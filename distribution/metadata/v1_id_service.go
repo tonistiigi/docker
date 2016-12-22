@@ -3,6 +3,7 @@ package metadata
 import (
 	"github.com/docker/docker/image/v1"
 	"github.com/docker/docker/layer"
+	"github.com/pkg/errors"
 )
 
 // V1IDService maps v1 IDs to layers on disk.
@@ -25,7 +26,7 @@ func (idserv *V1IDService) namespace() string {
 // Get finds a layer by its V1 ID.
 func (idserv *V1IDService) Get(v1ID, registry string) (layer.DiffID, error) {
 	if idserv.store == nil {
-		return layer.DiffID(""), nil
+		return "", errors.New("no v1IDService storage")
 	}
 	if err := v1.ValidateID(v1ID); err != nil {
 		return layer.DiffID(""), err

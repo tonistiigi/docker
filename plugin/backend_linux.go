@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -133,7 +134,7 @@ func (s *tempConfigStore) RootFSFromConfig(c []byte) (*image.RootFS, error) {
 
 func computePrivileges(c types.PluginConfig) (types.PluginPrivileges, error) {
 	var privileges types.PluginPrivileges
-	if c.Network.Type != "null" && c.Network.Type != "bridge" {
+	if c.Network.Type != "null" && c.Network.Type != "bridge" && c.Network.Type != "" {
 		privileges = append(privileges, types.PluginPrivilege{
 			Name:        "network",
 			Description: "permissions to access a network",
@@ -181,6 +182,7 @@ func (pm *Manager) Privileges(ctx context.Context, ref reference.Named, metaHead
 	// create image store instance
 	cs := &tempConfigStore{}
 
+	// DownloadManager not defined because only pulling configuration.
 	pluginPullConfig := &distribution.ImagePullConfig{
 		Config: distribution.Config{
 			MetaHeaders:      metaHeader,
@@ -212,15 +214,22 @@ func (pm *Manager) Pull(ctx context.Context, ref reference.Named, name string, m
 	pm.muGC.RLock()
 	defer pm.muGC.RUnlock()
 
+	// revalidate because Pull is public
+	nameref, err := reference.ParseNamed(name)
+	if err != nil {
+		return errors.Wrapf(err, "failed to parse %q", name)
+	}
+	name = reference.WithDefaultTag(nameref).String()
+
 	if err := pm.config.Store.validateName(name); err != nil {
 		return err
 	}
 
-	tmpRootfsDir, err := ioutil.TempDir(pm.tmpDir(), ".rootfs")
-	defer os.RemoveAll(tmpRootfsDir)
+	tmpRootFSDir, err := ioutil.TempDir(pm.tmpDir(), ".rootfs")
+	defer os.RemoveAll(tmpRootFSDir)
 
 	dm := &downloadManager{
-		tmpDir:    tmpRootfsDir,
+		tmpDir:    tmpRootFSDir,
 		blobStore: pm.blobStore,
 	}
 
@@ -232,7 +241,7 @@ func (pm *Manager) Pull(ctx context.Context, ref reference.Named, name string, m
 			ImageEventLogger: pm.config.LogPluginEvent,
 			ImageStore:       dm,
 		},
-		DownloadManager: dm,
+		DownloadManager: dm, // todo: reevaluate if possible to substitute distribution/xfer dependencies instead
 		Schema2Types:    distribution.PluginTypes,
 	}
 
@@ -242,7 +251,7 @@ func (pm *Manager) Pull(ctx context.Context, ref reference.Named, name string, m
 		return err
 	}
 
-	if _, err := pm.createPlugin(name, dm.configDigest, dm.blobs, tmpRootfsDir, &privileges); err != nil {
+	if _, err := pm.createPlugin(name, dm.configDigest, dm.blobs, tmpRootFSDir, &privileges); err != nil {
 		return err
 	}
 
@@ -404,20 +413,20 @@ type pluginLayerProvider struct {
 }
 
 func (p *pluginLayerProvider) Get(id layer.ChainID) (distribution.PushLayer, error) {
-	rootfs := rootFSFromPlugin(p.plugin.PluginObj.Config.Rootfs)
+	rootFS := rootFSFromPlugin(p.plugin.PluginObj.Config.Rootfs)
 	var i int
-	for i = 0; i < len(rootfs.DiffIDs); i++ {
-		if layer.CreateChainID(rootfs.DiffIDs[i:]) == id {
+	for i = 1; i <= len(rootFS.DiffIDs); i++ {
+		if layer.CreateChainID(rootFS.DiffIDs[:i]) == id {
 			break
 		}
 	}
-	if i == len(rootfs.DiffIDs) {
+	if i > len(rootFS.DiffIDs) {
 		return nil, errors.New("layer not found")
 	}
 	return &pluginLayer{
 		pm:      p.pm,
-		diffIDs: rootfs.DiffIDs[i:],
-		blobs:   p.plugin.Blobsums[i:],
+		diffIDs: rootFS.DiffIDs[:i],
+		blobs:   p.plugin.Blobsums[:i],
 	}, nil
 }
 
@@ -432,7 +441,7 @@ func (l *pluginLayer) ChainID() layer.ChainID {
 }
 
 func (l *pluginLayer) DiffID() layer.DiffID {
-	return l.diffIDs[0]
+	return l.diffIDs[len(l.diffIDs)-1]
 }
 
 func (l *pluginLayer) Parent() distribution.PushLayer {
@@ -441,17 +450,17 @@ func (l *pluginLayer) Parent() distribution.PushLayer {
 	}
 	return &pluginLayer{
 		pm:      l.pm,
-		diffIDs: l.diffIDs[1:],
-		blobs:   l.blobs[1:],
+		diffIDs: l.diffIDs[:len(l.diffIDs)-1],
+		blobs:   l.blobs[:len(l.diffIDs)-1],
 	}
 }
 
 func (l *pluginLayer) Open() (io.ReadCloser, error) {
-	return l.pm.blobStore.Get(l.blobs[0])
+	return l.pm.blobStore.Get(l.blobs[len(l.diffIDs)-1])
 }
 
 func (l *pluginLayer) Size() (int64, error) {
-	return l.pm.blobStore.Size(l.blobs[0])
+	return l.pm.blobStore.Size(l.blobs[len(l.diffIDs)-1])
 }
 
 func (l *pluginLayer) MediaType() string {
@@ -533,13 +542,13 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, 
 		return err
 	}
 
-	tmpRootfsDir, err := ioutil.TempDir(pm.tmpDir(), ".rootfs")
-	defer os.RemoveAll(tmpRootfsDir)
+	tmpRootFSDir, err := ioutil.TempDir(pm.tmpDir(), ".rootfs")
+	defer os.RemoveAll(tmpRootFSDir)
 	if err != nil {
 		return errors.Wrap(err, "failed to create temp directory")
 	}
 	var configJSON []byte
-	rootfs := splitConfigRootFSFromTar(tarCtx, &configJSON)
+	rootFS := splitConfigRootFSFromTar(tarCtx, &configJSON)
 
 	rootFSBlob, err := pm.blobStore.New()
 	if err != nil {
@@ -548,12 +557,12 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, 
 	defer rootFSBlob.Close()
 	gzw := gzip.NewWriter(rootFSBlob)
 	layerDigester := digest.Canonical.New()
-	rootfsReader := io.TeeReader(rootfs, io.MultiWriter(gzw, layerDigester.Hash()))
+	rootFSReader := io.TeeReader(rootFS, io.MultiWriter(gzw, layerDigester.Hash()))
 
-	if err := chrootarchive.Untar(rootfsReader, tmpRootfsDir, nil); err != nil {
+	if err := chrootarchive.Untar(rootFSReader, tmpRootFSDir, nil); err != nil {
 		return err
 	}
-	if err := rootfs.Close(); err != nil {
+	if err := rootFS.Close(); err != nil {
 		return err
 	}
 
@@ -605,7 +614,7 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, 
 		return err
 	}
 
-	p, err := pm.createPlugin(name, configBlobsum, []digest.Digest{rootFSBlobsum}, tmpRootfsDir, nil)
+	p, err := pm.createPlugin(name, configBlobsum, []digest.Digest{rootFSBlobsum}, tmpRootFSDir, nil)
 	if err != nil {
 		return err
 	}
@@ -646,8 +655,8 @@ func splitConfigRootFSFromTar(in io.ReadCloser, config *[]byte) io.ReadCloser {
 			}
 
 			content := io.Reader(tarReader)
-			name := filepath.Clean(hdr.Name)
-			if filepath.IsAbs(name) {
+			name := path.Clean(hdr.Name)
+			if path.IsAbs(name) {
 				name = name[1:]
 			}
 			if name == configFileName {
@@ -658,8 +667,8 @@ func splitConfigRootFSFromTar(in io.ReadCloser, config *[]byte) io.ReadCloser {
 				}
 				*config = dt
 			}
-			if parts := strings.Split(name, string(filepath.Separator)); len(parts) != 0 && parts[0] == rootFSFileName {
-				hdr.Name = filepath.Clean(filepath.Join(parts[1:]...))
+			if parts := strings.Split(name, "/"); len(parts) != 0 && parts[0] == rootFSFileName {
+				hdr.Name = path.Clean(path.Join(parts[1:]...))
 				if strings.HasPrefix(strings.ToLower(hdr.Linkname), rootFSFileName+"/") {
 					hdr.Linkname = hdr.Linkname[len(rootFSFileName):]
 				}
