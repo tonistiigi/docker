@@ -22,6 +22,7 @@ func (cli *Client) PluginInstall(ctx context.Context, name string, options types
 
 	resp, err := cli.tryPluginPrivileges(ctx, query, options.RegistryAuth)
 	if resp.statusCode == http.StatusUnauthorized && options.PrivilegeFunc != nil {
+		// todo: do inspect before to check existing name before checking privileges
 		newAuthHeader, privilegeErr := options.PrivilegeFunc()
 		if privilegeErr != nil {
 			ensureReaderClosed(resp)
