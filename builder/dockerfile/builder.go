@@ -19,7 +19,10 @@ import (
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/pkg/archive"
+	"github.com/docker/docker/pkg/httputils"
 	"github.com/docker/docker/pkg/stringid"
+	"github.com/docker/docker/pkg/urlutil"
 	perrors "github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
@@ -125,6 +128,67 @@ func (bm *BuildManager) BuildFromContext(ctx context.Context, src io.ReadCloser,
 	}
 	b.imageContexts.cache = bm.pathCache
 	return b.build(pg.StdoutFormatter, pg.StderrFormatter, pg.Output)
+}
+
+// DetectContextFromRemoteURL returns a context and in certain cases the name of the dockerfile to be used
+// irrespective of user input.
+// progressReader is only used if remoteURL is actually a URL (not empty, and not a Git endpoint).
+func (bm *BuildManager) DetectContextFromRemoteURL(r io.ReadCloser, remoteURL string, createProgressReader func(in io.ReadCloser) io.ReadCloser) (context builder.ModifiableContext, dockerfileName string, err error) {
+	switch {
+	case remoteURL == "":
+		context, err = builder.MakeTarSumContext(r)
+	case strings.HasPrefix(remoteURL, "session://"):
+		context, err = makeSessionContext(remoteURL[10:])
+	case urlutil.IsGitURL(remoteURL):
+		context, err = builder.MakeGitContext(remoteURL)
+	case urlutil.IsURL(remoteURL):
+		context, err = builder.MakeRemoteContext(remoteURL, map[string]func(io.ReadCloser) (io.ReadCloser, error){
+			httputils.MimeTypes.TextPlain: func(rc io.ReadCloser) (io.ReadCloser, error) {
+				dockerfile, err := ioutil.ReadAll(rc)
+				if err != nil {
+					return nil, err
+				}
+
+				// dockerfileName is set to signal that the remote was interpreted as a single Dockerfile, in which case the caller
+				// should use dockerfileName as the new name for the Dockerfile, irrespective of any other user input.
+				dockerfileName = builder.DefaultDockerfileName
+
+				// TODO: return a context without tarsum
+				r, err := archive.Generate(dockerfileName, string(dockerfile))
+				if err != nil {
+					return nil, err
+				}
+
+				return ioutil.NopCloser(r), nil
+			},
+			// fallback handler (tar context)
+			"": func(rc io.ReadCloser) (io.ReadCloser, error) {
+				return createProgressReader(rc), nil
+			},
+		})
+	default:
+		invalidErr := fmt.Errorf("remoteURL (%s) could not be recognized as URL", remoteURL)
+		// try to parse remoteURL as a Docker image
+		refParts := strings.Split(remoteURL, "::")
+		if len(refParts) > 2 {
+			return nil, "", invalidErr
+		}
+		image := refParts[0]
+		dir := "/"
+		if len(refParts) == 2 {
+			dir = refParts[1]
+		}
+		context, err = builder.MakeDockerImageContext(bm.backend, image, dir)
+		if err != nil {
+			return nil, "", invalidErr
+		}
+	}
+	return
+}
+
+// AttachSession builds a new image from a given context.
+func (bm *BuildManager) AttachSession(ctx context.Context, src io.ReadWriteCloser, sessionID string) error {
+	return builder.AttachSession(src, sessionID)
 }
 
 // NewBuilder creates a new Dockerfile builder from an optional dockerfile and a Config.

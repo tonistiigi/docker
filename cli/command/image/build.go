@@ -64,6 +64,7 @@ type buildOptions struct {
 	securityOpt    []string
 	networkMode    string
 	squash         bool
+	stream         bool
 }
 
 // NewBuildCommand creates a new `docker build` command
@@ -122,6 +123,9 @@ func NewBuildCommand(dockerCli *command.DockerCli) *cobra.Command {
 	flags.SetAnnotation("squash", "experimental", nil)
 	flags.SetAnnotation("squash", "version", []string{"1.25"})
 
+	flags.BoolVar(&options.stream, "stream", false, "Stream attaches to server to negotiate build context")
+	flags.SetAnnotation("stream", "experimental", nil)
+	flags.SetAnnotation("stream", "version", []string{"1.26"})
 	return cmd
 }
 
@@ -193,7 +197,7 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		contextDir = tempDir
 	}
 
-	if buildCtx == nil {
+	if buildCtx == nil && remote == "" && !options.stream {
 		// And canonicalize dockerfile name to a platform-independent one
 		relDockerfile, err = archive.CanonicalTarNameForPath(relDockerfile)
 		if err != nil {
@@ -301,10 +305,57 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		buildCtx = replaceDockerfileTarWrapper(ctx, buildCtx, relDockerfile, translator, &resolvedTags)
 	}
 
-	// Setup an upload progress bar
-	progressOutput := streamformatter.NewStreamFormatter().NewProgressOutput(progBuff, true)
-	if !dockerCli.Out().IsTerminal() {
-		progressOutput = &lastProgressOutput{output: progressOutput}
+	var body io.Reader
+	if buildCtx != nil {
+		// Setup an upload progress bar
+		progressOutput := streamformatter.NewStreamFormatter().NewProgressOutput(progBuff, true)
+		if !dockerCli.Out().IsTerminal() {
+			progressOutput = &lastProgressOutput{output: progressOutput}
+		}
+
+		body = progress.NewProgressReader(buildCtx, progressOutput, 0, "", "Sending build context to Docker daemon")
+	} else {
+		// And canonicalize dockerfile name to a platform-independent one
+		relDockerfile, err = archive.CanonicalTarNameForPath(relDockerfile)
+		if err != nil {
+			return fmt.Errorf("cannot canonicalize dockerfile path %s: %v", relDockerfile, err)
+		}
+
+		f, err := os.Open(filepath.Join(contextDir, ".dockerignore"))
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		defer f.Close()
+
+		rewrites := map[string]string{}
+		if err == nil {
+			excludes, err := dockerignore.ReadAll(f)
+			if err != nil {
+				return err
+			}
+			for _, exclude := range excludes {
+				rewrites[exclude] = ""
+			}
+		}
+
+		rewrites[".dockerignore"] = ".dockerignore"
+
+		if command.IsTrusted() {
+			// TODO: Create copy of docker file in temp directory, rewrite dockerfile to temp file
+		} else {
+			rewrites[relDockerfile] = relDockerfile
+		}
+
+		sessionID, err := getBuildSession(contextDir)
+		if err != nil {
+			return errors.Wrap(err, "failed to get build session")
+		}
+		err, _ = dockerCli.Client().ImageBuildSync(ctx, sessionID, contextDir, rewrites)
+		if err != nil {
+			return err
+		}
+
+		remoteContext = "session://" + sessionID
 	}
 
 	var body io.Reader = progress.NewProgressReader(buildCtx, progressOutput, 0, "", "Sending build context to Docker daemon")
@@ -337,6 +388,7 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		NetworkMode:    options.networkMode,
 		Squash:         options.squash,
 		ExtraHosts:     options.extraHosts.GetAll(),
+		RemoteContext:  remoteContext,
 	}
 
 	response, err := dockerCli.Client().ImageBuild(ctx, body, buildOptions)

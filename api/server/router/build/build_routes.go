@@ -23,6 +23,7 @@ import (
 	"github.com/docker/docker/pkg/streamformatter"
 	units "github.com/docker/go-units"
 	"golang.org/x/net/context"
+	"golang.org/x/net/http2"
 )
 
 func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBuildOptions, error) {
@@ -220,6 +221,40 @@ func (br *buildRouter) postBuild(ctx context.Context, w http.ResponseWriter, r *
 		stdout := &streamformatter.StdoutFormatter{Writer: output, StreamFormatter: sf}
 		fmt.Fprintf(stdout, "%s\n", string(imgID))
 	}
+
+	return nil
+}
+
+func (br *buildRouter) postBuildAttach(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+	sessionID := r.FormValue("session")
+
+	if r.Header.Get("Upgrade") != "h2c" {
+		// Bad request
+		return fmt.Errorf("required upgrade to http2")
+	}
+
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		return fmt.Errorf("error attaching to session %s, hijack connection missing", sessionID)
+	}
+
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		return err
+	}
+
+	// set raw mode
+	conn.Write([]byte{})
+
+	fmt.Fprintf(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n")
+
+	s := http2.Server{}
+	co := &http2.ServeConnOpts{
+		// Attach grpc server
+		Handler: br.backend.BuildServer(ctx),
+	}
+
+	go s.ServeConn(conn, co)
 
 	return nil
 }
