@@ -57,6 +57,15 @@ func (ml *mountedLayer) Metadata() (map[string]string, error) {
 	return ml.layerStore.driver.GetMetadata(ml.mountID)
 }
 
+func (ml *mountedLayer) Commit(opts CommitOpts) (Layer, error) {
+	tar, err := ml.TarStream()
+	if err != nil {
+		return nil, err
+	}
+	// todo: fast path for btrfs/extfs
+	return ml.layerStore.Register(tar, ml.Parent().ChainID())
+}
+
 func (ml *mountedLayer) getReference() RWLayer {
 	ref := &referencedRWLayer{
 		mountedLayer: ml,

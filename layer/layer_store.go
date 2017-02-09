@@ -1,7 +1,6 @@
 package layer
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -13,7 +12,8 @@ import (
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/stringid"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
+	"github.com/pkg/errors"
 	"github.com/vbatts/tar-split/tar/asm"
 	"github.com/vbatts/tar-split/tar/storage"
 )
@@ -539,6 +539,54 @@ func (ls *layerStore) GetMountID(id string) (string, error) {
 	return mount.mountID, nil
 }
 
+func (ls *layerStore) ReleaseAndCommitRWLayer(l RWLayer, opts CommitOpts) (Layer, error) {
+	ls.mountL.Lock()
+	m, ok := ls.mounts[l.Name()]
+	if !ok {
+		ls.mountL.Unlock()
+		return nil, ErrMountDoesNotExist
+	}
+	if len(m.references) != 1 {
+		ls.mountL.Unlock()
+		return nil, errors.Errorf("multiple references to a layer")
+	}
+
+	if err := ls.store.RemoveMount(m.name); err != nil {
+		logrus.Errorf("Error removing mount metadata: %s: %s", m.name, err)
+		ls.mountL.Unlock()
+		return nil, err
+	}
+
+	delete(ls.mounts, m.Name())
+	ls.mountL.Unlock()
+
+	// todo: fast path for aufs/overlay2/btrfs
+	layer, err := m.Commit(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := ls.driver.Remove(m.mountID); err != nil {
+		logrus.Errorf("Error removing mounted layer %s: %s", m.name, err)
+		return nil, err
+	}
+
+	if m.initID != "" {
+		if err := ls.driver.Remove(m.initID); err != nil {
+			logrus.Errorf("Error removing init layer %s: %s", m.name, err)
+			return nil, err
+		}
+	}
+
+	ls.layerL.Lock()
+	defer ls.layerL.Unlock()
+	if m.parent != nil {
+		ls.releaseLayer(m.parent)
+	}
+
+	return layer, nil
+}
+
 func (ls *layerStore) ReleaseRWLayer(l RWLayer) ([]Metadata, error) {
 	ls.mountL.Lock()
 	defer ls.mountL.Unlock()
@@ -693,4 +741,14 @@ func (n *naiveDiffPathDriver) DiffGetter(id string) (graphdriver.FileGetCloser, 
 		return nil, err
 	}
 	return &fileGetPutter{storage.NewPathFileGetter(p), n.Driver, id}, nil
+}
+
+func (ls *layerStore) Merge(base ChainID, TarStreamer, basePath string, filter string) (Layer, error) {
+	// todo: convert base/filter if needed
+	// todo: quick implementation by driver
+	l, err := ls.Get(base)
+	if err != nil {
+		return nil, err
+	}
+	return l, nil
 }

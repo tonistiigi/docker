@@ -16,7 +16,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 )
 
 var (
@@ -144,6 +144,8 @@ type RWLayer interface {
 
 	// Metadata returns the low level metadata for the mutable layer
 	Metadata() (map[string]string, error)
+
+	Commit(CommitOpts) (Layer, error)
 }
 
 // Metadata holds information about a
@@ -176,6 +178,11 @@ type CreateRWLayerOpts struct {
 	StorageOpt map[string]string
 }
 
+// CreateRWLayerOpts contains optional arguments to be passed to CreateRWLayer
+type CommitOpts struct {
+	InitRevertFunc MountInit
+}
+
 // Store represents a backend for managing both
 // read-only and read-write layers.
 type Store interface {
@@ -188,10 +195,13 @@ type Store interface {
 	GetRWLayer(id string) (RWLayer, error)
 	GetMountID(id string) (string, error)
 	ReleaseRWLayer(RWLayer) ([]Metadata, error)
+	ReleaseAndCommitRWLayer(RWLayer, CommitOpts) (Layer, error)
 
 	Cleanup() error
 	DriverStatus() [][2]string
 	DriverName() string
+
+	Merge(base ChainID, TarStreamer, basePath string, filter string) (Layer, error)
 }
 
 // DescribableStore represents a layer store capable of storing
