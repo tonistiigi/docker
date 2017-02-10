@@ -22,7 +22,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/strslice"
-	"github.com/docker/docker/builder"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/signal"
 	runconfigopts "github.com/docker/docker/runconfig/opts"
 	"github.com/docker/go-connections/nat"
@@ -204,7 +204,7 @@ func from(b *Builder, args []string, attributes map[string]bool, original string
 
 	name := args[0]
 
-	var image builder.Image
+	var image *image.Image
 
 	// Windows cannot support a container with no base image.
 	if name == api.NoBaseImageSpecifier {
@@ -216,7 +216,7 @@ func from(b *Builder, args []string, attributes map[string]bool, original string
 	} else {
 		// TODO: don't use `name`, instead resolve it to a digest
 		if !b.options.PullParent {
-			image, _ = b.docker.GetImageOnBuild(name)
+			image, _ = b.docker.GetImage(name)
 			// TODO: shouldn't we error out if error is different from "not found" ?
 		}
 		if image == nil {
@@ -228,8 +228,11 @@ func from(b *Builder, args []string, attributes map[string]bool, original string
 		}
 	}
 	b.from = image
+	if image != nil {
+		*b.currentImage = *image
+	}
 
-	return b.processImageFrom(image)
+	return b.initializeCurrentImage()
 }
 
 // ONBUILD RUN echo yo

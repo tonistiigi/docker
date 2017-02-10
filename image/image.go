@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 )
 
 // ID is the content-addressable ID of an image.
@@ -88,7 +88,7 @@ func (img *Image) ImageID() string {
 }
 
 // RunConfig returns the image's container config.
-func (img *Image) RunConfig() *container.Config {
+func (img *Image) RunConfig() *container.Config { // TODO: Remove
 	return img.Config
 }
 

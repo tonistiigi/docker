@@ -65,7 +65,7 @@ type Builder struct {
 
 	dockerfile       *parser.Node
 	runConfig        *container.Config // runconfig for cmd, run, entrypoint etc.
-	flags            *BFlags
+	flags            *BFlags           // should not be builder property
 	tmpContainers    map[string]struct{}
 	image            string // imageID
 	noBaseImage      bool
@@ -81,6 +81,8 @@ type Builder struct {
 
 	imageCache builder.ImageCache
 	from       builder.Image
+
+	currentImage *image.Image
 }
 
 // BuildManager implements builder.Backend and is shared across all Builder objects.
@@ -272,7 +274,7 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 		shortImgID = stringid.TruncateID(b.image)
 		fmt.Fprintf(b.stdout, " ---> %s\n", shortImgID)
 		if b.options.Remove {
-			b.clearTmp()
+			b.clearTmp() // remove intermediate containers
 		}
 	}
 

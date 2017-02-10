@@ -29,7 +29,7 @@ import (
 	"github.com/docker/docker/pkg/stringid"
 	refstore "github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	"golang.org/x/net/context"
 )
 
@@ -85,6 +85,7 @@ func (p *v2Puller) Pull(ctx context.Context, ref reference.Named) (err error) {
 }
 
 func (p *v2Puller) pullV2Repository(ctx context.Context, ref reference.Named) (err error) {
+	logrus.Debugf("pullV2Repository %s %v", ref.String(), reference.IsNameOnly(ref))
 	var layersDownloaded bool
 	if !reference.IsNameOnly(ref) {
 		layersDownloaded, err = p.pullV2Tag(ctx, ref)

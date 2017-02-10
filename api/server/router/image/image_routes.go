@@ -106,6 +106,11 @@ func (s *imageRouter) postImagesCreate(ctx context.Context, w http.ResponseWrite
 			}
 		}
 
+		// Special case: "pull -a" may send an image name with a
+		// trailing :. This is ugly, but let's not break API
+		// compatibility.
+		image = strings.TrimSuffix(image, ":")
+
 		err = s.backend.PullImage(ctx, image, tag, metaHeaders, authConfig, output)
 	} else { //import
 		src := r.Form.Get("fromSrc")

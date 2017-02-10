@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/docker/docker/builder/dockerfile/command"
 	"github.com/docker/docker/builder/dockerfile/parser"
@@ -97,6 +98,11 @@ func init() {
 func (b *Builder) dispatch(stepN int, stepTotal int, ast *parser.Node) error {
 	cmd := ast.Value
 	upperCasedCmd := strings.ToUpper(cmd)
+
+	st := time.Now()
+	defer func() {
+		fmt.Fprintln(b.stdout, "took: ", time.Since(st).Seconds())
+	}()
 
 	// To ensure the user is given a decent error message if the platform
 	// on which the daemon is running does not support a builder command.

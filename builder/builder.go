@@ -98,11 +98,11 @@ type Backend interface {
 	// TODO: use digest reference instead of name
 
 	// GetImageOnBuild looks up a Docker image referenced by `name`.
-	GetImageOnBuild(name string) (Image, error)
+	GetImage(name string) (*image.Image, error)
 	// TagImageWithReference tags an image with newTag
 	TagImageWithReference(image.ID, reference.Named) error
 	// PullOnBuild tells Docker to pull image referenced by `name`.
-	PullOnBuild(ctx context.Context, name string, authConfigs map[string]types.AuthConfig, output io.Writer) (Image, error)
+	PullOnBuild(ctx context.Context, name string, authConfigs map[string]types.AuthConfig, output io.Writer) (*image.Image, error)
 	// ContainerAttachRaw attaches to container.
 	ContainerAttachRaw(cID string, stdin io.ReadCloser, stdout, stderr io.Writer, stream bool) error
 	// ContainerCreate creates a new Docker container and returns potential warnings

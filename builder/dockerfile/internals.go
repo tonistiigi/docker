@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +26,8 @@ import (
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/parser"
+	"github.com/docker/docker/dockerversion"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/httputils"
 	"github.com/docker/docker/pkg/ioutils"
@@ -379,12 +382,25 @@ func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression
 	return copyInfos, nil
 }
 
-func (b *Builder) processImageFrom(img builder.Image) error {
-	if img != nil {
-		b.image = img.ImageID()
+func addImageEnv(img *image.Image, env ...string) {
+	img.Config.Env = append(img.Config.Env, env...)
+	img.ContainerConfig.Env = img.Config.Env
+}
 
-		if img.RunConfig() != nil {
-			b.runConfig = img.RunConfig()
+func (b *Builder) initializeCurrentImage() error {
+	fromScratch := b.currentImage == nil
+	if b.currentImage == nil {
+		// from scratch
+		b.currentImage = &image.Image{
+			V1Image: image.V1Image{
+				DockerVersion:   dockerversion.Version,
+				Architecture:    runtime.GOARCH,
+				OS:              runtime.GOOS,
+				Author:          b.maintainer,
+				Config:          &container.Config{},
+				ContainerConfig: container.Config{},
+			},
+			RootFS: image.NewRootFS(),
 		}
 	}
 
@@ -394,15 +410,13 @@ func (b *Builder) processImageFrom(img builder.Image) error {
 		// Convert the slice of strings that represent the current list
 		// of env vars into a map so we can see if PATH is already set.
 		// If it's not set then go ahead and give it our default value
-		configEnv := opts.ConvertKVStringsToMap(b.runConfig.Env)
+		configEnv := opts.ConvertKVStringsToMap(b.currentImage.Config.Env)
 		if _, ok := configEnv["PATH"]; !ok {
-			b.runConfig.Env = append(b.runConfig.Env,
-				"PATH="+system.DefaultPathEnv)
+			addImageEnv(b.currentImage, "PATH="+system.DefaultPathEnv)
 		}
 	}
 
-	if img == nil {
-		// Typically this means they used "FROM scratch"
+	if fromScratch {
 		return nil
 	}
 

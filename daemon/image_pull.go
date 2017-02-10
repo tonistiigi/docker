@@ -2,27 +2,23 @@ package daemon
 
 import (
 	"io"
-	"strings"
 
+	"github.com/Sirupsen/logrus"
 	dist "github.com/docker/distribution"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/builder"
 	"github.com/docker/docker/distribution"
 	progressutils "github.com/docker/docker/distribution/utils"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/registry"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	"golang.org/x/net/context"
 )
 
 // PullImage initiates a pull operation. image is the repository name to pull, and
 // tag may be either empty, or indicate a specific tag to pull.
 func (daemon *Daemon) PullImage(ctx context.Context, image, tag string, metaHeaders map[string][]string, authConfig *types.AuthConfig, outStream io.Writer) error {
-	// Special case: "pull -a" may send an image name with a
-	// trailing :. This is ugly, but let's not break API
-	// compatibility.
-	image = strings.TrimSuffix(image, ":")
 
 	ref, err := reference.ParseNormalizedNamed(image)
 	if err != nil {
@@ -47,7 +43,7 @@ func (daemon *Daemon) PullImage(ctx context.Context, image, tag string, metaHead
 }
 
 // PullOnBuild tells Docker to pull image referenced by `name`.
-func (daemon *Daemon) PullOnBuild(ctx context.Context, name string, authConfigs map[string]types.AuthConfig, output io.Writer) (builder.Image, error) {
+func (daemon *Daemon) PullOnBuild(ctx context.Context, name string, authConfigs map[string]types.AuthConfig, output io.Writer) (*image.Image, error) {
 	ref, err := reference.ParseNormalizedNamed(name)
 	if err != nil {
 		return nil, err
@@ -103,7 +99,7 @@ func (daemon *Daemon) pullImageWithReference(ctx context.Context, ref reference.
 		DownloadManager: daemon.downloadManager,
 		Schema2Types:    distribution.ImageTypes,
 	}
-
+	logrus.Debugf("distribution.Pull %s", ref)
 	err := distribution.Pull(ctx, ref, imagePullConfig)
 	close(progressChan)
 	<-writesDone
