@@ -256,6 +256,20 @@ func (daemon *Daemon) Commit(name string, c *backend.ContainerCommitConfig) (str
 	return id.String(), nil
 }
 
+func (daemon *Daemon) NewImage(config []byte, parent image.ID) (*image.Image, error) {
+	id, err := daemon.imageStore.Create(config)
+	if err != nil {
+		return nil, err
+	}
+
+	if parent != "" {
+		if err := daemon.imageStore.SetParent(id, parent); err != nil {
+			return nil, err
+		}
+	}
+	return daemon.GetImage(id.String())
+}
+
 func (daemon *Daemon) exportContainerRw(container *container.Container) (io.ReadCloser, error) {
 	if err := daemon.Mount(container); err != nil {
 		return nil, err

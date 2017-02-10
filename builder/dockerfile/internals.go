@@ -6,7 +6,6 @@ package dockerfile
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -39,6 +38,7 @@ import (
 	"github.com/docker/docker/pkg/tarsum"
 	"github.com/docker/docker/pkg/urlutil"
 	"github.com/docker/docker/runconfig/opts"
+	"github.com/pkg/errors"
 )
 
 func (b *Builder) commit(id string, autoCmd strslice.StrSlice, comment string) error {
@@ -86,6 +86,58 @@ func (b *Builder) commit(id string, autoCmd strslice.StrSlice, comment string) e
 	}
 
 	b.image = imageID
+	return nil
+}
+
+func (b *Builder) commit2(comment string) error {
+	if b.disableCommit {
+		return nil
+	}
+	if b.image == "" && !b.noBaseImage {
+		return errors.New("Please provide a source image with `from` prior to commit")
+	}
+	b.currentImage.ContainerConfig.Image = b.currentImage.ID().String() // Remove?
+	cmd := strslice.StrSlice(append(getShell(b.runConfig), "#(nop) ", comment))
+	b.currentImage.ContainerConfig.Cmd = cmd
+
+	hit, err := b.probeCache()
+	if err != nil {
+		return err
+	} else if hit {
+		return nil
+	}
+
+	b.currentImage.Author = b.maintainer
+	config, err := b.currentImage.MarshalJSON()
+	if err != nil {
+		return errors.Wrap(err, "failed to create image config")
+	}
+	img, err := b.docker.NewImage(config, b.currentImage.ID())
+	if err != nil {
+		return errors.Wrap(err, "failed to create new image")
+	}
+	b.currentImage = img
+	// todo: release old b.currentImage
+
+	// // Note: Actually copy the struct
+	// autoConfig := *b.runConfig
+	// autoConfig.Cmd = autoCmd
+	//
+	// commitCfg := &backend.ContainerCommitConfig{
+	//   ContainerCommitConfig: types.ContainerCommitConfig{
+	//     Author: b.maintainer,
+	//     Pause:  true,
+	//     Config: &autoConfig,
+	//   },
+	// }
+	//
+	// // Commit the container
+	// imageID, err := b.docker.Commit(id, commitCfg)
+	// if err != nil {
+	//   return err
+	// }
+	//
+	// b.image = imageID
 	return nil
 }
 
@@ -396,7 +448,6 @@ func (b *Builder) initializeCurrentImage() error {
 				DockerVersion:   dockerversion.Version,
 				Architecture:    runtime.GOARCH,
 				OS:              runtime.GOOS,
-				Author:          b.maintainer,
 				Config:          &container.Config{},
 				ContainerConfig: container.Config{},
 			},
@@ -465,7 +516,8 @@ func (b *Builder) probeCache() (bool, error) {
 	if c == nil || b.options.NoCache || b.cacheBusted {
 		return false, nil
 	}
-	cache, err := c.GetCache(b.image, b.runConfig)
+	// TODO: change GetCache() signature to avoid getimage
+	cache, err := c.GetCache(b.currentImage.ID().String(), &b.currentImage.ContainerConfig)
 	if err != nil {
 		return false, err
 	}
@@ -477,7 +529,12 @@ func (b *Builder) probeCache() (bool, error) {
 
 	fmt.Fprint(b.stdout, " ---> Using cache\n")
 	logrus.Debugf("[BUILDER] Use cached version: %s", b.runConfig.Cmd)
-	b.image = string(cache)
+	// TODO: change GetCache() signature to avoid this
+	img, err := b.docker.GetImage(cache)
+	if err != nil {
+		return false, err
+	}
+	b.currentImage = img
 
 	return true, nil
 }
