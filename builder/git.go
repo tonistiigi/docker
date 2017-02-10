@@ -8,7 +8,7 @@ import (
 )
 
 // MakeGitContext returns a Context from gitURL that is cloned in a temporary directory.
-func MakeGitContext(gitURL string) (ModifiableContext, error) {
+func MakeGitContext(gitURL string) (Context, error) {
 	root, err := gitutils.Clone(gitURL)
 	if err != nil {
 		return nil, err

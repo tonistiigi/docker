@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"os"
 	"sort"
 	"strings"
 
@@ -56,9 +54,9 @@ var defaultLogConfig = container.LogConfig{Type: "none"}
 type Builder struct {
 	options *types.ImageBuildOptions
 
-	Stdout io.Writer
-	Stderr io.Writer
-	Output io.Writer
+	stdout io.Writer
+	stderr io.Writer
+	output io.Writer
 
 	docker    builder.Backend
 	context   builder.Context
@@ -113,7 +111,7 @@ func (bm *BuildManager) BuildFromContext(ctx context.Context, src io.ReadCloser,
 	if len(dockerfileName) > 0 {
 		buildOptions.Dockerfile = dockerfileName
 	}
-	b, err := NewBuilder(ctx, buildOptions, bm.backend, builder.DockerIgnoreContext{ModifiableContext: buildContext}, nil)
+	b, err := NewBuilder(ctx, buildOptions, bm.backend, builder.DockerIgnoreContext{buildContext})
 	if err != nil {
 		return "", err
 	}
@@ -123,7 +121,7 @@ func (bm *BuildManager) BuildFromContext(ctx context.Context, src io.ReadCloser,
 // NewBuilder creates a new Dockerfile builder from an optional dockerfile and a Config.
 // If dockerfile is nil, the Dockerfile specified by Config.DockerfileName,
 // will be read from the Context passed to Build().
-func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, backend builder.Backend, buildContext builder.Context, dockerfile io.ReadCloser) (b *Builder, err error) {
+func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, backend builder.Backend, buildContext builder.Context) (b *Builder, err error) {
 	if config == nil {
 		config = new(types.ImageBuildOptions)
 	}
@@ -135,11 +133,9 @@ func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, back
 		clientCtx:        ctx,
 		cancel:           cancel,
 		options:          config,
-		Stdout:           os.Stdout,
-		Stderr:           os.Stderr,
 		docker:           backend,
 		context:          buildContext,
-		runConfig:        new(container.Config),
+		runConfig:        new(container.Config), // remove
 		tmpContainers:    map[string]struct{}{},
 		id:               stringid.GenerateNonCryptoID(),
 		allowedBuildArgs: make(map[string]bool),
@@ -153,13 +149,6 @@ func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, back
 	}
 
 	parser.SetEscapeToken(parser.DefaultEscapeToken, &b.directive) // Assume the default token for escape
-
-	if dockerfile != nil {
-		b.dockerfile, err = parser.Parse(dockerfile, &b.directive)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	return b, nil
 }
@@ -235,9 +224,9 @@ func (b *Builder) processLabels() error {
 // * Print a happy message and return the image ID.
 //
 func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (string, error) {
-	b.Stdout = stdout
-	b.Stderr = stderr
-	b.Output = out
+	b.stdout = stdout
+	b.stderr = stderr
+	b.output = out
 
 	// If Dockerfile was not parsed yet, extract it from the Context
 	if b.dockerfile == nil {
@@ -267,7 +256,7 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 		select {
 		case <-b.clientCtx.Done():
 			logrus.Debug("Builder: build cancelled!")
-			fmt.Fprint(b.Stdout, "Build cancelled")
+			fmt.Fprint(b.stdout, "Build cancelled")
 			return "", errors.New("Build cancelled")
 		default:
 			// Not cancelled yet, keep going...
@@ -281,7 +270,7 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 		}
 
 		shortImgID = stringid.TruncateID(b.image)
-		fmt.Fprintf(b.Stdout, " ---> %s\n", shortImgID)
+		fmt.Fprintf(b.stdout, " ---> %s\n", shortImgID)
 		if b.options.Remove {
 			b.clearTmp()
 		}
@@ -297,7 +286,7 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 	}
 
 	if len(leftoverArgs) > 0 {
-		fmt.Fprintf(b.Stderr, "[Warning] One or more build-args %v were not consumed\n", leftoverArgs)
+		fmt.Fprintf(b.stderr, "[Warning] One or more build-args %v were not consumed\n", leftoverArgs)
 	}
 
 	if b.image == "" {
@@ -322,7 +311,7 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 		}
 	}
 
-	fmt.Fprintf(b.Stdout, "Successfully built %s\n", shortImgID)
+	fmt.Fprintf(b.stdout, "Successfully built %s\n", shortImgID)
 	return b.image, nil
 }
 
@@ -341,7 +330,7 @@ func (b *Builder) Cancel() {
 //
 // TODO: Remove?
 func BuildFromConfig(config *container.Config, changes []string) (*container.Config, error) {
-	b, err := NewBuilder(context.Background(), nil, nil, nil, nil)
+	b, err := NewBuilder(context.Background(), nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -359,8 +348,6 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	}
 
 	b.runConfig = config
-	b.Stdout = ioutil.Discard
-	b.Stderr = ioutil.Discard
 	b.disableCommit = true
 
 	total := len(ast.Children)

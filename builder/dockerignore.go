@@ -10,7 +10,7 @@ import (
 // DockerIgnoreContext wraps a ModifiableContext to add a method
 // for handling the .dockerignore file at the root of the context.
 type DockerIgnoreContext struct {
-	ModifiableContext
+	Context
 }
 
 // Process reads the .dockerignore file at the root of the embedded context.

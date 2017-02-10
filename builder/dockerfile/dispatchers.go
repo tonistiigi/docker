@@ -221,7 +221,7 @@ func from(b *Builder, args []string, attributes map[string]bool, original string
 		}
 		if image == nil {
 			var err error
-			image, err = b.docker.PullOnBuild(b.clientCtx, name, b.options.AuthConfigs, b.Output)
+			image, err = b.docker.PullOnBuild(b.clientCtx, name, b.options.AuthConfigs, b.output)
 			if err != nil {
 				return err
 			}
@@ -514,7 +514,7 @@ func healthcheck(b *Builder, args []string, attributes map[string]bool, original
 		if b.runConfig.Healthcheck != nil {
 			oldCmd := b.runConfig.Healthcheck.Test
 			if len(oldCmd) > 0 && oldCmd[0] != "NONE" {
-				fmt.Fprintf(b.Stdout, "Note: overriding previous HEALTHCHECK: %v\n", oldCmd)
+				fmt.Fprintf(b.stdout, "Note: overriding previous HEALTHCHECK: %v\n", oldCmd)
 			}
 		}
 

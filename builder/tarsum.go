@@ -66,7 +66,7 @@ func (c *tarSumContext) Stat(path string) (string, FileInfo, error) {
 	if tsInfo := c.sums.GetFile(filepath.ToSlash(rel)); tsInfo != nil {
 		sum = tsInfo.Sum()
 	}
-	fi := &HashedFileInfo{PathFileInfo{st, fullpath, filepath.Base(cleanpath)}, sum}
+	fi := &PathFileInfo{st, fullpath, filepath.Base(cleanpath), sum}
 	return rel, fi, nil
 }
 
@@ -78,7 +78,7 @@ func (c *tarSumContext) Stat(path string) (string, FileInfo, error) {
 // all those sums then becomes the source of truth for all operations on this Context.
 //
 // Closing tarStream has to be done by the caller.
-func MakeTarSumContext(tarStream io.Reader) (ModifiableContext, error) {
+func MakeTarSumContext(tarStream io.Reader) (Context, error) {
 	root, err := ioutils.TempDir("", "docker-builder")
 	if err != nil {
 		return nil, err
@@ -142,7 +142,7 @@ func (c *tarSumContext) Walk(root string, walkFn WalkFunc) error {
 		if tsInfo := c.sums.GetFile(filepath.ToSlash(rel)); tsInfo != nil {
 			sum = tsInfo.Sum()
 		}
-		fi := &HashedFileInfo{PathFileInfo{FileInfo: info, FilePath: fullpath}, sum}
+		fi := &PathFileInfo{FileInfo: info, FilePath: fullpath, FileHash: sum}
 		if err := walkFn(rel, fi, nil); err != nil {
 			return err
 		}

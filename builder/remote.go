@@ -30,7 +30,7 @@ var mimeRe = regexp.MustCompile(acceptableRemoteMIME)
 // If a match is found, then the body is sent to the contentType handler and a (potentially compressed) tar stream is expected
 // to be returned. If no match is found, it is assumed the body is a tar stream (compressed or not).
 // In either case, an (assumed) tar stream is passed to MakeTarSumContext whose result is returned.
-func MakeRemoteContext(remoteURL string, contentTypeHandlers map[string]func(io.ReadCloser) (io.ReadCloser, error)) (ModifiableContext, error) {
+func MakeRemoteContext(remoteURL string, contentTypeHandlers map[string]func(io.ReadCloser) (io.ReadCloser, error)) (Context, error) {
 	f, err := httputils.Download(remoteURL)
 	if err != nil {
 		return nil, fmt.Errorf("error downloading remote context %s: %v", remoteURL, err)
@@ -70,7 +70,7 @@ func MakeRemoteContext(remoteURL string, contentTypeHandlers map[string]func(io.
 // DetectContextFromRemoteURL returns a context and in certain cases the name of the dockerfile to be used
 // irrespective of user input.
 // progressReader is only used if remoteURL is actually a URL (not empty, and not a Git endpoint).
-func DetectContextFromRemoteURL(r io.ReadCloser, remoteURL string, createProgressReader func(in io.ReadCloser) io.ReadCloser) (context ModifiableContext, dockerfileName string, err error) {
+func DetectContextFromRemoteURL(r io.ReadCloser, remoteURL string, createProgressReader func(in io.ReadCloser) io.ReadCloser) (context Context, dockerfileName string, err error) {
 	switch {
 	case remoteURL == "":
 		context, err = MakeTarSumContext(r)

@@ -190,7 +190,7 @@ func (b *Builder) dispatch(stepN int, stepTotal int, ast *parser.Node) error {
 	}
 
 	msg += " " + strings.Join(msgList, " ")
-	fmt.Fprintln(b.Stdout, msg)
+	fmt.Fprintln(b.stdout, msg)
 
 	// XXX yes, we skip any cmds that are not valid; the parser should have
 	// picked these out already.

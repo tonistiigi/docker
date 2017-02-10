@@ -247,7 +247,7 @@ func (b *Builder) download(srcURL string) (fi builder.FileInfo, err error) {
 		return
 	}
 
-	stdoutFormatter := b.Stdout.(*streamformatter.StdoutFormatter)
+	stdoutFormatter := b.stdout.(*streamformatter.StdoutFormatter)
 	progressOutput := stdoutFormatter.StreamFormatter.NewProgressOutput(stdoutFormatter.Writer, true)
 	progressReader := progress.NewProgressReader(resp.Body, progressOutput, resp.ContentLength, "", "Downloading")
 	// Download and dump result to tmp file
@@ -255,7 +255,7 @@ func (b *Builder) download(srcURL string) (fi builder.FileInfo, err error) {
 		tmpFile.Close()
 		return
 	}
-	fmt.Fprintln(b.Stdout)
+	fmt.Fprintln(b.stdout)
 	// ignoring error because the file was already opened successfully
 	tmpFileSt, err := tmpFile.Stat()
 	if err != nil {
@@ -296,7 +296,7 @@ func (b *Builder) download(srcURL string) (fi builder.FileInfo, err error) {
 	}
 	hash := tarSum.Sum(nil)
 	r.Close()
-	return &builder.HashedFileInfo{FileInfo: builder.PathFileInfo{FileInfo: tmpFileSt, FilePath: tmpFileName}, FileHash: hash}, nil
+	return &builder.PathFileInfo{FileInfo: tmpFileSt, FilePath: tmpFileName, FileHash: hash}, nil
 }
 
 func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression, allowWildcards bool) ([]copyInfo, error) {
@@ -412,7 +412,7 @@ func (b *Builder) processImageFrom(img builder.Image) error {
 		if nTriggers > 1 {
 			word = "triggers"
 		}
-		fmt.Fprintf(b.Stderr, "# Executing %d build %s...\n", nTriggers, word)
+		fmt.Fprintf(b.stderr, "# Executing %d build %s...\n", nTriggers, word)
 	}
 
 	// Copy the ONBUILD triggers, and remove them from the config, since the config will be committed.
@@ -461,7 +461,7 @@ func (b *Builder) probeCache() (bool, error) {
 		return false, nil
 	}
 
-	fmt.Fprint(b.Stdout, " ---> Using cache\n")
+	fmt.Fprint(b.stdout, " ---> Using cache\n")
 	logrus.Debugf("[BUILDER] Use cached version: %s", b.runConfig.Cmd)
 	b.image = string(cache)
 
@@ -508,11 +508,11 @@ func (b *Builder) create() (string, error) {
 		return "", err
 	}
 	for _, warning := range c.Warnings {
-		fmt.Fprintf(b.Stdout, " ---> [Warning] %s\n", warning)
+		fmt.Fprintf(b.stdout, " ---> [Warning] %s\n", warning)
 	}
 
 	b.tmpContainers[c.ID] = struct{}{}
-	fmt.Fprintf(b.Stdout, " ---> Running in %s\n", stringid.TruncateID(c.ID))
+	fmt.Fprintf(b.stdout, " ---> Running in %s\n", stringid.TruncateID(c.ID))
 
 	// override the entry point that may have been picked up from the base image
 	if err := b.docker.ContainerUpdateCmdOnBuild(c.ID, config.Cmd); err != nil {
@@ -527,7 +527,7 @@ var errCancelled = errors.New("build cancelled")
 func (b *Builder) run(cID string) (err error) {
 	errCh := make(chan error)
 	go func() {
-		errCh <- b.docker.ContainerAttachRaw(cID, nil, b.Stdout, b.Stderr, true)
+		errCh <- b.docker.ContainerAttachRaw(cID, nil, b.stdout, b.stderr, true)
 	}()
 
 	finished := make(chan struct{})
@@ -585,7 +585,7 @@ func (b *Builder) removeContainer(c string) error {
 		RemoveVolume: true,
 	}
 	if err := b.docker.ContainerRm(c, rmConfig); err != nil {
-		fmt.Fprintf(b.Stdout, "Error removing intermediate container %s: %v\n", stringid.TruncateID(c), err)
+		fmt.Fprintf(b.stdout, "Error removing intermediate container %s: %v\n", stringid.TruncateID(c), err)
 		return err
 	}
 	return nil
@@ -597,7 +597,7 @@ func (b *Builder) clearTmp() {
 			return
 		}
 		delete(b.tmpContainers, c)
-		fmt.Fprintf(b.Stdout, "Removing intermediate container %s\n", stringid.TruncateID(c))
+		fmt.Fprintf(b.stdout, "Removing intermediate container %s\n", stringid.TruncateID(c))
 	}
 }
 
