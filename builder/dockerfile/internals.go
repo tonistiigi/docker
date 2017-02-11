@@ -112,32 +112,13 @@ func (b *Builder) commit2(comment string) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to create image config")
 	}
+	// todo: these insertions could be done lazily
 	img, err := b.docker.NewImage(config, b.currentImage.ID())
 	if err != nil {
 		return errors.Wrap(err, "failed to create new image")
 	}
 	b.currentImage = img
-	// todo: release old b.currentImage
-
-	// // Note: Actually copy the struct
-	// autoConfig := *b.runConfig
-	// autoConfig.Cmd = autoCmd
-	//
-	// commitCfg := &backend.ContainerCommitConfig{
-	//   ContainerCommitConfig: types.ContainerCommitConfig{
-	//     Author: b.maintainer,
-	//     Pause:  true,
-	//     Config: &autoConfig,
-	//   },
-	// }
-	//
-	// // Commit the container
-	// imageID, err := b.docker.Commit(id, commitCfg)
-	// if err != nil {
-	//   return err
-	// }
-	//
-	// b.image = imageID
+	b.image = b.currentImage.ID().String()
 	return nil
 }
 

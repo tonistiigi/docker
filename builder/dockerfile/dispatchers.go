@@ -92,12 +92,12 @@ func env(b *Builder, args []string, attributes map[string]bool, original string)
 			}
 		}
 		if !gotOne {
-			b.runConfig.Env = append(b.runConfig.Env, newVar)
+			addImageEnv(b.currentImage, newVar)
 		}
 		j++
 	}
 
-	return b.commit("", b.runConfig.Cmd, commitStr)
+	return b.commit2(commitStr)
 }
 
 // MAINTAINER some text <maybe@an.email.address>
@@ -229,7 +229,9 @@ func from(b *Builder, args []string, attributes map[string]bool, original string
 	}
 	b.from = image
 	if image != nil {
-		*b.currentImage = *image
+		img := *image
+		b.image = image.ID().String()
+		b.currentImage = &img
 	}
 
 	return b.initializeCurrentImage()

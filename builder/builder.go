@@ -111,6 +111,8 @@ type Backend interface {
 	ContainerRm(name string, config *types.ContainerRmConfig) error
 	// Commit creates a new Docker image from an existing Docker container.
 	Commit(string, *backend.ContainerCommitConfig) (string, error)
+	// NewImage creates a new Docker image from an existing Docker container.
+	NewImage(config []byte, parent image.ID) (*image.Image, error)
 	// ContainerKill stops the container execution abruptly.
 	ContainerKill(containerID string, sig uint64) error
 	// ContainerStart starts a new container
