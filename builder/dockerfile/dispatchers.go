@@ -113,7 +113,8 @@ func maintainer(b *Builder, args []string, attributes map[string]bool, original 
 	}
 
 	b.maintainer = args[0]
-	return b.commit("", b.runConfig.Cmd, fmt.Sprintf("MAINTAINER %s", b.maintainer))
+	b.currentImage.Author = args[0]
+	return b.commit2(fmt.Sprintf("MAINTAINER %s", b.maintainer))
 }
 
 // LABEL some json data describing the image
@@ -150,10 +151,11 @@ func label(b *Builder, args []string, attributes map[string]bool, original strin
 		newVar := args[j] + "=" + args[j+1] + ""
 		commitStr += " " + newVar
 
-		b.runConfig.Labels[args[j]] = args[j+1]
+		b.currentImage.Config.Labels[args[j]] = args[j+1]
 		j++
 	}
-	return b.commit("", b.runConfig.Cmd, commitStr)
+	b.currentImage.ContainerConfig.Labels = b.currentImage.Config.Labels
+	return b.commit2(commitStr)
 }
 
 // ADD foo /path
@@ -265,8 +267,8 @@ func onbuild(b *Builder, args []string, attributes map[string]bool, original str
 
 	original = regexp.MustCompile(`(?i)^\s*ONBUILD\s*`).ReplaceAllString(original, "")
 
-	b.runConfig.OnBuild = append(b.runConfig.OnBuild, original)
-	return b.commit("", b.runConfig.Cmd, fmt.Sprintf("ONBUILD %s", original))
+	b.currentImage.Config.OnBuild = append(b.runConfig.OnBuild, original)
+	return b.commit2(fmt.Sprintf("ONBUILD %s", original))
 }
 
 // WORKDIR /tmp
@@ -464,11 +466,13 @@ func cmd(b *Builder, args []string, attributes map[string]bool, original string)
 		cmdSlice = append(getShell(b.runConfig), cmdSlice...)
 	}
 
-	b.runConfig.Cmd = strslice.StrSlice(cmdSlice)
+	b.currentImage.Config.Cmd = strslice.StrSlice(cmdSlice)
 	// set config as already being escaped, this prevents double escaping on windows
-	b.runConfig.ArgsEscaped = true
+	b.currentImage.Config.ArgsEscaped = true
+	b.currentImage.ContainerConfig.Cmd = b.currentImage.Config.Cmd
+	b.currentImage.ContainerConfig.ArgsEscaped = b.currentImage.Config.ArgsEscaped
 
-	if err := b.commit("", b.runConfig.Cmd, fmt.Sprintf("CMD %q", cmdSlice)); err != nil {
+	if err := b.commit2(fmt.Sprintf("CMD %q", cmdSlice)); err != nil {
 		return err
 	}
 
@@ -574,10 +578,10 @@ func healthcheck(b *Builder, args []string, attributes map[string]bool, original
 			healthcheck.Retries = 0
 		}
 
-		b.runConfig.Healthcheck = &healthcheck
+		b.currentImage.Config.Healthcheck = &healthcheck
 	}
 
-	return b.commit("", b.runConfig.Cmd, fmt.Sprintf("HEALTHCHECK %q", b.runConfig.Healthcheck))
+	return b.commit2(fmt.Sprintf("HEALTHCHECK %q", b.runConfig.Healthcheck))
 }
 
 // ENTRYPOINT /usr/sbin/nginx
@@ -598,22 +602,22 @@ func entrypoint(b *Builder, args []string, attributes map[string]bool, original 
 	switch {
 	case attributes["json"]:
 		// ENTRYPOINT ["echo", "hi"]
-		b.runConfig.Entrypoint = strslice.StrSlice(parsed)
+		b.currentImage.Config.Entrypoint = strslice.StrSlice(parsed)
 	case len(parsed) == 0:
 		// ENTRYPOINT []
-		b.runConfig.Entrypoint = nil
+		b.currentImage.Config.Entrypoint = nil
 	default:
 		// ENTRYPOINT echo hi
-		b.runConfig.Entrypoint = strslice.StrSlice(append(getShell(b.runConfig), parsed[0]))
+		b.currentImage.Config.Entrypoint = strslice.StrSlice(append(getShell(b.runConfig), parsed[0]))
 	}
 
 	// when setting the entrypoint if a CMD was not explicitly set then
 	// set the command to nil
 	if !b.cmdSet {
-		b.runConfig.Cmd = nil
+		b.currentImage.Config.Cmd = nil
 	}
 
-	if err := b.commit("", b.runConfig.Cmd, fmt.Sprintf("ENTRYPOINT %q", b.runConfig.Entrypoint)); err != nil {
+	if err := b.commit2(fmt.Sprintf("ENTRYPOINT %q", b.runConfig.Entrypoint)); err != nil {
 		return err
 	}
 
@@ -636,8 +640,8 @@ func expose(b *Builder, args []string, attributes map[string]bool, original stri
 		return err
 	}
 
-	if b.runConfig.ExposedPorts == nil {
-		b.runConfig.ExposedPorts = make(nat.PortSet)
+	if b.currentImage.Config.ExposedPorts == nil {
+		b.currentImage.Config.ExposedPorts = make(nat.PortSet)
 	}
 
 	ports, _, err := nat.ParsePortSpecs(portsTab)
@@ -652,13 +656,13 @@ func expose(b *Builder, args []string, attributes map[string]bool, original stri
 	var i int
 	for port := range ports {
 		if _, exists := b.runConfig.ExposedPorts[port]; !exists {
-			b.runConfig.ExposedPorts[port] = struct{}{}
+			b.currentImage.Config.ExposedPorts[port] = struct{}{}
 		}
 		portList[i] = string(port)
 		i++
 	}
 	sort.Strings(portList)
-	return b.commit("", b.runConfig.Cmd, fmt.Sprintf("EXPOSE %s", strings.Join(portList, " ")))
+	return b.commit2(fmt.Sprintf("EXPOSE %s", strings.Join(portList, " ")))
 }
 
 // USER foo
@@ -675,8 +679,8 @@ func user(b *Builder, args []string, attributes map[string]bool, original string
 		return err
 	}
 
-	b.runConfig.User = args[0]
-	return b.commit("", b.runConfig.Cmd, fmt.Sprintf("USER %v", args))
+	b.currentImage.Config.User = args[0]
+	return b.commit2(fmt.Sprintf("USER %v", args))
 }
 
 // VOLUME /foo
@@ -692,17 +696,17 @@ func volume(b *Builder, args []string, attributes map[string]bool, original stri
 		return err
 	}
 
-	if b.runConfig.Volumes == nil {
-		b.runConfig.Volumes = map[string]struct{}{}
+	if b.currentImage.Config.Volumes == nil {
+		b.currentImage.Config.Volumes = map[string]struct{}{}
 	}
 	for _, v := range args {
 		v = strings.TrimSpace(v)
 		if v == "" {
 			return errors.New("VOLUME specified can not be an empty string")
 		}
-		b.runConfig.Volumes[v] = struct{}{}
+		b.currentImage.Config.Volumes[v] = struct{}{}
 	}
-	if err := b.commit("", b.runConfig.Cmd, fmt.Sprintf("VOLUME %v", args)); err != nil {
+	if err := b.commit2(fmt.Sprintf("VOLUME %v", args)); err != nil {
 		return err
 	}
 	return nil
@@ -722,8 +726,8 @@ func stopSignal(b *Builder, args []string, attributes map[string]bool, original 
 		return err
 	}
 
-	b.runConfig.StopSignal = sig
-	return b.commit("", b.runConfig.Cmd, fmt.Sprintf("STOPSIGNAL %v", args))
+	b.currentImage.Config.StopSignal = sig
+	return b.commit2(fmt.Sprintf("STOPSIGNAL %v", args))
 }
 
 // ARG name[=value]
@@ -774,7 +778,7 @@ func arg(b *Builder, args []string, attributes map[string]bool, original string)
 		b.options.BuildArgs[name] = &newValue
 	}
 
-	return b.commit("", b.runConfig.Cmd, fmt.Sprintf("ARG %s", arg))
+	return b.commit2(fmt.Sprintf("ARG %s", arg))
 }
 
 // SHELL powershell -command
@@ -791,12 +795,12 @@ func shell(b *Builder, args []string, attributes map[string]bool, original strin
 		return errAtLeastOneArgument("SHELL")
 	case attributes["json"]:
 		// SHELL ["powershell", "-command"]
-		b.runConfig.Shell = strslice.StrSlice(shellSlice)
+		b.currentImage.Config.Shell = strslice.StrSlice(shellSlice)
 	default:
 		// SHELL powershell -command - not JSON
 		return errNotJSON("SHELL", original)
 	}
-	return b.commit("", b.runConfig.Cmd, fmt.Sprintf("SHELL %v", shellSlice))
+	return b.commit2(fmt.Sprintf("SHELL %v", shellSlice))
 }
 
 func errAtLeastOneArgument(command string) error {
