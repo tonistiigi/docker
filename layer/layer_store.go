@@ -9,6 +9,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution"
 	"github.com/docker/docker/daemon/graphdriver"
+	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/stringid"
@@ -743,12 +744,12 @@ func (n *naiveDiffPathDriver) DiffGetter(id string) (graphdriver.FileGetCloser, 
 	return &fileGetPutter{storage.NewPathFileGetter(p), n.Driver, id}, nil
 }
 
-func (ls *layerStore) Merge(base ChainID, TarStreamer, basePath string, filter string) (Layer, error) {
+func (ls *layerStore) Copy(base Layer, tar TarStreamer, basePath string, filter string, arc *archive.Archiver) (Layer, error) {
 	// todo: convert base/filter if needed
 	// todo: quick implementation by driver
-	l, err := ls.Get(base)
+	rc, err := tar.TarStream()
 	if err != nil {
 		return nil, err
 	}
-	return l, nil
+	return ls.Register(rc, base.ChainID())
 }

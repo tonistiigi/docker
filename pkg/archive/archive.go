@@ -130,6 +130,7 @@ func IsArchivePath(path string) bool {
 		return false
 	}
 	r := tar.NewReader(rdr)
+	defer rdr.Close()
 	_, err = r.Next()
 	return err == nil
 }

@@ -207,9 +207,9 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 		origPaths = strings.Join(origs, " ")
 	}
 
-	cmd := b.runConfig.Cmd
-	b.runConfig.Cmd = strslice.StrSlice(append(getShell(b.runConfig), fmt.Sprintf("#(nop) %s %s in %s ", cmdName, srcHash, dest)))
-	defer func(cmd strslice.StrSlice) { b.runConfig.Cmd = cmd }(cmd)
+	comment := fmt.Sprintf("%s %s %s in %s", cmdName, origPaths, srcHash, dest)
+
+	b.currentImage.ContainerConfig.Cmd = strslice.StrSlice(append(getShell(b.runConfig), fmt.Sprintf("#(nop) %s ", comment)))
 
 	if hit, err := b.probeCache(); err != nil {
 		return err
@@ -217,31 +217,21 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 		return nil
 	}
 
-	container, err := b.docker.ContainerCreate(types.ContainerCreateConfig{
-		Config: b.runConfig,
-		// Set a log config to override any default value set on the daemon
-		HostConfig: &container.HostConfig{LogConfig: defaultLogConfig},
-	})
-	if err != nil {
-		return err
-	}
-	b.tmpContainers[container.ID] = struct{}{}
-
-	comment := fmt.Sprintf("%s %s in %s", cmdName, origPaths, dest)
-
 	// Twiddle the destination when it's a relative path - meaning, make it
 	// relative to the WORKINGDIR
-	if dest, err = normaliseDest(cmdName, b.runConfig.WorkingDir, dest); err != nil {
+	if dest, err = normaliseDest(cmdName, b.currentImage.Config.WorkingDir, dest); err != nil {
 		return err
 	}
 
 	for _, info := range infos {
-		if err := b.docker.CopyOnBuild(container.ID, dest, info.FileInfo, info.decompress); err != nil {
+		l, err := b.docker.CopyToLayer(b.currentImage.RootFS.ChainID(), info.FileInfo.Path(), dest, info.decompress)
+		if err != nil {
 			return err
 		}
+		b.currentImage.RootFS.Append(l.DiffID())
 	}
 
-	return b.commit(container.ID, cmd, comment)
+	return b.commit2(comment)
 }
 
 func (b *Builder) download(srcURL string) (fi builder.FileInfo, err error) {

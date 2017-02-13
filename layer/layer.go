@@ -201,7 +201,7 @@ type Store interface {
 	DriverStatus() [][2]string
 	DriverName() string
 
-	Merge(base ChainID, TarStreamer, basePath string, filter string) (Layer, error)
+	Copy(base Layer, tar TarStreamer, basePath string, filter string, arch *archive.Archiver) (Layer, error)
 }
 
 // DescribableStore represents a layer store capable of storing

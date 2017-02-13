@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/layer"
 	"golang.org/x/net/context"
 )
 
@@ -132,12 +133,18 @@ type Backend interface {
 	// ContainerCopy(name string, res string) (io.ReadCloser, error)
 	// TODO: use copyBackend api
 	CopyOnBuild(containerID string, destPath string, src FileInfo, decompress bool) error
+	CopyToLayer(layerID layer.ChainID, srcPath, destDir string, decompress bool) (Layer, error)
 
 	// HasExperimental checks if the backend supports experimental features
 	HasExperimental() bool
 
 	// SquashImage squashes the fs layers from the provided image down to the specified `to` image
 	SquashImage(from string, to string) (string, error)
+}
+
+type Layer interface {
+	Release() error
+	DiffID() layer.DiffID
 }
 
 // Image represents a Docker image used by the builder.
