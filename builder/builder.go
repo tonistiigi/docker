@@ -132,8 +132,8 @@ type Backend interface {
 	// with Context.Walk
 	// ContainerCopy(name string, res string) (io.ReadCloser, error)
 	// TODO: use copyBackend api
-	CopyOnBuild(containerID string, destPath string, src FileInfo, decompress bool) error
-	CopyToLayer(layerID layer.ChainID, srcPath, destDir string, decompress bool) (Layer, error)
+	// CopyOnBuild(containerID string, destPath string, src FileInfo, decompress bool) error
+	CopyToLayer(layerID layer.ChainID, sources []CopySource, destPath string) (Layer, error)
 
 	// HasExperimental checks if the backend supports experimental features
 	HasExperimental() bool
@@ -145,6 +145,11 @@ type Backend interface {
 type Layer interface {
 	Release() error
 	DiffID() layer.DiffID
+}
+
+type CopySource interface {
+	Path() string
+	Decompress() bool
 }
 
 // Image represents a Docker image used by the builder.

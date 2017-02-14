@@ -145,7 +145,7 @@ type RWLayer interface {
 	// Metadata returns the low level metadata for the mutable layer
 	Metadata() (map[string]string, error)
 
-	Commit(CommitOpts) (Layer, error)
+	Commit(*CommitOpts) (Layer, error)
 }
 
 // Metadata holds information about a
@@ -195,7 +195,7 @@ type Store interface {
 	GetRWLayer(id string) (RWLayer, error)
 	GetMountID(id string) (string, error)
 	ReleaseRWLayer(RWLayer) ([]Metadata, error)
-	ReleaseAndCommitRWLayer(RWLayer, CommitOpts) (Layer, error)
+	ReleaseAndCommitRWLayer(RWLayer, *CommitOpts) (Layer, error)
 
 	Cleanup() error
 	DriverStatus() [][2]string

@@ -540,7 +540,7 @@ func (ls *layerStore) GetMountID(id string) (string, error) {
 	return mount.mountID, nil
 }
 
-func (ls *layerStore) ReleaseAndCommitRWLayer(l RWLayer, opts CommitOpts) (Layer, error) {
+func (ls *layerStore) ReleaseAndCommitRWLayer(l RWLayer, opts *CommitOpts) (Layer, error) {
 	ls.mountL.Lock()
 	m, ok := ls.mounts[l.Name()]
 	if !ok {

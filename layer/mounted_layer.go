@@ -57,7 +57,7 @@ func (ml *mountedLayer) Metadata() (map[string]string, error) {
 	return ml.layerStore.driver.GetMetadata(ml.mountID)
 }
 
-func (ml *mountedLayer) Commit(opts CommitOpts) (Layer, error) {
+func (ml *mountedLayer) Commit(opts *CommitOpts) (Layer, error) {
 	tar, err := ml.TarStream()
 	if err != nil {
 		return nil, err

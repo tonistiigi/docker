@@ -12,7 +12,10 @@ import (
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
+	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/ioutils"
+	"github.com/docker/docker/pkg/stringid"
+	"github.com/docker/docker/pkg/symlink"
 	"github.com/docker/docker/pkg/system"
 	"github.com/pkg/errors"
 )
@@ -338,94 +341,95 @@ func (daemon *Daemon) containerCopy(container *container.Container, resource str
 	return reader, nil
 }
 
-func (daemon *Daemon) CreateTarSource(srcPath, destPath string, decompress bool) (io.ReadCloser, error) {
-	// destExists := true
-	// destDir := false
-	// rootUID, rootGID := daemon.GetRemappedUIDGID()
+//
+// func (daemon *Daemon) CreateTarSource(srcPath, destPath string, decompress bool) (io.ReadCloser, error) {
+//   // destExists := true
+//   // destDir := false
+//   // rootUID, rootGID := daemon.GetRemappedUIDGID()
+//
+//   // uidMaps, gidMaps := daemon.GetUIDGIDMaps()
+//   // archiver := &archive.Archiver{
+//   //   Untar:   chrootarchive.Untar,
+//   //   UIDMaps: uidMaps,
+//   //   GIDMaps: gidMaps,
+//   // }
+//
+//   srcStat, err := os.Stat(srcPath)
+//   if err != nil {
+//     return nil, errors.Errorf("failed to stat %s", srcPath)
+//   }
+//
+//   // destStat, err := os.Stat(destPath)
+//   // if err != nil {
+//   //   if !os.IsNotExist(err) {
+//   //     //logrus.Errorf("Error performing os.Stat on %s. %s", destPath, err)
+//   //     return nil, err
+//   //   }
+//   //   // destExists = false
+//   // }
+//
+//   if srcStat.IsDir() {
+//     rc, err := archive.TarWithOptions(srcPath, &archive.TarOptions{Compression: archive.Uncompressed})
+//     if err != nil {
+//       return nil, err
+//     }
+//     return rc, nil
+//   }
+//   if decompress && archive.IsArchivePath(srcPath) {
+//     f, err := os.Open(srcPath)
+//     if err != nil {
+//       return nil, errors.Wrapf(err, "failed to open %s", srcPath)
+//     }
+//     return f, nil
+//   }
+//   return nil, errors.Errorf("not implemented")
+//   //   // if destDir || (destExists && destStat.IsDir()) {
+//   // //     destPath = filepath.Join(destPath, src.Name())
+//   // //   }
+//   // //   archive, err := TarWithOptions(srcPath, &TarOptions{Compression: Uncompressed, RebaseNames: })
+//   // //   if err != nil {
+//   // //     return err
+//   // //   }
+//   //   if err := archiver.CopyFileWithTar(srcPath, destPath); err != nil {
+//   //     return err
+//   //   }
+// }
 
-	// uidMaps, gidMaps := daemon.GetUIDGIDMaps()
-	// archiver := &archive.Archiver{
-	//   Untar:   chrootarchive.Untar,
-	//   UIDMaps: uidMaps,
-	//   GIDMaps: gidMaps,
-	// }
-
-	srcStat, err := os.Stat(srcPath)
-	if err != nil {
-		return nil, errors.Errorf("failed to stat %s", srcPath)
-	}
-
-	// destStat, err := os.Stat(destPath)
-	// if err != nil {
-	//   if !os.IsNotExist(err) {
-	//     //logrus.Errorf("Error performing os.Stat on %s. %s", destPath, err)
-	//     return nil, err
-	//   }
-	//   // destExists = false
-	// }
-
-	if srcStat.IsDir() {
-		rc, err := archive.TarWithOptions(srcPath, &archive.TarOptions{Compression: archive.Uncompressed})
-		if err != nil {
-			return nil, err
-		}
-		return rc, nil
-	}
-	if decompress && archive.IsArchivePath(srcPath) {
-		f, err := os.Open(srcPath)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to open %s", srcPath)
-		}
-		return f, nil
-	}
-	return nil, errors.Errorf("not implemented")
-	//   // if destDir || (destExists && destStat.IsDir()) {
-	// //     destPath = filepath.Join(destPath, src.Name())
-	// //   }
-	// //   archive, err := TarWithOptions(srcPath, &TarOptions{Compression: Uncompressed, RebaseNames: })
-	// //   if err != nil {
-	// //     return err
-	// //   }
-	//   if err := archiver.CopyFileWithTar(srcPath, destPath); err != nil {
-	//     return err
-	//   }
-}
-
-func (daemon *Daemon) CopyToLayer(layerID layer.ChainID, srcPath, destPath string, decompress bool) (builder.Layer, error) {
-	layer, err := daemon.layerStore.Get(layerID)
-	if err != nil {
-		return nil, err
-	}
-	defer daemon.layerStore.Release(layer)
-
-	src, err := daemon.CreateTarSource(srcPath, destPath, decompress)
-	if err != nil {
-		return nil, err
-	}
-	defer src.Close()
-
-	// destDir := false
-	// // Preserve the trailing slash
-	// // TODO: why are we appending another path separator if there was already one?
-	// if strings.HasSuffix(destPath, string(os.PathSeparator)) || destPath == "." {
-	//   destDir = true
-	//   dest += string(os.PathSeparator)
-	// }
-
-	uidMaps, gidMaps := daemon.GetUIDGIDMaps()
-	archiver := &archive.Archiver{
-		Untar:   chrootarchive.Untar,
-		UIDMaps: uidMaps,
-		GIDMaps: gidMaps,
-	}
-
-	l, err := daemon.layerStore.Copy(layer, &tarStreamer{src}, destPath, "", archiver)
-	if err != nil {
-		return nil, err
-	}
-	return &releasableLayer{l, daemon.layerStore}, nil
-}
-
+// func (daemon *Daemon) CopyToLayer(layerID layer.ChainID, srcPath, destPath string, decompress bool) (builder.Layer, error) {
+//   layer, err := daemon.layerStore.Get(layerID)
+//   if err != nil {
+//     return nil, err
+//   }
+//   defer daemon.layerStore.Release(layer)
+//
+//   src, err := daemon.CreateTarSource(srcPath, destPath, decompress)
+//   if err != nil {
+//     return nil, err
+//   }
+//   defer src.Close()
+//
+//   // destDir := false
+//   // // Preserve the trailing slash
+//   // // TODO: why are we appending another path separator if there was already one?
+//   // if strings.HasSuffix(destPath, string(os.PathSeparator)) || destPath == "." {
+//   //   destDir = true
+//   //   dest += string(os.PathSeparator)
+//   // }
+//
+//   uidMaps, gidMaps := daemon.GetUIDGIDMaps()
+//   archiver := &archive.Archiver{
+//     Untar:   chrootarchive.Untar,
+//     UIDMaps: uidMaps,
+//     GIDMaps: gidMaps,
+//   }
+//
+//   l, err := daemon.layerStore.Copy(layer, &tarStreamer{src}, destPath, "", archiver)
+//   if err != nil {
+//     return nil, err
+//   }
+//   return &releasableLayer{l, daemon.layerStore}, nil
+// }
+//
 type releasableLayer struct {
 	layer.Layer
 	store layer.Store
@@ -440,91 +444,214 @@ func (rl *releasableLayer) Release() error {
 // specified by a container object.
 // TODO: make sure callers don't unnecessarily convert destPath with filepath.FromSlash (Copy does it already).
 // CopyOnBuild should take in abstract paths (with slashes) and the implementation should convert it to OS-specific paths.
-func (daemon *Daemon) CopyOnBuild(id string, destPath string, src builder.FileInfo, decompress bool) error {
-	return errors.New("removed")
-	// srcPath := src.Path()
-	// destExists := true
-	// destDir := false
-	// rootUID, rootGID := daemon.GetRemappedUIDGID()
-	//
-	// // Work in daemon-local OS specific file paths
-	// destPath = filepath.FromSlash(destPath)
-	//
-	// dest, err := c.GetResourcePath(destPath)
-	// if err != nil {
-	//   return err
-	// }
-	//
-	// // Preserve the trailing slash
-	// // TODO: why are we appending another path separator if there was already one?
-	// if strings.HasSuffix(destPath, string(os.PathSeparator)) || destPath == "." {
-	//   destDir = true
-	//   dest += string(os.PathSeparator)
-	// }
-	//
-	// destPath = dest
-	//
-	// destStat, err := os.Stat(destPath)
-	// if err != nil {
-	//   if !os.IsNotExist(err) {
-	//     //logrus.Errorf("Error performing os.Stat on %s. %s", destPath, err)
-	//     return err
-	//   }
-	//   destExists = false
-	// }
-	//
-	// uidMaps, gidMaps := daemon.GetUIDGIDMaps()
-	// archiver := &archive.Archiver{
-	//   Untar:   chrootarchive.Untar,
-	//   UIDMaps: uidMaps,
-	//   GIDMaps: gidMaps,
-	// }
-	//
-	// if src.IsDir() {
-	//   // // copy as directory
-	//   // if err := archiver.CopyWithTar(srcPath, destPath); err != nil {
-	//   //   return err
-	//   // }
-	//   // return fixPermissions(srcPath, destPath, rootUID, rootGID, destExists)
-	//   return daemon.ls.Copy(layer, &tarStreamer{srcPath}, tarDest, "/", archiver)
-	// }
-	// if decompress && archive.IsArchivePath(srcPath) {
-	//   // Only try to untar if it is a file and that we've been told to decompress (when ADD-ing a remote file)
-	//
-	//   // First try to unpack the source as an archive
-	//   // to support the untar feature we need to clean up the path a little bit
-	//   // because tar is very forgiving.  First we need to strip off the archive's
-	//   // filename from the path but this is only added if it does not end in slash
-	//   tarDest := destPath
-	//   if strings.HasSuffix(tarDest, string(os.PathSeparator)) {
-	//     tarDest = filepath.Dir(destPath)
-	//   }
-	//
-	//   // try to successfully untar the orig
-	//   err := archiver.UntarPath(srcPath, tarDest)
-	//
-	//   return daemon.ls.Copy(layer, &tarStreamer{srcPath}, tarDest, "/", archiver)
-	// }
-	//
-	// // only needed for fixPermissions, but might as well put it before CopyFileWithTar
-	// if destDir || (destExists && destStat.IsDir()) {
-	//   destPath = filepath.Join(destPath, src.Name())
-	// }
-	//
-	// if err := idtools.MkdirAllNewAs(filepath.Dir(destPath), 0755, rootUID, rootGID); err != nil {
-	//   return err
-	// }
-	// if err := archiver.CopyFileWithTar(srcPath, destPath); err != nil {
-	//   return err
-	// }
-	//
-	// return fixPermissions(srcPath, destPath, rootUID, rootGID, destExists)
+func (daemon *Daemon) CopyToLayer(layerID layer.ChainID, sources []builder.CopySource, destPath string) (retLayer builder.Layer, retErr error) {
+	rwLayerID := stringid.GenerateRandomID()
+	rwLayer, err := daemon.layerStore.CreateRWLayer(rwLayerID, layerID, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		if retErr != nil {
+			daemon.layerStore.ReleaseRWLayer(rwLayer)
+		} else {
+			l, err := daemon.layerStore.ReleaseAndCommitRWLayer(rwLayer, nil)
+			if err != nil {
+				retErr = err
+			} else {
+				retLayer = &releasableLayer{l, daemon.layerStore}
+			}
+		}
+	}()
+
+	rwLayerPath, err := rwLayer.Mount("")
+	if err != nil {
+		return nil, err
+	}
+
+	defer rwLayer.Unmount()
+
+	destExists := true
+	destDir := false
+
+	// Work in daemon-local OS specific file paths
+	origDestPath := filepath.FromSlash(destPath)
+
+	for _, src := range sources {
+		srcPath := src.Path()
+		rootUID, rootGID := daemon.GetRemappedUIDGID()
+
+		dest, err := symlink.FollowSymlinkInScope(filepath.Join(rwLayerPath, origDestPath), rwLayerPath)
+		if err != nil {
+			return nil, err
+		}
+		// Preserve the trailing slash
+		// TODO: why are we appending another path separator if there was already one?
+		if strings.HasSuffix(destPath, string(os.PathSeparator)) || destPath == "." {
+			destDir = true
+			dest += string(os.PathSeparator)
+		}
+		destPath = dest
+
+		destStat, err := os.Stat(dest)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				//logrus.Errorf("Error performing os.Stat on %s. %s", destPath, err)
+				return nil, err
+			}
+			destExists = false
+		}
+
+		uidMaps, gidMaps := daemon.GetUIDGIDMaps()
+		archiver := &archive.Archiver{
+			Untar:   chrootarchive.Untar,
+			UIDMaps: uidMaps,
+			GIDMaps: gidMaps,
+		}
+
+		srcStat, err := os.Lstat(srcPath)
+		if err != nil {
+			return nil, err
+		}
+
+		if srcStat.IsDir() {
+			// copy as directory
+			if err := archiver.CopyWithTar(srcPath, destPath); err != nil {
+				return nil, err
+			}
+			if err := fixPermissions(srcPath, destPath, rootUID, rootGID, destExists); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if src.Decompress() && archive.IsArchivePath(srcPath) {
+			// Only try to untar if it is a file and that we've been told to decompress (when ADD-ing a remote file)
+
+			// First try to unpack the source as an archive
+			// to support the untar feature we need to clean up the path a little bit
+			// because tar is very forgiving.  First we need to strip off the archive's
+			// filename from the path but this is only added if it does not end in slash
+			tarDest := destPath
+			if strings.HasSuffix(tarDest, string(os.PathSeparator)) {
+				tarDest = filepath.Dir(destPath)
+			}
+
+			// try to successfully untar the orig
+			if err := archiver.UntarPath(srcPath, tarDest); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		// only needed for fixPermissions, but might as well put it before CopyFileWithTar
+		if destDir || (destExists && destStat.IsDir()) {
+			destPath = filepath.Join(destPath, filepath.Base(srcPath))
+		}
+
+		if err := idtools.MkdirAllNewAs(filepath.Dir(destPath), 0755, rootUID, rootGID); err != nil {
+			return nil, err
+		}
+		if err := archiver.CopyFileWithTar(srcPath, destPath); err != nil {
+			return nil, err
+		}
+
+		if err := fixPermissions(srcPath, destPath, rootUID, rootGID, destExists); err != nil {
+			return nil, err
+		}
+	}
+	return
 }
 
-type tarStreamer struct {
-	io.ReadCloser
-}
-
-func (t *tarStreamer) TarStream() (io.ReadCloser, error) {
-	return t.ReadCloser, nil
-}
+//
+// // CopyOnBuild copies/extracts a source FileInfo to a destination path inside a container
+// // specified by a container object.
+// // TODO: make sure callers don't unnecessarily convert destPath with filepath.FromSlash (Copy does it already).
+// // CopyOnBuild should take in abstract paths (with slashes) and the implementation should convert it to OS-specific paths.
+// func (daemon *Daemon) CopyOnBuild(id string, destPath string, src builder.FileInfo, decompress bool) error {
+//   return errors.New("removed")
+//   // srcPath := src.Path()
+//   // destExists := true
+//   // destDir := false
+//   // rootUID, rootGID := daemon.GetRemappedUIDGID()
+//   //
+//   // // Work in daemon-local OS specific file paths
+//   // destPath = filepath.FromSlash(destPath)
+//   //
+//   // dest, err := c.GetResourcePath(destPath)
+//   // if err != nil {
+//   //   return err
+//   // }
+//   //
+//   // // Preserve the trailing slash
+//   // // TODO: why are we appending another path separator if there was already one?
+//   // if strings.HasSuffix(destPath, string(os.PathSeparator)) || destPath == "." {
+//   //   destDir = true
+//   //   dest += string(os.PathSeparator)
+//   // }
+//   //
+//   // destPath = dest
+//   //
+//   // destStat, err := os.Stat(destPath)
+//   // if err != nil {
+//   //   if !os.IsNotExist(err) {
+//   //     //logrus.Errorf("Error performing os.Stat on %s. %s", destPath, err)
+//   //     return err
+//   //   }
+//   //   destExists = false
+//   // }
+//   //
+//   // uidMaps, gidMaps := daemon.GetUIDGIDMaps()
+//   // archiver := &archive.Archiver{
+//   //   Untar:   chrootarchive.Untar,
+//   //   UIDMaps: uidMaps,
+//   //   GIDMaps: gidMaps,
+//   // }
+//   //
+//   // if src.IsDir() {
+//   //   // // copy as directory
+//   //   // if err := archiver.CopyWithTar(srcPath, destPath); err != nil {
+//   //   //   return err
+//   //   // }
+//   //   // return fixPermissions(srcPath, destPath, rootUID, rootGID, destExists)
+//   //   return daemon.ls.Copy(layer, &tarStreamer{srcPath}, tarDest, "/", archiver)
+//   // }
+//   // if decompress && archive.IsArchivePath(srcPath) {
+//   //   // Only try to untar if it is a file and that we've been told to decompress (when ADD-ing a remote file)
+//   //
+//   //   // First try to unpack the source as an archive
+//   //   // to support the untar feature we need to clean up the path a little bit
+//   //   // because tar is very forgiving.  First we need to strip off the archive's
+//   //   // filename from the path but this is only added if it does not end in slash
+//   //   tarDest := destPath
+//   //   if strings.HasSuffix(tarDest, string(os.PathSeparator)) {
+//   //     tarDest = filepath.Dir(destPath)
+//   //   }
+//   //
+//   //   // try to successfully untar the orig
+//   //   err := archiver.UntarPath(srcPath, tarDest)
+//   //
+//   //   return daemon.ls.Copy(layer, &tarStreamer{srcPath}, tarDest, "/", archiver)
+//   // }
+//   //
+//   // // only needed for fixPermissions, but might as well put it before CopyFileWithTar
+//   // if destDir || (destExists && destStat.IsDir()) {
+//   //   destPath = filepath.Join(destPath, src.Name())
+//   // }
+//   //
+//   // if err := idtools.MkdirAllNewAs(filepath.Dir(destPath), 0755, rootUID, rootGID); err != nil {
+//   //   return err
+//   // }
+//   // if err := archiver.CopyFileWithTar(srcPath, destPath); err != nil {
+//   //   return err
+//   // }
+//   //
+//   // return fixPermissions(srcPath, destPath, rootUID, rootGID, destExists)
+// }
+//
+// type tarStreamer struct {
+//   io.ReadCloser
+// }
+//
+// func (t *tarStreamer) TarStream() (io.ReadCloser, error) {
+//   return t.ReadCloser, nil
+// }

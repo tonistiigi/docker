@@ -97,7 +97,7 @@ func (b *Builder) commit2(comment string) error {
 		return errors.New("Please provide a source image with `from` prior to commit")
 	}
 	b.currentImage.ContainerConfig.Image = b.currentImage.ID().String() // Remove?
-	cmd := strslice.StrSlice(append(getShell(b.runConfig), "#(nop) ", comment))
+	cmd := strslice.StrSlice(append(getShell(b.runConfig), fmt.Sprintf("#(nop) %s", comment)))
 	b.currentImage.ContainerConfig.Cmd = cmd
 
 	hit, err := b.probeCache()
@@ -127,11 +127,11 @@ type copyInfo struct {
 	decompress bool
 }
 
-func (c *copyInfo) Path() string {
+func (c copyInfo) Path() string {
 	return c.FileInfo.Path()
 }
 
-func (c *copyInfo) Decompress() bool {
+func (c copyInfo) Decompress() bool {
 	return c.decompress
 }
 
@@ -194,7 +194,6 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 
 	if len(infos) == 1 {
 		fi := infos[0].FileInfo
-		origPaths = fi.Name()
 		if hfi, ok := fi.(builder.Hashed); ok {
 			srcHash = hfi.Hash()
 		}
@@ -202,7 +201,6 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 		var hashs []string
 		for _, info := range infos {
 			fi := info.FileInfo
-			origs = append(origs, fi.Name())
 			if hfi, ok := fi.(builder.Hashed); ok {
 				hashs = append(hashs, hfi.Hash())
 			}
@@ -214,7 +212,9 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 
 	comment := fmt.Sprintf("%s %s in %s", cmdName, srcHash, dest)
 
-	b.currentImage.ContainerConfig.Cmd = strslice.StrSlice(append(getShell(b.runConfig), fmt.Sprintf("#(nop) %s ", comment)))
+	b.currentImage.ContainerConfig.Cmd = strslice.StrSlice(append(getShell(b.runConfig), fmt.Sprintf("#(nop) %s", comment)))
+
+	logrus.Debugf("cmd: %#v", b.currentImage.ContainerConfig.Cmd)
 
 	if hit, err := b.probeCache(); err != nil {
 		return err
@@ -228,11 +228,11 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 		return err
 	}
 
-	var paths []string
-	for _, info := range infos {
-		paths = append(paths, info.Path())
+	sources := make([]builder.CopySource, len(infos))
+	for i, info := range infos {
+		sources[i] = info
 	}
-	l, err := b.docker.CopyToLayer(b.currentImage.RootFS.ChainID(), paths, dest, info.decompress)
+	l, err := b.docker.CopyToLayer(b.currentImage.RootFS.ChainID(), sources, dest)
 	if err != nil {
 		return err
 	}
