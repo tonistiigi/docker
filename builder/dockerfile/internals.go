@@ -127,6 +127,14 @@ type copyInfo struct {
 	decompress bool
 }
 
+func (c *copyInfo) Path() string {
+	return c.FileInfo.Path()
+}
+
+func (c *copyInfo) Decompress() bool {
+	return c.decompress
+}
+
 func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalDecompression bool, cmdName string) error {
 	if b.context == nil {
 		return fmt.Errorf("No context given. Impossible to use %s", cmdName)
@@ -183,7 +191,6 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 	// For backwards compat, if there's just one info then use it as the
 	// cache look-up string, otherwise hash 'em all into one
 	var srcHash string
-	var origPaths string
 
 	if len(infos) == 1 {
 		fi := infos[0].FileInfo
@@ -193,7 +200,6 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 		}
 	} else {
 		var hashs []string
-		var origs []string
 		for _, info := range infos {
 			fi := info.FileInfo
 			origs = append(origs, fi.Name())
@@ -204,10 +210,9 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 		hasher := sha256.New()
 		hasher.Write([]byte(strings.Join(hashs, ",")))
 		srcHash = "multi:" + hex.EncodeToString(hasher.Sum(nil))
-		origPaths = strings.Join(origs, " ")
 	}
 
-	comment := fmt.Sprintf("%s %s %s in %s", cmdName, origPaths, srcHash, dest)
+	comment := fmt.Sprintf("%s %s in %s", cmdName, srcHash, dest)
 
 	b.currentImage.ContainerConfig.Cmd = strslice.StrSlice(append(getShell(b.runConfig), fmt.Sprintf("#(nop) %s ", comment)))
 
@@ -223,13 +228,15 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 		return err
 	}
 
+	var paths []string
 	for _, info := range infos {
-		l, err := b.docker.CopyToLayer(b.currentImage.RootFS.ChainID(), info.FileInfo.Path(), dest, info.decompress)
-		if err != nil {
-			return err
-		}
-		b.currentImage.RootFS.Append(l.DiffID())
+		paths = append(paths, info.Path())
 	}
+	l, err := b.docker.CopyToLayer(b.currentImage.RootFS.ChainID(), paths, dest, info.decompress)
+	if err != nil {
+		return err
+	}
+	b.currentImage.RootFS.Append(l.DiffID())
 
 	return b.commit2(comment)
 }
