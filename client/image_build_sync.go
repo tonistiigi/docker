@@ -3,77 +3,42 @@ package client
 import (
 	"bufio"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
-
-	"golang.org/x/net/context"
-	"golang.org/x/net/http2"
-
 	"github.com/docker/docker/builder/dockerfile/api"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/stringid"
+	"github.com/pkg/errors"
+	"github.com/tonistiigi/fsutil"
+	"golang.org/x/net/context"
+	"golang.org/x/net/http2"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
-// ImageBuildSync attaches to a build server to start syncing the
-// provided directory. Rewrites are provided to make changes to
-// what is in the given directory and what is provided to the server.
-func (cli *Client) ImageBuildSync(ctx context.Context, dir string, rewrites map[string]string) (string, error) {
-	// TODO: Check for existing session, else create new session id
-	// TODO: Have serverside create session?
-	sessionID := stringid.GenerateRandomID()
+type progressCb func(int, bool)
 
-	query := url.Values{
-		"session": []string{sessionID},
-	}
+var supportedProtocols = map[string]func(fsutil.Stream, string, []string, progressCb) error{
+	"tarstream": sendTarStream,
+	"diffcopy":  sendDiffCopy,
+}
 
-	cc, err := cli.grpcClient(ctx, "/build-attach", query, nil)
-	if err != nil {
-		return "", err
-	}
-
-	client := api.NewDockerfileServiceClient(cc)
-
-	ctx = metadata.NewContext(ctx, metadata.Pairs("session", sessionID))
-	contextClient, err := client.StartContext(ctx)
-	if err != nil {
-		return "", err
-	}
-	defer contextClient.CloseSend()
-
-	tr, err := contextClient.Recv()
-	if err != nil {
-		return "", err
-	}
-	if len(tr.Protocol) == 0 || tr.Protocol[0] != "tarstream" {
-		return "", errors.New("unexpected protocol from server")
-	}
-
-	if err := contextClient.Send(&api.TransferResponse{Protocol: "tarstream"}); err != nil {
-		return "", err
-	}
-
-	//// TODO: Use translater?
-	var excludes []string
-	for k, v := range rewrites {
-		if v == "" {
-			excludes = append(excludes, k)
-		}
-	}
-
+func sendTarStream(stream fsutil.Stream, dir string, excludes []string, progress progressCb) error {
 	a, err := archive.TarWithOptions(dir, &archive.TarOptions{
 		ExcludePatterns: excludes,
 	})
+	if err != nil {
+		return err
+	}
 
+	size := 0
 	buf := make([]byte, 1<<15)
 	t := new(api.TarContent)
 	for {
@@ -82,16 +47,151 @@ func (cli *Client) ImageBuildSync(ctx context.Context, dir string, rewrites map[
 			if err == io.EOF {
 				break
 			}
-			return "", err
+			return err
 		}
 		t.Content = buf[:n]
 
-		if err := contextClient.SendMsg(t); err != nil {
-			return "", err
+		if err := stream.SendMsg(t); err != nil {
+			return err
 		}
+		size += n
+		progress(size, false)
+	}
+	progress(size, true)
+	return nil
+}
+
+func sendDiffCopy(stream fsutil.Stream, dir string, excludes []string, progress progressCb) error {
+	return fsutil.Send(context.TODO(), stream, dir, &fsutil.WalkOpt{
+		ExcludePatterns: excludes,
+	}, progress)
+}
+
+func (cli *Client) ImageBuildSyncTCP(ctx context.Context, sessionID string, dir string, rewrites map[string]string, progress func(int, bool)) (error, chan error) {
+	query := url.Values{}
+	headers := map[string][]string{"X-Build-Session": {sessionID}}
+	resp, err := cli.postHijacked(ctx, "/build-attach", query, nil, headers)
+	if err != nil {
+		return err, nil
+	}
+	s := api.NewProtoStream(resp.Reader, resp.Conn)
+	errCh := make(chan error, 1)
+	go func() (retErr error) {
+		defer resp.Conn.Close()
+		defer func() {
+			if retErr != nil {
+				errCh <- retErr
+			}
+			close(errCh)
+		}()
+		var tr api.TransferRequest
+		if err := s.RecvMsg(&tr); err != nil {
+			return err
+		}
+
+		var proto string
+		for _, p := range tr.Protocol {
+			if _, ok := supportedProtocols[p]; ok {
+				if override := os.Getenv("BUILD_STREAM_PROTOCOL"); override != "" {
+					if p != override {
+						continue
+					}
+				}
+				proto = p
+				break
+			}
+		}
+		if len(proto) == 0 {
+			return errors.Errorf("could not match any protocol from server: %v", tr.Protocol)
+		}
+
+		if err := s.SendMsg(&api.TransferResponse{Protocol: proto}); err != nil {
+			return err
+		}
+
+		//// TODO: Use translater?
+		var excludes []string
+		for k, v := range rewrites {
+			if v == "" {
+				excludes = append(excludes, k)
+			}
+		}
+		return supportedProtocols[proto](s, dir, excludes, progress)
+
+	}()
+
+	return nil, errCh
+}
+
+// ImageBuildSync attaches to a build server to start syncing the
+// provided directory. Rewrites are provided to make changes to
+// what is in the given directory and what is provided to the server.
+func (cli *Client) ImageBuildSync(ctx context.Context, sessionID string, dir string, rewrites map[string]string, progress func(int, bool)) (error, chan error) {
+	if os.Getenv("BUILD_RAW_TCP") == "1" {
+		return cli.ImageBuildSyncTCP(ctx, sessionID, dir, rewrites, progress)
 	}
 
-	return sessionID, nil
+	query := url.Values{
+		"session": []string{sessionID},
+	}
+
+	cc, err := cli.grpcClient(ctx, "/build-attach", query, nil)
+	if err != nil {
+		return err, nil
+	}
+
+	client := api.NewDockerfileServiceClient(cc)
+
+	ctx = metadata.NewContext(ctx, metadata.Pairs("session", sessionID))
+	contextClient, err := client.StartContext(ctx)
+	if err != nil {
+		return err, nil
+	}
+
+	errCh := make(chan error, 1)
+
+	go func() (retErr error) {
+		defer contextClient.CloseSend()
+		defer func() {
+			if retErr != nil {
+				errCh <- retErr
+			}
+			close(errCh)
+		}()
+		tr, err := contextClient.Recv()
+		if err != nil {
+			return err
+		}
+		var proto string
+		for _, p := range tr.Protocol {
+			if _, ok := supportedProtocols[p]; ok {
+				if override := os.Getenv("BUILD_STREAM_PROTOCOL"); override != "" {
+					if p != override {
+						continue
+					}
+				}
+				proto = p
+				break
+			}
+		}
+		if len(proto) == 0 {
+			return errors.Errorf("could not match any protocol from server: %v", tr.Protocol)
+		}
+
+		if err := contextClient.Send(&api.TransferResponse{Protocol: proto}); err != nil {
+			return err
+		}
+		//// TODO: Use translater?
+		var excludes []string
+		for k, v := range rewrites {
+			if v == "" {
+				excludes = append(excludes, k)
+			}
+		}
+		return supportedProtocols[proto](contextClient, dir, excludes, progress)
+	}()
+
+	return nil, errCh
 }
 
 // grpcClient returns a grpc client using the provided options for

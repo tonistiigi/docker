@@ -4,6 +4,9 @@ import (
 	"archive/tar"
 	"bufio"
 	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +25,7 @@ import (
 	"github.com/docker/docker/cli"
 	"github.com/docker/docker/cli/command"
 	"github.com/docker/docker/cli/command/image/build"
+	cliconfig "github.com/docker/docker/cli/config"
 	"github.com/docker/docker/opts"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/fileutils"
@@ -32,8 +36,10 @@ import (
 	"github.com/docker/docker/pkg/urlutil"
 	runconfigopts "github.com/docker/docker/runconfig/opts"
 	units "github.com/docker/go-units"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/net/context"
+	"golang.org/x/time/rate"
 )
 
 type buildOptions struct {
@@ -197,7 +203,7 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		contextDir = tempDir
 	}
 
-	if buildCtx == nil && remote == "" && !options.stream {
+	if buildCtx == nil && !options.stream {
 		// And canonicalize dockerfile name to a platform-independent one
 		relDockerfile, err = archive.CanonicalTarNameForPath(relDockerfile)
 		if err != nil {
@@ -305,14 +311,16 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		buildCtx = replaceDockerfileTarWrapper(ctx, buildCtx, relDockerfile, translator, &resolvedTags)
 	}
 
+	// Setup an upload progress bar
+	progressOutput := streamformatter.NewStreamFormatter().NewProgressOutput(progBuff, true)
+	if !dockerCli.Out().IsTerminal() {
+		progressOutput = &lastProgressOutput{output: progressOutput}
+	}
+
+	remote := ""
+
 	var body io.Reader
 	if buildCtx != nil {
-		// Setup an upload progress bar
-		progressOutput := streamformatter.NewStreamFormatter().NewProgressOutput(progBuff, true)
-		if !dockerCli.Out().IsTerminal() {
-			progressOutput = &lastProgressOutput{output: progressOutput}
-		}
-
 		body = progress.NewProgressReader(buildCtx, progressOutput, 0, "", "Sending build context to Docker daemon")
 	} else {
 		// And canonicalize dockerfile name to a platform-independent one
@@ -350,15 +358,16 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		if err != nil {
 			return errors.Wrap(err, "failed to get build session")
 		}
-		err, _ = dockerCli.Client().ImageBuildSync(ctx, sessionID, contextDir, rewrites)
+
+		p := &sizeProgress{out: progressOutput, action: "Streaming build context to Docker daemon"}
+
+		err, _ = dockerCli.Client().ImageBuildSync(ctx, sessionID, contextDir, rewrites, p.update)
 		if err != nil {
 			return err
 		}
 
-		remoteContext = "session://" + sessionID
+		remote = "session://" + sessionID
 	}
-
-	var body io.Reader = progress.NewProgressReader(buildCtx, progressOutput, 0, "", "Sending build context to Docker daemon")
 
 	authConfigs, _ := dockerCli.GetAllCredentials()
 	buildOptions := types.ImageBuildOptions{
@@ -388,7 +397,7 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		NetworkMode:    options.networkMode,
 		Squash:         options.squash,
 		ExtraHosts:     options.extraHosts.GetAll(),
-		RemoteContext:  remoteContext,
+		RemoteContext:  remote,
 	}
 
 	response, err := dockerCli.Client().ImageBuild(ctx, body, buildOptions)
@@ -443,6 +452,50 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 	return nil
 }
 
+type sizeProgress struct {
+	out     progress.Output
+	action  string
+	limiter *rate.Limiter
+}
+
+func (sp *sizeProgress) update(size int, last bool) {
+	if sp.limiter == nil {
+		sp.limiter = rate.NewLimiter(rate.Every(100*time.Millisecond), 1)
+	}
+	if last || sp.limiter.Allow() {
+		sp.out.WriteProgress(progress.Progress{Action: sp.action, Current: int64(size), LastUpdate: last})
+	}
+}
+
+func getBuildSession(dir string) (string, error) {
+	// build session is hash of build dir with node based randomness
+	sessionFile := filepath.Join(cliconfig.Dir(), ".buildsession")
+	if _, err := os.Lstat(sessionFile); err != nil {
+		if os.IsNotExist(err) {
+			b := make([]byte, 32)
+			if _, err := rand.Read(b); err != nil {
+				return "", err
+			}
+			if err := os.MkdirAll(cliconfig.Dir(), 0600); err != nil {
+				return "", err
+			}
+			if err := ioutil.WriteFile(sessionFile, []byte(hex.EncodeToString(b)), 0600); err != nil {
+				return "", err
+			}
+		} else {
+			return "", err
+		}
+	}
+
+	dt, err := ioutil.ReadFile(sessionFile)
+	if err != nil {
+		return "", err
+	}
+
+	s := sha256.Sum256([]byte(fmt.Sprintf("%s:%s", dt, dir)))
+
+	return hex.EncodeToString(s[:]) + "," + stringid.GenerateRandomID()[:10], nil // add randomness to force recheck
+}
 func isLocalDir(c string) bool {
 	_, err := os.Stat(c)
 	return err == nil

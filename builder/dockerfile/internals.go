@@ -284,7 +284,6 @@ func (b *Builder) download(srcURL string) (remote builder.Remote, p string, err 
 }
 
 func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression, allowWildcards bool, contextID *int) ([]copyInfo, error) {
-
 	// Work in daemon-specific OS filepath semantics
 	origPath = filepath.FromSlash(origPath)
 

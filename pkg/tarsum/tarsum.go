@@ -21,15 +21,11 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"crypto"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
-	"fmt"
 	"hash"
 	"io"
 	"path"
-	"strings"
 )
 
 const (
@@ -61,28 +57,28 @@ func NewTarSumHash(r io.Reader, dc bool, v Version, tHash THash) (TarSum, error)
 }
 
 // NewTarSumForLabel creates a new TarSum using the provided TarSum version+hash label.
-func NewTarSumForLabel(r io.Reader, disableCompression bool, label string) (TarSum, error) {
-	parts := strings.SplitN(label, "+", 2)
-	if len(parts) != 2 {
-		return nil, errors.New("tarsum label string should be of the form: {tarsum_version}+{hash_name}")
-	}
-
-	versionName, hashName := parts[0], parts[1]
-
-	version, ok := tarSumVersionsByName[versionName]
-	if !ok {
-		return nil, fmt.Errorf("unknown TarSum version name: %q", versionName)
-	}
-
-	hashConfig, ok := standardHashConfigs[hashName]
-	if !ok {
-		return nil, fmt.Errorf("unknown TarSum hash name: %q", hashName)
-	}
-
-	tHash := NewTHash(hashConfig.name, hashConfig.hash.New)
-
-	return NewTarSumHash(r, disableCompression, version, tHash)
-}
+// func NewTarSumForLabel(r io.Reader, disableCompression bool, label string) (TarSum, error) {
+//   parts := strings.SplitN(label, "+", 2)
+//   if len(parts) != 2 {
+//     return nil, errors.New("tarsum label string should be of the form: {tarsum_version}+{hash_name}")
+//   }
+//
+//   versionName, hashName := parts[0], parts[1]
+//
+//   version, ok := tarSumVersionsByName[versionName]
+//   if !ok {
+//     return nil, fmt.Errorf("unknown TarSum version name: %q", versionName)
+//   }
+//
+//   hashConfig, ok := standardHashConfigs[hashName]
+//   if !ok {
+//     return nil, fmt.Errorf("unknown TarSum hash name: %q", hashName)
+//   }
+//
+//   tHash := NewTHash(hashConfig.name, hashConfig.hash.New)
+//
+//   return NewTarSumHash(r, disableCompression, version, tHash)
+// }
 
 // TarSum is the generic interface for calculating fixed time
 // checksums of a tar archive.
@@ -90,8 +86,8 @@ type TarSum interface {
 	io.Reader
 	GetSums() FileInfoSums
 	Sum([]byte) string
-	Version() Version
-	Hash() THash
+	// Version() Version
+	// Hash() THash
 }
 
 // tarSum struct is the structure for a Version0 checksum calculation.
@@ -134,18 +130,18 @@ func NewTHash(name string, h func() hash.Hash) THash {
 	return simpleTHash{n: name, h: h}
 }
 
-type tHashConfig struct {
-	name string
-	hash crypto.Hash
-}
-
-var (
-	// NOTE: DO NOT include MD5 or SHA1, which are considered insecure.
-	standardHashConfigs = map[string]tHashConfig{
-		"sha256": {name: "sha256", hash: crypto.SHA256},
-		"sha512": {name: "sha512", hash: crypto.SHA512},
-	}
-)
+// type tHashConfig struct {
+//   name string
+//   hash crypto.Hash
+// }
+//
+// var (
+//   // NOTE: DO NOT include MD5 or SHA1, which are considered insecure.
+//   standardHashConfigs = map[string]tHashConfig{
+//     "sha256": {name: "sha256", hash: crypto.SHA256},
+//     "sha512": {name: "sha512", hash: crypto.SHA512},
+//   }
+// )
 
 // DefaultTHash is default TarSum hashing algorithm - "sha256".
 var DefaultTHash = NewTHash("sha256", sha256.New)

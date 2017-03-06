@@ -2,10 +2,10 @@ package build
 
 import (
 	"io"
-	"net/http"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
+	"github.com/docker/docker/builder/dockerfile/api"
 	"golang.org/x/net/context"
 )
 
@@ -19,6 +19,8 @@ type Backend interface {
 	// TODO: make this return a reference instead of string
 	BuildFromContext(ctx context.Context, src io.ReadCloser, buildOptions *types.ImageBuildOptions, pg backend.ProgressWriter) (string, error)
 
-	// BuildServer returns an http Handler which serves the build GRPC server
-	BuildServer(ctx context.Context) http.Handler
+	// StartContext start context attaching for builder
+	StartContext(api.DockerfileService_StartContextServer) error
+
+	StartContextTCP(string, io.ReadWriteCloser) error
 }

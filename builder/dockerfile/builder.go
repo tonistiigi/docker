@@ -7,8 +7,11 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/reference"
@@ -67,6 +70,7 @@ type Builder struct {
 	remote    builder.Remote
 	clientCtx context.Context
 	cancel    context.CancelFunc
+	fsCache   *FSCache
 
 	dockerfile       *parser.Node
 	runConfig        *container.Config // runconfig for cmd, run, entrypoint etc.
@@ -92,13 +96,40 @@ type Builder struct {
 
 // BuildManager implements builder.Backend and is shared across all Builder objects.
 type BuildManager struct {
-	backend   builder.Backend
-	pathCache *pathCache // TODO: make this persistent
+	backend          builder.Backend
+	pathCache        *pathCache // TODO: make this persistent
+	fsCache          *FSCache
+	sessionTransport *ClientSessionTransport
+	once             sync.Once
 }
 
 // NewBuildManager creates a BuildManager.
-func NewBuildManager(b builder.Backend) (bm *BuildManager) {
-	return &BuildManager{backend: b, pathCache: &pathCache{}}
+func NewBuildManager(b builder.Backend) *BuildManager {
+	bm := &BuildManager{
+		backend:   b,
+		pathCache: &pathCache{},
+	}
+
+	tmpdir, err := ioutil.TempDir("", "fscache")
+	if err != nil {
+		logrus.Error(perrors.Wrap(err, "failed to create tmp directory"))
+	}
+
+	fsCache, err := NewFSCache(FSCacheOpt{
+		Backend: &tmpCacheBackend{tmpdir},
+	})
+	if err != nil {
+		logrus.Error(err) // TODO: FIX!
+	}
+	bm.fsCache = fsCache
+	cst := NewClientSessionTransport()
+	fsCache.RegisterTransport(ClientSessionTransportName, cst)
+	bm.sessionTransport = cst
+	return bm
+}
+
+func (bm *BuildManager) SyncFrom(ctx context.Context, id RemoteIdentifier) (builder.Remote, error) {
+	return bm.fsCache.SyncFrom(ctx, id)
 }
 
 // BuildFromContext builds a new image from a given context.
@@ -114,6 +145,7 @@ func (bm *BuildManager) BuildFromContext(ctx context.Context, src io.ReadCloser,
 	if err != nil {
 		return "", err
 	}
+
 	if remote != nil {
 		defer func() {
 			if err := remote.Close(); err != nil {
@@ -127,6 +159,7 @@ func (bm *BuildManager) BuildFromContext(ctx context.Context, src io.ReadCloser,
 		return "", err
 	}
 	b.imageContexts.cache = bm.pathCache
+	b.fsCache = bm.fsCache
 	return b.build(pg.StdoutFormatter, pg.StderrFormatter, pg.Output)
 }
 
@@ -138,7 +171,8 @@ func (bm *BuildManager) DetectContextFromRemoteURL(r io.ReadCloser, remoteURL st
 	case remoteURL == "":
 		context, err = builder.MakeTarSumContext(r)
 	case strings.HasPrefix(remoteURL, "session://"):
-		context, err = makeSessionContext(remoteURL[10:])
+		// context, err = makeSessionContext(remoteURL[10:])
+		return nil, "", nil
 	case urlutil.IsGitURL(remoteURL):
 		context, err = builder.MakeGitContext(remoteURL)
 	case urlutil.IsURL(remoteURL):
@@ -167,28 +201,12 @@ func (bm *BuildManager) DetectContextFromRemoteURL(r io.ReadCloser, remoteURL st
 			},
 		})
 	default:
-		invalidErr := fmt.Errorf("remoteURL (%s) could not be recognized as URL", remoteURL)
-		// try to parse remoteURL as a Docker image
-		refParts := strings.Split(remoteURL, "::")
-		if len(refParts) > 2 {
-			return nil, "", invalidErr
-		}
-		image := refParts[0]
-		dir := "/"
-		if len(refParts) == 2 {
-			dir = refParts[1]
-		}
-		context, err = builder.MakeDockerImageContext(bm.backend, image, dir)
+		err := fmt.Errorf("remoteURL (%s) could not be recognized as URL", remoteURL)
 		if err != nil {
-			return nil, "", invalidErr
+			return nil, "", err
 		}
 	}
 	return
-}
-
-// AttachSession builds a new image from a given context.
-func (bm *BuildManager) AttachSession(ctx context.Context, src io.ReadWriteCloser, sessionID string) error {
-	return builder.AttachSession(src, sessionID)
 }
 
 // NewBuilder creates a new Dockerfile builder from an optional dockerfile and a Config.
@@ -314,6 +332,20 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 	b.Stdout = stdout
 	b.Stderr = stderr
 	b.Output = out
+
+	// TODO: remove this: read dockerfile from request, mode to detect
+	if b.fsCache != nil && strings.HasPrefix(b.options.RemoteContext, "session://") {
+		st := time.Now()
+		ctx, err := b.fsCache.SyncFrom(context.Background(), NewClientSessionIdentifier(
+			b.options.RemoteContext[len("session://"):], []string{"/"}))
+		if err != nil {
+			return "", err
+		}
+
+		b.remote = ctx
+		defer ctx.Close()
+		logrus.Debugf("sync-time: %v", time.Since(st))
+	}
 
 	repoAndTags, err := sanitizeRepoAndTags(b.options.Tags)
 	if err != nil {
@@ -450,4 +482,19 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	}
 
 	return b.runConfig, nil
+}
+
+type tmpCacheBackend struct {
+	root string
+}
+
+func (tcb *tmpCacheBackend) Get(id string) (string, error) {
+	d := filepath.Join(tcb.root, id)
+	if err := os.MkdirAll(d, 0700); err != nil {
+		return "", perrors.Wrapf(err, "failed to create tmp dir for %s", d)
+	}
+	return d, nil
+}
+func (tcb *tmpCacheBackend) Remove(id string) error {
+	return os.RemoveAll(filepath.Join(tcb.root, id))
 }

@@ -18,12 +18,14 @@ import (
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/versions"
+	"github.com/docker/docker/builder/dockerfile/api"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/streamformatter"
 	units "github.com/docker/go-units"
 	"golang.org/x/net/context"
 	"golang.org/x/net/http2"
+	"google.golang.org/grpc"
 )
 
 func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBuildOptions, error) {
@@ -228,6 +230,10 @@ func (br *buildRouter) postBuild(ctx context.Context, w http.ResponseWriter, r *
 func (br *buildRouter) postBuildAttach(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	sessionID := r.FormValue("session")
 
+	if len(r.Header.Get("X-Build-Session")) != 0 {
+		return br.postBuildAttachTCP(ctx, w, r, vars)
+	}
+
 	if r.Header.Get("Upgrade") != "h2c" {
 		// Bad request
 		return fmt.Errorf("required upgrade to http2")
@@ -238,7 +244,43 @@ func (br *buildRouter) postBuildAttach(ctx context.Context, w http.ResponseWrite
 		return fmt.Errorf("error attaching to session %s, hijack connection missing", sessionID)
 	}
 
+	gs := grpc.NewServer()
+	api.RegisterDockerfileServiceServer(gs, br.backend)
+	if err := hijackGRPCServer(hijacker, gs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (br *buildRouter) postBuildAttachTCP(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+	_, upgrade := r.Header["Upgrade"]
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		return fmt.Errorf("error attaching to session %s, hijack connection missing", r.Header.Get("X-Build-Session"))
+	}
 	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		return err
+	}
+
+	// set raw mode
+	conn.Write([]byte{})
+
+	if upgrade {
+		fmt.Fprintf(conn, "HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.raw-stream\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n")
+	} else {
+		fmt.Fprintf(conn, "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.docker.raw-stream\r\n\r\n")
+	}
+
+	if err := br.backend.StartContextTCP(r.Header.Get("X-Build-Session"), conn); err != nil {
+		return err
+	}
+	return nil
+}
+
+func hijackGRPCServer(h http.Hijacker, gs *grpc.Server) error {
+	conn, _, err := h.Hijack()
 	if err != nil {
 		return err
 	}
@@ -248,13 +290,7 @@ func (br *buildRouter) postBuildAttach(ctx context.Context, w http.ResponseWrite
 
 	fmt.Fprintf(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n")
 
-	s := http2.Server{}
-	co := &http2.ServeConnOpts{
-		// Attach grpc server
-		Handler: br.backend.BuildServer(ctx),
-	}
-
-	go s.ServeConn(conn, co)
-
+	s := http2.Server{} // todo: use static server?
+	s.ServeConn(conn, &http2.ServeConnOpts{Handler: gs})
 	return nil
 }
