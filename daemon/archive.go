@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,7 +13,9 @@ import (
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/ioutils"
+	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/pkg/system"
+	"github.com/pkg/errors"
 )
 
 // ErrExtractPointNotDirectory is used to convey that the operation to extract
@@ -453,4 +454,30 @@ func (daemon *Daemon) CopyOnBuild(cID string, destPath string, src builder.FileI
 	}
 
 	return fixPermissions(srcPath, destPath, rootUID, rootGID, destExists)
+}
+
+// MountImage returns mounted path with rootfs of an image.
+func (daemon *Daemon) MountImage(name string) (string, func() error, error) {
+	img, err := daemon.GetImage(name)
+	if err != nil {
+		return "", nil, errors.Wrapf(err, "no such image: %s", name)
+	}
+
+	mountID := stringid.GenerateRandomID()
+	rwLayer, err := daemon.layerStore.CreateRWLayer(mountID, img.RootFS.ChainID(), nil)
+	if err != nil {
+		return "", nil, errors.Wrap(err, "failed to create rwlayer")
+	}
+
+	mountPath, err := rwLayer.Mount("")
+	if err != nil {
+		daemon.layerStore.ReleaseRWLayer(rwLayer)
+		return "", nil, errors.Wrap(err, "failed to mount rwlayer")
+	}
+
+	return mountPath, func() error {
+		rwLayer.Unmount()
+		_, err := daemon.layerStore.ReleaseRWLayer(rwLayer)
+		return err
+	}, nil
 }

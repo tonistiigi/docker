@@ -69,7 +69,8 @@ type Builder struct {
 	runConfig        *container.Config // runconfig for cmd, run, entrypoint etc.
 	flags            *BFlags
 	tmpContainers    map[string]struct{}
-	image            string // imageID
+	image            string         // imageID
+	imageContexts    *imageContexts // helper for storing contexts from builds
 	noBaseImage      bool
 	maintainer       string
 	cmdSet           bool
@@ -147,6 +148,7 @@ func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, back
 			LookingForDirectives: true,
 		},
 	}
+	b.imageContexts = &imageContexts{b: b}
 
 	parser.SetEscapeToken(parser.DefaultEscapeToken, &b.directive) // Assume the default token for escape
 
@@ -239,6 +241,8 @@ func (b *Builder) processLabels() error {
 // * Print a happy message and return the image ID.
 //
 func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (string, error) {
+	defer b.imageContexts.unmount()
+
 	b.Stdout = stdout
 	b.Stderr = stderr
 	b.Output = out
