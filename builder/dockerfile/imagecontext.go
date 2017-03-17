@@ -1,6 +1,8 @@
 package dockerfile
 
 import (
+	"sync"
+
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/remotecontext"
@@ -10,8 +12,9 @@ import (
 // imageContexts is a helper for stacking up built image rootfs and reusing
 // them as contexts
 type imageContexts struct {
-	b    *Builder
-	list []*imageMount
+	b     *Builder
+	list  []*imageMount
+	cache *pathCache
 }
 
 type imageMount struct {
@@ -69,4 +72,46 @@ func (ic *imageContexts) unmount() (retErr error) {
 		}
 	}
 	return
+}
+
+func (ic *imageContexts) getCache(i int, path string) (interface{}, bool) {
+	if ic.cache != nil {
+		im := ic.list[i]
+		if im.id == "" {
+			return nil, false
+		}
+		return ic.cache.get(im.id + path)
+	}
+	return nil, false
+}
+
+func (ic *imageContexts) setCache(i int, path string, v interface{}) {
+	if ic.cache != nil {
+		ic.cache.set(ic.list[i].id+path, v)
+	}
+}
+
+type pathCache struct {
+	mu    sync.Mutex
+	items map[string]interface{}
+}
+
+func (c *pathCache) set(k string, v interface{}) {
+	c.mu.Lock()
+	if c.items == nil {
+		c.items = make(map[string]interface{})
+	}
+	c.items[k] = v
+	c.mu.Unlock()
+}
+
+func (c *pathCache) get(k string) (interface{}, bool) {
+	c.mu.Lock()
+	if c.items == nil {
+		c.mu.Unlock()
+		return nil, false
+	}
+	v, ok := c.items[k]
+	c.mu.Unlock()
+	return v, ok
 }

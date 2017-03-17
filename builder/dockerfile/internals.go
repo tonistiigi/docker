@@ -369,6 +369,13 @@ func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression
 	if !handleHash {
 		return copyInfos, nil
 	}
+	if contextID != nil {
+		// fast-cache based on imageID
+		if h, ok := b.imageContexts.getCache(*contextID, origPath); ok {
+			hfi.SetHash(h.(string))
+			return copyInfos, nil
+		}
+	}
 
 	// Deal with the single file case
 	if !fi.IsDir() {
@@ -393,6 +400,9 @@ func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression
 	hasher := sha256.New()
 	hasher.Write([]byte(strings.Join(subfiles, ",")))
 	hfi.SetHash("dir:" + hex.EncodeToString(hasher.Sum(nil)))
+	if contextID != nil {
+		b.imageContexts.setCache(*contextID, origPath, hfi.Hash())
+	}
 
 	return copyInfos, nil
 }

@@ -89,12 +89,13 @@ type Builder struct {
 
 // BuildManager implements builder.Backend and is shared across all Builder objects.
 type BuildManager struct {
-	backend builder.Backend
+	backend   builder.Backend
+	pathCache *pathCache // TODO: make this persistent
 }
 
 // NewBuildManager creates a BuildManager.
 func NewBuildManager(b builder.Backend) (bm *BuildManager) {
-	return &BuildManager{backend: b}
+	return &BuildManager{backend: b, pathCache: &pathCache{}}
 }
 
 // BuildFromContext builds a new image from a given context.
@@ -119,6 +120,7 @@ func (bm *BuildManager) BuildFromContext(ctx context.Context, src io.ReadCloser,
 	if err != nil {
 		return "", err
 	}
+	b.imageContexts.cache = bm.pathCache
 	return b.build(pg.StdoutFormatter, pg.StderrFormatter, pg.Output)
 }
 
