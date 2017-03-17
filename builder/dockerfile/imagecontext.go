@@ -33,7 +33,11 @@ func (ic *imageContexts) update(imageID string) {
 
 func (ic *imageContexts) validate(i int) error {
 	if i < 0 || i >= len(ic.list)-1 {
-		return errors.Errorf("invalid context value %s", i)
+		var extraMsg string
+		if i == len(ic.list)-1 {
+			extraMsg = " refers current build block"
+		}
+		return errors.Errorf("invalid context value %d%s", i, extraMsg)
 	}
 	return nil
 }
