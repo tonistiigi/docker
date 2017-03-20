@@ -30,46 +30,6 @@ func convertPathError(err error, cleanpath string) error {
 	return err
 }
 
-func (c *tarSumContext) Open(path string) (io.ReadCloser, error) {
-	cleanpath, fullpath, err := c.normalize(path)
-	if err != nil {
-		return nil, err
-	}
-	r, err := os.Open(fullpath)
-	if err != nil {
-		return nil, convertPathError(err, cleanpath)
-	}
-	return r, nil
-}
-
-func (c *tarSumContext) Stat(path string) (string, FileInfo, error) {
-	cleanpath, fullpath, err := c.normalize(path)
-	if err != nil {
-		return "", nil, err
-	}
-
-	st, err := os.Lstat(fullpath)
-	if err != nil {
-		return "", nil, convertPathError(err, cleanpath)
-	}
-
-	rel, err := filepath.Rel(c.root, fullpath)
-	if err != nil {
-		return "", nil, convertPathError(err, cleanpath)
-	}
-
-	// We set sum to path by default for the case where GetFile returns nil.
-	// The usual case is if relative path is empty.
-	sum := path
-	// Use the checksum of the followed path(not the possible symlink) because
-	// this is the file that is actually copied.
-	if tsInfo := c.sums.GetFile(filepath.ToSlash(rel)); tsInfo != nil {
-		sum = tsInfo.Sum()
-	}
-	fi := &HashedFileInfo{PathFileInfo{st, fullpath, filepath.Base(cleanpath)}, sum}
-	return rel, fi, nil
-}
-
 // MakeTarSumContext returns a build Context from a tar stream.
 //
 // It extracts the tar stream to a temporary folder that is deleted as soon as
@@ -114,6 +74,10 @@ func MakeTarSumContext(tarStream io.Reader) (ModifiableContext, error) {
 	return tsc, nil
 }
 
+func (c *tarSumContext) Root() string {
+	return c.root
+}
+
 func (c *tarSumContext) normalize(path string) (cleanpath, fullpath string, err error) {
 	cleanpath = filepath.Clean(string(os.PathSeparator) + path)[1:]
 	fullpath, err = symlink.FollowSymlinkInScope(filepath.Join(c.root, path), c.root)
@@ -127,33 +91,31 @@ func (c *tarSumContext) normalize(path string) (cleanpath, fullpath string, err 
 	return
 }
 
-func (c *tarSumContext) Walk(root string, walkFn WalkFunc) error {
-	root = filepath.Join(c.root, filepath.Join(string(filepath.Separator), root))
-	return filepath.Walk(root, func(fullpath string, info os.FileInfo, err error) error {
-		rel, err := filepath.Rel(c.root, fullpath)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-
-		sum := rel
-		if tsInfo := c.sums.GetFile(filepath.ToSlash(rel)); tsInfo != nil {
-			sum = tsInfo.Sum()
-		}
-		fi := &HashedFileInfo{PathFileInfo{FileInfo: info, FilePath: fullpath}, sum}
-		if err := walkFn(rel, fi, nil); err != nil {
-			return err
-		}
-		return nil
-	})
-}
-
 func (c *tarSumContext) Remove(path string) error {
 	_, fullpath, err := c.normalize(path)
 	if err != nil {
 		return err
 	}
 	return os.RemoveAll(fullpath)
+}
+
+func (c *tarSumContext) Hash(path string) (string, error) {
+	cleanpath, fullpath, err := c.normalize(path)
+	if err != nil {
+		return "", err
+	}
+
+	rel, err := filepath.Rel(c.root, fullpath)
+	if err != nil {
+		return "", convertPathError(err, cleanpath)
+	}
+
+	// Use the checksum of the followed path(not the possible symlink) because
+	// this is the file that is actually copied.
+	if tsInfo := c.sums.GetFile(filepath.ToSlash(rel)); tsInfo != nil {
+		return tsInfo.Sum(), nil
+	}
+	// We set sum to path by default for the case where GetFile returns nil.
+	// The usual case is if relative path is empty.
+	return path, nil // backwards compat TODO: see if really needed
 }

@@ -182,7 +182,7 @@ func executeTestCase(t *testing.T, testCase dispatchTestCase) {
 	config := &container.Config{}
 	options := &types.ImageBuildOptions{}
 
-	b := &Builder{runConfig: config, options: options, Stdout: ioutil.Discard, context: context}
+	b := &Builder{runConfig: config, options: options, Stdout: ioutil.Discard, remote: context}
 
 	err = b.dispatch(0, len(n.Children), n.Children[0])
 

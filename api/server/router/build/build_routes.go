@@ -21,7 +21,7 @@ import (
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/streamformatter"
-	"github.com/docker/go-units"
+	units "github.com/docker/go-units"
 	"golang.org/x/net/context"
 )
 
@@ -56,6 +56,7 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 	options.ExtraHosts = r.Form["extrahosts"]
 	options.SecurityOpt = r.Form["securityopt"]
 	options.Squash = httputils.BoolValue(r, "squash")
+	options.RemoteContext = r.FormValue("remote")
 
 	if r.Form.Get("shmsize") != "" {
 		shmSize, err := strconv.ParseInt(r.Form.Get("shmsize"), 10, 64)
@@ -183,8 +184,6 @@ func (br *buildRouter) postBuild(ctx context.Context, w http.ResponseWriter, r *
 	}
 	buildOptions.AuthConfigs = authConfigs
 
-	remoteURL := r.FormValue("remote")
-
 	// Currently, only used if context is from a remote url.
 	// Look at code in DetectContextFromRemoteURL for more information.
 	createProgressReader := func(in io.ReadCloser) io.ReadCloser {
@@ -192,7 +191,7 @@ func (br *buildRouter) postBuild(ctx context.Context, w http.ResponseWriter, r *
 		if buildOptions.SuppressOutput {
 			progressOutput = sf.NewProgressOutput(notVerboseBuffer, true)
 		}
-		return progress.NewProgressReader(in, progressOutput, r.ContentLength, "Downloading context", remoteURL)
+		return progress.NewProgressReader(in, progressOutput, r.ContentLength, "Downloading context", buildOptions.RemoteContext)
 	}
 
 	out := io.Writer(output)
@@ -210,7 +209,7 @@ func (br *buildRouter) postBuild(ctx context.Context, w http.ResponseWriter, r *
 		ProgressReaderFunc: createProgressReader,
 	}
 
-	imgID, err := br.backend.BuildFromContext(ctx, r.Body, remoteURL, buildOptions, pg)
+	imgID, err := br.backend.BuildFromContext(ctx, r.Body, buildOptions, pg)
 	if err != nil {
 		return errf(err)
 	}
