@@ -1,6 +1,7 @@
 package dockerfile
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -65,28 +66,16 @@ func readAndCheckDockerfile(t *testing.T, testName, contextDir, dockerfilePath, 
 		}
 	}()
 
-	context, err := builder.MakeTarSumContext(tarStream)
-
-	if err != nil {
-		t.Fatalf("Error when creating tar context: %s", err)
+	if dockerfilePath == "" { // handled in BuildWithContext
+		dockerfilePath = builder.DefaultDockerfileName
 	}
 
-	defer func() {
-		if err = context.Close(); err != nil {
-			t.Fatalf("Error when closing tar context: %s", err)
-		}
-	}()
-
-	options := &types.ImageBuildOptions{
-		Dockerfile: dockerfilePath,
-	}
-
-	b := &Builder{options: options, context: context}
-
-	err = b.readDockerfile()
-
+	remote, df, err := (&BuildManager{}).DetectRemoteContext(context.Background(), "", dockerfilePath, tarStream, nil)
 	if err == nil {
-		t.Fatalf("No error when executing test: %s", testName)
+		_, err = NewBuilder(context.Background(), &types.ImageBuildOptions{Dockerfile: dockerfilePath}, nil, remote, df)
+		if err == nil {
+			t.Fatalf("No error when executing test: %s", testName)
+		}
 	}
 
 	if !strings.Contains(err.Error(), expectedError) {

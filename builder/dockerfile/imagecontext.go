@@ -19,7 +19,7 @@ type imageContexts struct {
 
 type imageMount struct {
 	id      string
-	ctx     builder.Context
+	ctx     builder.Remote
 	release func() error
 }
 
@@ -42,7 +42,7 @@ func (ic *imageContexts) validate(i int) error {
 	return nil
 }
 
-func (ic *imageContexts) context(i int) (builder.Context, error) {
+func (ic *imageContexts) context(i int) (builder.Remote, error) {
 	if err := ic.validate(i); err != nil {
 		return nil, err
 	}

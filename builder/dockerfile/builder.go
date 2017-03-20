@@ -61,7 +61,7 @@ type Builder struct {
 	Output io.Writer
 
 	docker    builder.Backend
-	context   builder.Context
+	remote    builder.Remote
 	clientCtx context.Context
 	cancel    context.CancelFunc
 
@@ -99,24 +99,27 @@ func NewBuildManager(b builder.Backend) (bm *BuildManager) {
 }
 
 // BuildFromContext builds a new image from a given context.
-func (bm *BuildManager) BuildFromContext(ctx context.Context, src io.ReadCloser, remote string, buildOptions *types.ImageBuildOptions, pg backend.ProgressWriter) (string, error) {
+func (bm *BuildManager) BuildFromContext(ctx context.Context, src io.ReadCloser, buildOptions *types.ImageBuildOptions, pg backend.ProgressWriter) (string, error) {
 	if buildOptions.Squash && !bm.backend.HasExperimental() {
 		return "", apierrors.NewBadRequestError(errors.New("squash is only supported with experimental mode"))
 	}
-	buildContext, dockerfileName, err := builder.DetectContextFromRemoteURL(src, remote, pg.ProgressReaderFunc)
+	if buildOptions.Dockerfile == "" {
+		buildOptions.Dockerfile = builder.DefaultDockerfileName
+	}
+
+	remote, dockerfile, err := bm.DetectRemoteContext(ctx, buildOptions.RemoteContext, buildOptions.Dockerfile, src, pg.ProgressReaderFunc)
 	if err != nil {
 		return "", err
 	}
-	defer func() {
-		if err := buildContext.Close(); err != nil {
-			logrus.Debugf("[BUILDER] failed to remove temporary context: %v", err)
-		}
-	}()
-
-	if len(dockerfileName) > 0 {
-		buildOptions.Dockerfile = dockerfileName
+	if remote != nil {
+		defer func() {
+			if err := remote.Close(); err != nil {
+				logrus.Debugf("[BUILDER] failed to remove temporary context: %v", err)
+			}
+		}()
 	}
-	b, err := NewBuilder(ctx, buildOptions, bm.backend, builder.DockerIgnoreContext{ModifiableContext: buildContext}, nil)
+
+	b, err := NewBuilder(ctx, buildOptions, bm.backend, remote, dockerfile)
 	if err != nil {
 		return "", err
 	}
@@ -127,7 +130,7 @@ func (bm *BuildManager) BuildFromContext(ctx context.Context, src io.ReadCloser,
 // NewBuilder creates a new Dockerfile builder from an optional dockerfile and a Config.
 // If dockerfile is nil, the Dockerfile specified by Config.DockerfileName,
 // will be read from the Context passed to Build().
-func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, backend builder.Backend, buildContext builder.Context, dockerfile io.ReadCloser) (b *Builder, err error) {
+func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, backend builder.Backend, remote builder.Remote, dockerfile io.ReadCloser) (b *Builder, err error) {
 	if config == nil {
 		config = new(types.ImageBuildOptions)
 	}
@@ -139,7 +142,7 @@ func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, back
 		Stdout:           os.Stdout,
 		Stderr:           os.Stderr,
 		docker:           backend,
-		context:          buildContext,
+		remote:           remote,
 		runConfig:        new(container.Config),
 		tmpContainers:    map[string]struct{}{},
 		id:               stringid.GenerateNonCryptoID(),
@@ -155,8 +158,7 @@ func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, back
 	parser.SetEscapeToken(parser.DefaultEscapeToken, &b.directive) // Assume the default token for escape
 
 	if dockerfile != nil {
-		b.dockerfile, err = parser.Parse(dockerfile, &b.directive)
-		if err != nil {
+		if err := b.parseDockerfile(dockerfile); err != nil {
 			return nil, err
 		}
 	}
@@ -248,13 +250,6 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 	b.Stdout = stdout
 	b.Stderr = stderr
 	b.Output = out
-
-	// If Dockerfile was not parsed yet, extract it from the Context
-	if b.dockerfile == nil {
-		if err := b.readDockerfile(); err != nil {
-			return "", err
-		}
-	}
 
 	repoAndTags, err := sanitizeRepoAndTags(b.options.Tags)
 	if err != nil {

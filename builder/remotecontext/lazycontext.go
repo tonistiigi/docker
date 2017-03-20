@@ -2,7 +2,6 @@ package remotecontext
 
 import (
 	"encoding/hex"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,7 +16,7 @@ import (
 // NewLazyContext creates a new LazyContext. LazyContext defines a hashed build
 // context based on a root directory. Individual files are hashed first time
 // they are asked.
-func NewLazyContext(root string) (builder.Context, error) {
+func NewLazyContext(root string) (builder.Remote, error) {
 	return &lazyContext{
 		root: root,
 		sums: make(map[string]string),
@@ -29,86 +28,38 @@ type lazyContext struct {
 	sums map[string]string
 }
 
+func (c *lazyContext) Root() string {
+	return c.root
+}
+
 func (c *lazyContext) Close() error {
 	return nil
 }
 
-func (c *lazyContext) Open(path string) (io.ReadCloser, error) {
+func (c *lazyContext) Hash(path string) (string, error) {
 	cleanPath, fullPath, err := c.normalize(path)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	r, err := os.Open(fullPath)
+	fi, err := os.Lstat(fullPath)
 	if err != nil {
-		return nil, errors.WithStack(convertPathError(err, cleanPath))
-	}
-	return r, nil
-}
-
-func (c *lazyContext) Stat(path string) (string, builder.FileInfo, error) {
-	// TODO: although stat returns builder.FileInfo it builder.Context actually requires Hashed
-	cleanPath, fullPath, err := c.normalize(path)
-	if err != nil {
-		return "", nil, err
-	}
-
-	st, err := os.Lstat(fullPath)
-	if err != nil {
-		return "", nil, errors.WithStack(convertPathError(err, cleanPath))
+		return "", err
 	}
 
 	relPath, err := rel(c.root, fullPath)
 	if err != nil {
-		return "", nil, convertPathError(err, cleanPath)
+		return "", convertPathError(err, cleanPath)
 	}
 
 	sum, ok := c.sums[relPath]
 	if !ok {
-		sum, err = c.prepareHash(relPath, st)
+		sum, err = c.prepareHash(relPath, fi)
 		if err != nil {
-			return "", nil, err
+			return "", err
 		}
 	}
-
-	fi := &builder.HashedFileInfo{
-		builder.PathFileInfo{st, fullPath, filepath.Base(cleanPath)},
-		sum,
-	}
-	return relPath, fi, nil
-}
-
-func (c *lazyContext) Walk(root string, walkFn builder.WalkFunc) error {
-	_, fullPath, err := c.normalize(root)
-	if err != nil {
-		return err
-	}
-	return filepath.Walk(fullPath, func(fullPath string, fi os.FileInfo, err error) error {
-		relPath, err := rel(c.root, fullPath)
-		if err != nil {
-			return err
-		}
-		if relPath == "." {
-			return nil
-		}
-
-		sum, ok := c.sums[relPath]
-		if !ok {
-			sum, err = c.prepareHash(relPath, fi)
-			if err != nil {
-				return err
-			}
-		}
-
-		hfi := &builder.HashedFileInfo{
-			builder.PathFileInfo{FileInfo: fi, FilePath: fullPath},
-			sum,
-		}
-		if err := walkFn(relPath, hfi, nil); err != nil {
-			return err
-		}
-		return nil
-	})
+	return sum, nil
 }
 
 func (c *lazyContext) prepareHash(relPath string, fi os.FileInfo) (string, error) {

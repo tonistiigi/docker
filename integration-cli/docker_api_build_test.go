@@ -16,19 +16,9 @@ import (
 
 func (s *DockerSuite) TestBuildAPIDockerFileRemote(c *check.C) {
 	testRequires(c, NotUserNamespace)
-	var testD string
-	if testEnv.DaemonPlatform() == "windows" {
-		testD = `FROM busybox
-COPY * /tmp/
-RUN find / -name ba*
-RUN find /tmp/`
-	} else {
-		// -xdev is required because sysfs can cause EPERM
-		testD = `FROM busybox
-COPY * /tmp/
-RUN find / -xdev -name ba*
-RUN find /tmp/`
-	}
+	testD := `FROM busybox
+ENV foo bar`
+
 	server := fakeStorage(c, map[string]string{"testD": testD})
 	defer server.Close()
 
@@ -39,11 +29,8 @@ RUN find /tmp/`
 	buf, err := testutil.ReadBody(body)
 	c.Assert(err, checker.IsNil)
 
-	// Make sure Dockerfile exists.
-	// Make sure 'baz' doesn't exist ANYWHERE despite being mentioned in the URL
 	out := string(buf)
-	c.Assert(out, checker.Contains, "/tmp/Dockerfile")
-	c.Assert(out, checker.Not(checker.Contains), "baz")
+	c.Assert(out, checker.Contains, "ENV foo bar")
 }
 
 func (s *DockerSuite) TestBuildAPIRemoteTarballContext(c *check.C) {
