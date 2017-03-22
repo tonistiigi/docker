@@ -26,6 +26,8 @@ import (
 	"hash"
 	"io"
 	"path"
+
+	"github.com/Sirupsen/logrus"
 )
 
 const (
@@ -156,6 +158,7 @@ func (sth simpleTHash) Hash() hash.Hash { return sth.h() }
 
 func (ts *tarSum) encodeHeader(h *tar.Header) error {
 	for _, elem := range ts.headerSelector.selectHeaders(h) {
+		logrus.Debugf("encode %q", elem[0]+elem[1])
 		if _, err := ts.h.Write([]byte(elem[0] + elem[1])); err != nil {
 			return err
 		}

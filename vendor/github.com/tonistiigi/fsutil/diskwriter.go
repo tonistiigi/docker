@@ -138,7 +138,7 @@ func (dw *DiskWriter) HandleChange(kind ChangeKind, p string, fi os.FileInfo, er
 		if dw.syncDataFunc != nil {
 			var h io.WriteCloser = file
 			if dw.notifyHashed != nil {
-				hw = newHashWriter(fi, file)
+				hw = newHashWriter(p, fi, file)
 				h = hw
 			}
 			if err := dw.syncDataFunc(dw.ctx, p, h); err != nil {
@@ -167,7 +167,7 @@ func (dw *DiskWriter) HandleChange(kind ChangeKind, p string, fi os.FileInfo, er
 		dw.requestAsyncFileData(p, destPath, stat)
 	} else if dw.notifyHashed != nil {
 		if hw == nil {
-			hw = newHashWriter(fi, nil)
+			hw = newHashWriter(p, fi, nil)
 			hw.Close()
 		}
 		if err := dw.notifyHashed(kind, p, hw, nil); err != nil {
@@ -197,7 +197,7 @@ func (dw *DiskWriter) requestAsyncFileData(p, dest string, stat *Stat) {
 			dest: dest,
 		}
 		if dw.notifyHashed != nil {
-			hw = newHashWriter(&StatInfo{stat}, h)
+			hw = newHashWriter(p, &StatInfo{stat}, h)
 			h = hw
 		}
 		if err := dw.asyncDataFunc(dw.ctx, p, h); err != nil {
@@ -224,8 +224,8 @@ type hashedWriter struct {
 	sum string
 }
 
-func newHashWriter(fi os.FileInfo, w io.WriteCloser) *hashedWriter {
-	h, _ := NewTarsumHash(fi)
+func newHashWriter(p string, fi os.FileInfo, w io.WriteCloser) *hashedWriter {
+	h, _ := NewTarsumHash(p, fi)
 	hw := &hashedWriter{
 		FileInfo: fi,
 		Writer:   io.MultiWriter(w, h),

@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -15,8 +14,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sync"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api"
 	"github.com/docker/docker/api/types"
@@ -161,6 +162,7 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		relDockerfile string
 		progBuff      io.Writer
 		buildBuff     io.Writer
+		remote        string
 	)
 
 	specifiedContext := options.context
@@ -203,7 +205,7 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		contextDir = tempDir
 	}
 
-	if buildCtx == nil && !options.stream {
+	if buildCtx == nil && remote == "" && !options.stream {
 		// And canonicalize dockerfile name to a platform-independent one
 		relDockerfile, err = archive.CanonicalTarNameForPath(relDockerfile)
 		if err != nil {
@@ -256,7 +258,7 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 	}
 
 	// replace Dockerfile if added dynamically
-	if dockerfileCtx != nil {
+	if dockerfileCtx != nil && buildCtx != nil {
 		file, err := ioutil.ReadAll(dockerfileCtx)
 		dockerfileCtx.Close()
 		if err != nil {
@@ -299,6 +301,16 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		relDockerfile = randomName
 	}
 
+	if options.stream && dockerfileCtx == nil {
+		f, err := os.Open(relDockerfile)
+		if err != nil {
+			return errors.Wrapf(err, "failed to open %s", relDockerfile)
+		}
+		defer f.Close()
+		dockerfileCtx = f
+		logrus.Debugf("opened from %s %v", relDockerfile, dockerfileCtx)
+	}
+
 	ctx := context.Background()
 
 	var resolvedTags []*resolvedTag
@@ -306,9 +318,17 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		translator := func(ctx context.Context, ref reference.NamedTagged) (reference.Canonical, error) {
 			return TrustedReference(ctx, dockerCli, ref, nil)
 		}
-		// Wrap the tar archive to replace the Dockerfile entry with the rewritten
-		// Dockerfile which uses trusted pulls.
-		buildCtx = replaceDockerfileTarWrapper(ctx, buildCtx, relDockerfile, translator, &resolvedTags)
+		if buildCtx != nil {
+			// Wrap the tar archive to replace the Dockerfile entry with the rewritten
+			// Dockerfile which uses trusted pulls.
+			buildCtx = replaceDockerfileTarWrapper(ctx, buildCtx, relDockerfile, translator, &resolvedTags)
+		} else if dockerfileCtx != nil {
+			newDockerfile, _, err := rewriteDockerfileFrom(context.Background(), dockerfileCtx, translator)
+			if err != nil {
+				return err
+			}
+			dockerfileCtx = ioutil.NopCloser(bytes.NewBuffer(newDockerfile))
+		}
 	}
 
 	// Setup an upload progress bar
@@ -317,10 +337,12 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		progressOutput = &lastProgressOutput{output: progressOutput}
 	}
 
-	remote := ""
+	if dockerfileCtx != nil && buildCtx == nil {
+		buildCtx = dockerfileCtx
+	}
 
 	var body io.Reader
-	if buildCtx != nil {
+	if buildCtx != nil && !options.stream {
 		body = progress.NewProgressReader(buildCtx, progressOutput, 0, "", "Sending build context to Docker daemon")
 	} else {
 		// And canonicalize dockerfile name to a platform-independent one
@@ -361,12 +383,19 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 
 		p := &sizeProgress{out: progressOutput, action: "Streaming build context to Docker daemon"}
 
-		err, _ = dockerCli.Client().ImageBuildSync(ctx, sessionID, contextDir, rewrites, p.update)
+		err, syncDone := dockerCli.Client().ImageBuildSync(ctx, sessionID, contextDir, rewrites, p.update)
 		if err != nil {
 			return err
 		}
 
+		buf := newBufferedWriter(syncDone, buildBuff)
+		defer func() {
+			<-buf.flushed
+		}()
+		buildBuff = buf
+
 		remote = "session://" + sessionID
+		body = buildCtx
 	}
 
 	authConfigs, _ := dockerCli.GetAllCredentials()
@@ -465,6 +494,44 @@ func (sp *sizeProgress) update(size int, last bool) {
 	if last || sp.limiter.Allow() {
 		sp.out.WriteProgress(progress.Progress{Action: sp.action, Current: int64(size), LastUpdate: last})
 	}
+}
+
+type bufferedWriter struct {
+	done chan error
+	io.Writer
+	buf     *bytes.Buffer
+	flushed chan struct{}
+	mu      sync.Mutex
+}
+
+func newBufferedWriter(done chan error, w io.Writer) *bufferedWriter {
+	bw := &bufferedWriter{done: done, Writer: w, buf: new(bytes.Buffer), flushed: make(chan struct{})}
+	go func() {
+		<-done
+		bw.flushBuffer()
+	}()
+	return bw
+}
+
+func (bw *bufferedWriter) Write(dt []byte) (int, error) {
+	select {
+	case <-bw.done:
+		bw.flushBuffer()
+		return bw.Writer.Write(dt)
+	default:
+		return bw.buf.Write(dt)
+	}
+}
+
+func (bw *bufferedWriter) flushBuffer() {
+	bw.mu.Lock()
+	select {
+	case <-bw.flushed:
+	default:
+		bw.Writer.Write(bw.buf.Bytes())
+		close(bw.flushed)
+	}
+	bw.mu.Unlock()
 }
 
 func getBuildSession(dir string) (string, error) {

@@ -4,6 +4,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/pkg/errors"
@@ -175,6 +176,8 @@ func (fsc *FSCache) SyncFrom(ctx context.Context, id RemoteIdentifier) (builder.
 		fsc.mu.Unlock()
 		return nil, errors.Errorf("invalid transport %s", trasportID)
 	}
+
+	logrus.Debugf("SyncFrom %s %s", id.Key(), id.SharedKey())
 	fsc.mu.Unlock()
 	rc, err, _ := fsc.g.Do(id.Key(), func() (interface{}, error) {
 		var rc *RemoteContext
@@ -221,7 +224,11 @@ func (fsc *FSCache) SyncFrom(ctx context.Context, id RemoteIdentifier) (builder.
 	}
 	remoteContext := rc.(*RemoteContext)
 
-	return remoteContext.context()
+	r, err := remoteContext.context()
+	if err == nil {
+		logrus.Debugf("remote: %s", r.Root())
+	}
+	return r, err
 }
 
 func (fsc *FSCache) DiskUsage() (int64, int64, error) {

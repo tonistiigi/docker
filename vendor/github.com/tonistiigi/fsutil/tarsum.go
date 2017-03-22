@@ -95,7 +95,7 @@ func (c *Tarsum) Hash(path string) (string, error) {
 	if !ok {
 		sum = path
 	} else {
-		sum = v.(fileInfo).sum
+		sum = v.(*fileInfo).sum
 	}
 	return sum, nil
 }
@@ -109,7 +109,7 @@ type tarsumHash struct {
 	h *tar.Header
 }
 
-func NewTarsumHash(fi os.FileInfo) (hash.Hash, error) {
+func NewTarsumHash(p string, fi os.FileInfo) (hash.Hash, error) {
 	stat, ok := fi.Sys().(*Stat)
 	link := ""
 	if ok {
@@ -119,6 +119,7 @@ func NewTarsumHash(fi os.FileInfo) (hash.Hash, error) {
 	if err != nil {
 		return nil, err
 	}
+	h.Name = p
 	if ok {
 		h.Uid = int(stat.Uid)
 		h.Gid = int(stat.Gid)
