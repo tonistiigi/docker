@@ -190,7 +190,7 @@ func dispatchCopy(b *Builder, args []string, attributes map[string]bool, origina
 	var im *imageMount
 	if flFrom.IsUsed() {
 		var err error
-		im, err = b.imageContexts.get(flFrom.Value)
+		im, err = b.imageContexts.get(b, flFrom.Value)
 		if err != nil {
 			return err
 		}
@@ -232,7 +232,7 @@ func getFromImage(b *Builder, name string) (builder.Image, error) {
 		b.noBaseImage = true
 		return nil, nil
 	}
-	return pullOrGetImage(b, name)
+	return b.pullOrGetImage(name)
 }
 
 // FROM imagename
@@ -249,7 +249,7 @@ func from(b *Builder, args []string, attributes map[string]bool, original string
 		return err
 	}
 	b.resetImageCache()
-	if _, err := b.imageContexts.add(ctxName); err != nil {
+	if err := b.imageContexts.add(ctxName, newImageMount(b.docker)); err != nil {
 		return err
 	}
 
@@ -845,30 +845,4 @@ func getShell(c *container.Config) []string {
 		return defaultShell[:]
 	}
 	return c.Shell[:]
-}
-
-// mountByRef creates an imageMount from a reference. pulling the image if needed.
-func mountByRef(b *Builder, name string) (*imageMount, error) {
-	image, err := pullOrGetImage(b, name)
-	if err != nil {
-		return nil, err
-	}
-	im := b.imageContexts.newImageMount(image.ImageID())
-	return im, nil
-}
-
-func pullOrGetImage(b *Builder, name string) (builder.Image, error) {
-	var image builder.Image
-	if !b.options.PullParent {
-		image, _ = b.docker.GetImageOnBuild(name)
-		// TODO: shouldn't we error out if error is different from "not found" ?
-	}
-	if image == nil {
-		var err error
-		image, err = b.docker.PullOnBuild(b.clientCtx, name, b.options.AuthConfigs, b.Output)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return image, nil
 }
