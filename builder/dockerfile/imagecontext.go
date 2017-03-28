@@ -21,7 +21,11 @@ type imageContexts struct {
 	cache  *pathCache
 }
 
-func (ic *imageContexts) new(name string, increment bool) (*imageMount, error) {
+func (ic *imageContexts) newImageMount(id string) *imageMount {
+	return &imageMount{ic: ic, id: id}
+}
+
+func (ic *imageContexts) add(name string) (*imageMount, error) {
 	im := &imageMount{ic: ic}
 	if len(name) > 0 {
 		if ic.byName == nil {
@@ -32,9 +36,7 @@ func (ic *imageContexts) new(name string, increment bool) (*imageMount, error) {
 		}
 		ic.byName[name] = im
 	}
-	if increment {
-		ic.list = append(ic.list, im)
-	}
+	ic.list = append(ic.list, im)
 	return im, nil
 }
 
