@@ -12,30 +12,31 @@ import (
 	"github.com/pkg/errors"
 )
 
+type contextsBackend interface {
+	imageMounter() builder.ImageMounter
+	pullOrGetImage(name string) (builder.Image, error)
+}
+
 // imageContexts is a helper for stacking up built image rootfs and reusing
 // them as contexts
 type imageContexts struct {
-	b      *Builder
 	list   []*imageMount
 	byName map[string]*imageMount
 	cache  *pathCache
 }
 
-func (ic *imageContexts) new(name string, increment bool) (*imageMount, error) {
-	im := &imageMount{ic: ic}
+func (ic *imageContexts) add(name string, im *imageMount) error {
 	if len(name) > 0 {
 		if ic.byName == nil {
 			ic.byName = make(map[string]*imageMount)
 		}
 		if _, ok := ic.byName[name]; ok {
-			return nil, errors.Errorf("duplicate name %s", name)
+			return errors.Errorf("duplicate name %s", name)
 		}
 		ic.byName[name] = im
 	}
-	if increment {
-		ic.list = append(ic.list, im)
-	}
-	return im, nil
+	ic.list = append(ic.list, im)
+	return nil
 }
 
 func (ic *imageContexts) update(imageID string, runConfig *container.Config) {
@@ -54,7 +55,7 @@ func (ic *imageContexts) validate(i int) error {
 	return nil
 }
 
-func (ic *imageContexts) get(indexOrName string) (*imageMount, error) {
+func (ic *imageContexts) get(backend contextsBackend, indexOrName string) (*imageMount, error) {
 	index, err := strconv.Atoi(indexOrName)
 	if err == nil {
 		if err := ic.validate(index); err != nil {
@@ -65,10 +66,20 @@ func (ic *imageContexts) get(indexOrName string) (*imageMount, error) {
 	if im, ok := ic.byName[strings.ToLower(indexOrName)]; ok {
 		return im, nil
 	}
-	im, err := mountByRef(ic.b, indexOrName)
+	im, err := mountByRef(backend, indexOrName)
 	if err != nil {
 		return nil, errors.Wrapf(err, "invalid from flag value %s", indexOrName)
 	}
+	return im, nil
+}
+
+// mountByRef creates an imageMount from a reference. pulling the image if needed.
+func mountByRef(backend contextsBackend, name string) (*imageMount, error) {
+	image, err := backend.pullOrGetImage(name)
+	if err != nil {
+		return nil, err
+	}
+	im := newImageMountWithID(image.ImageID(), backend.imageMounter())
 	return im, nil
 }
 
@@ -110,8 +121,16 @@ type imageMount struct {
 	id        string
 	ctx       builder.Context
 	release   func() error
-	ic        *imageContexts
 	runConfig *container.Config
+	mounter   builder.ImageMounter
+}
+
+func newImageMount(mounter builder.ImageMounter) *imageMount {
+	return &imageMount{mounter: mounter}
+}
+
+func newImageMountWithID(id string, mounter builder.ImageMounter) *imageMount {
+	return &imageMount{id: id, mounter: mounter}
 }
 
 func (im *imageMount) context() (builder.Context, error) {
@@ -119,7 +138,7 @@ func (im *imageMount) context() (builder.Context, error) {
 		if im.id == "" {
 			return nil, errors.Errorf("could not copy from empty context")
 		}
-		p, release, err := im.ic.b.docker.MountImage(im.id)
+		p, release, err := im.mounter.MountImage(im.id)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to mount %s", im.id)
 		}

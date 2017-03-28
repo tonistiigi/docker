@@ -152,7 +152,7 @@ func NewBuilder(clientCtx context.Context, config *types.ImageBuildOptions, back
 			LookingForDirectives: true,
 		},
 	}
-	b.imageContexts = &imageContexts{b: b}
+	b.imageContexts = &imageContexts{}
 
 	parser.SetEscapeToken(parser.DefaultEscapeToken, &b.directive) // Assume the default token for escape
 
@@ -345,6 +345,26 @@ func (b *Builder) warnOnUnusedBuildArgs() {
 // Cancel cancels an ongoing Dockerfile build.
 func (b *Builder) Cancel() {
 	b.cancel()
+}
+
+func (b *Builder) pullOrGetImage(name string) (builder.Image, error) {
+	var image builder.Image
+	if !b.options.PullParent {
+		image, _ = b.docker.GetImageOnBuild(name)
+		// TODO: shouldn't we error out if error is different from "not found" ?
+	}
+	if image == nil {
+		var err error
+		image, err = b.docker.PullOnBuild(b.clientCtx, name, b.options.AuthConfigs, b.Output)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return image, nil
+}
+
+func (b *Builder) imageMounter() builder.ImageMounter {
+	return b.docker
 }
 
 // BuildFromConfig builds directly from `changes`, treating it as if it were the contents of a Dockerfile
