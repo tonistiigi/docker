@@ -113,13 +113,12 @@ func (gh *grpcHandler) Serve(ctx context.Context) error {
 				})
 			}(sel)
 		}
-		sd := grpc.ServiceDesc{
+		gs.RegisterService(&grpc.ServiceDesc{
 			ServiceName: name,
 			HandlerType: (*interface{})(nil),
 			Methods:     []grpc.MethodDesc{},
 			Streams:     streams,
-		}
-		gs.RegisterService(&sd, (*interface{})(nil))
+		}, (*interface{})(nil))
 	}
 	logrus.Debugf("serving")
 	(&http2.Server{}).ServeConn(gh.conn, &http2.ServeConnOpts{Handler: gs})

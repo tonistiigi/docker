@@ -50,7 +50,7 @@ func (sp *fsSendProvider) Handle(ctx context.Context, id, method string, opts ma
 	}
 
 	if pr == nil {
-		return errors.New("failed to negitiate protocol")
+		return errors.New("failed to negotiate protocol")
 	}
 
 	var excludes []string
@@ -140,6 +140,9 @@ func FSSend(ctx context.Context, name string, c session.Caller, opt FSSendReques
 	if opt.OverrideExcludes {
 		opts["Override-Excludes"] = []string{"true"}
 	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	stream, err := c.Call(ctx, name, pr.name, opts)
 	if err != nil {

@@ -20,14 +20,49 @@ type Stream interface {
 	// CloseSend() error
 }
 
+type HandleFunc func(ctx context.Context, opts map[string][]string, stream *Stream) error
+
+type SessionDialer func(ctx context.Context, proto string, meta map[string][]string) (net.Conn, error)
+
+type Attachment interface {
+	RegisterHandlers(func(id, method string) error) error
+	Handle(ctx context.Context, id, method string, opts map[string][]string, stream Stream) error
+}
+
+type Caller interface {
+	Supports(id, method string) bool
+	Call(ctx context.Context, id, method string, opts map[string][]string) (Stream, error)
+	Name() string
+	SharedKey() string
+}
+
+type Handler interface {
+	RegisterHandlers(func(id, method string)) error
+	Handle(id, method string, opts map[string][]string, stream Stream) error
+}
+
+type TransportFactory interface {
+	NewHandler(ctx context.Context, conn net.Conn) (TransportHandler, error)
+	NewCaller(ctx context.Context, conn net.Conn) (TransportCaller, error)
+	Name() string
+	ProtoName() string
+	ToMethodName(id, method string) string
+	FromMethodName(method string) (string, string, error)
+}
+
+type TransportHandler interface {
+	Register(id, method string, f HandleFunc) error
+	Serve(ctx context.Context) error
+}
+
+type TransportCaller interface {
+	Call(ctx context.Context, id, method string, opts map[string][]string) (Stream, error)
+}
+
 type callbackSelector struct {
 	id     string
 	method string
 }
-
-type HandleFunc func(ctx context.Context, opts map[string][]string, stream *Stream) error
-
-type SessionDialer func(ctx context.Context, proto string, meta map[string][]string) (net.Conn, error)
 
 type Session struct {
 	uuid      string
@@ -125,11 +160,6 @@ func (s *Session) closed() bool {
 	default:
 		return false
 	}
-}
-
-type Attachment interface {
-	RegisterHandlers(func(id, method string) error) error
-	Handle(ctx context.Context, id, method string, opts map[string][]string, stream Stream) error
 }
 
 type SessionManager struct {
@@ -327,34 +357,4 @@ func (sc *sessionCaller) Call(ctx context.Context, id, method string, opts map[s
 		return nil, errors.Errorf("invalid stream response")
 	}
 	return stream, nil
-}
-
-type Caller interface {
-	Supports(id, method string) bool
-	Call(ctx context.Context, id, method string, opts map[string][]string) (Stream, error)
-	Name() string
-	SharedKey() string
-}
-
-type Handler interface {
-	RegisterHandlers(func(id, method string)) error
-	Handle(id, method string, opts map[string][]string, stream Stream) error
-}
-
-type TransportFactory interface {
-	NewHandler(ctx context.Context, conn net.Conn) (TransportHandler, error)
-	NewCaller(ctx context.Context, conn net.Conn) (TransportCaller, error)
-	Name() string
-	ProtoName() string
-	ToMethodName(id, method string) string
-	FromMethodName(method string) (string, string, error)
-}
-
-type TransportHandler interface {
-	Register(id, method string, f HandleFunc) error
-	Serve(ctx context.Context) error
-}
-
-type TransportCaller interface {
-	Call(ctx context.Context, id, method string, opts map[string][]string) (Stream, error)
 }
