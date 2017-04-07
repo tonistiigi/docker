@@ -71,6 +71,7 @@ type Builder struct {
 	cancel        context.CancelFunc
 	fsCache       *FSCache
 	sessionGetter SessionGetter
+	auth          AuthConfigProvider
 
 	dockerfile       *parser.Node
 	runConfig        *container.Config // runconfig for cmd, run, entrypoint etc.
@@ -292,14 +293,18 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 		if err != nil {
 			return "", err
 		}
+
 		ctx, err := b.fsCache.SyncFrom(context.Background(), csi)
 		if err != nil {
 			return "", err
 		}
+		b.auth = NewAuthConfigProvider(b.options.AuthConfigs, csi.caller)
 
 		b.remote = ctx
 		defer ctx.Close()
 		logrus.Debugf("sync-time: %v", time.Since(st))
+	} else {
+		b.auth = NewAuthConfigProvider(b.options.AuthConfigs, nil)
 	}
 
 	repoAndTags, err := sanitizeRepoAndTags(b.options.Tags)

@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"path"
+
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api"
@@ -28,6 +30,7 @@ import (
 	"github.com/docker/docker/cli/command/image/build"
 	cliconfig "github.com/docker/docker/cli/config"
 	"github.com/docker/docker/client/session"
+	"github.com/docker/docker/client/session/authsession"
 	"github.com/docker/docker/client/session/fssession"
 	"github.com/docker/docker/client/session/grpctransport"
 	"github.com/docker/docker/opts"
@@ -153,6 +156,18 @@ func (out *lastProgressOutput) WriteProgress(prog progress.Progress) error {
 	}
 
 	return out.output.WriteProgress(prog)
+}
+
+type authCfgProvider struct {
+	dockerCli *command.DockerCli
+}
+
+func (p *authCfgProvider) GetAuthConfig(registry string) types.AuthConfig {
+	res, err := p.dockerCli.CredentialsStore(registry).Get(registry)
+	if err != nil {
+		return types.AuthConfig{}
+	}
+	return res
 }
 
 func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
@@ -305,7 +320,7 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 	}
 
 	if options.stream && dockerfileCtx == nil {
-		f, err := os.Open(relDockerfile)
+		f, err := os.Open(path.Join(contextDir, relDockerfile))
 		if err != nil {
 			return errors.Wrapf(err, "failed to open %s", relDockerfile)
 		}
@@ -394,7 +409,9 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		}
 
 		workdirProvider := fssession.NewFSSendProvider("_main", contextDir, excludes)
+		authHandler := authsession.NewAuthconfigHandler("_main", &authCfgProvider{dockerCli})
 		s.Allow(workdirProvider)
+		s.Allow(authHandler)
 
 		syncDone := make(chan error)
 
@@ -423,7 +440,11 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 		body = buildCtx
 	}
 
-	authConfigs, _ := dockerCli.GetAllCredentials()
+	var authConfigs map[string]types.AuthConfig
+	if !options.stream {
+		authConfigs, _ = dockerCli.GetAllCredentials()
+	}
+
 	buildOptions := types.ImageBuildOptions{
 		Memory:         options.memory.Value(),
 		MemorySwap:     options.memorySwap.Value(),
