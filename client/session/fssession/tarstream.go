@@ -4,7 +4,6 @@ import (
 	"io"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/builder/dockerfile/api"
 	"github.com/docker/docker/client/session"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
@@ -23,7 +22,7 @@ func sendTarStream(stream session.Stream, dir string, excludes []string, progres
 
 	size := 0
 	buf := make([]byte, 1<<15)
-	t := new(api.TarContent)
+	t := new(TarContent)
 	for {
 		n, err := a.Read(buf)
 		if err != nil {
@@ -56,7 +55,7 @@ func recvTarStream(ds session.Stream, dest string, cs CacheUpdater) error {
 	go func() {
 		var (
 			err error
-			t   = new(api.TarContent)
+			t   = new(TarContent)
 		)
 		for {
 			if err = ds.RecvMsg(t); err != nil {

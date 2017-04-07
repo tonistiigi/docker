@@ -41,7 +41,7 @@ func (sp *fsSendProvider) Handle(ctx context.Context, id, method string, opts ma
 		return errors.Errorf("invalid id %s", id)
 	}
 
-	var pr *proto
+	var pr *protocol
 	for _, p := range supportedProtocols {
 		if method == p.name && isProtoSupported(p) {
 			pr = &p
@@ -86,20 +86,20 @@ func (sp *fsSendProvider) SetNextProgressCallback(f func(int, bool), doneCh chan
 
 type progressCb func(int, bool)
 
-type proto struct {
+type protocol struct {
 	name   string
 	sendFn func(stream session.Stream, srcDir string, excludes []string, progress progressCb) error
 	recvFn func(stream session.Stream, destDir string, cu CacheUpdater) error
 }
 
-func isProtoSupported(p proto) bool {
+func isProtoSupported(p protocol) bool {
 	if override := os.Getenv("BUILD_STREAM_PROTOCOL"); override != "" {
 		return p.name == override
 	}
 	return true
 }
 
-var supportedProtocols = []proto{
+var supportedProtocols = []protocol{
 	{
 		name:   "tarstream",
 		sendFn: sendTarStream,
@@ -125,7 +125,7 @@ type CacheUpdater interface {
 }
 
 func FSSend(ctx context.Context, name string, c session.Caller, opt FSSendRequestOpt) error {
-	var pr *proto
+	var pr *protocol
 	for _, p := range supportedProtocols {
 		if isProtoSupported(p) && c.Supports(name, p.name) {
 			pr = &p
