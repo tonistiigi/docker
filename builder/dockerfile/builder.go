@@ -286,22 +286,30 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 	b.Output = out
 
 	// TODO: remove this: read dockerfile from request, mode to detect
-	if b.sessionGetter != nil && strings.HasPrefix(b.options.RemoteContext, "session:") {
+	if b.sessionGetter != nil && b.options.SessionId != "" {
 		st := time.Now()
-		csi, err := NewClientSessionIdentifier(b.sessionGetter, "_main",
-			b.options.RemoteContext[len("session:"):], []string{"/"})
+		ctx, cancel := context.WithTimeout(context.Background(), sessionConnectTimeout)
+		defer cancel()
+		_, caller, err := b.sessionGetter.GetSession(ctx, b.options.SessionId)
 		if err != nil {
-			return "", err
+			return "", perrors.Wrapf(err, "failed to get session for %s", b.options.SessionId)
 		}
 
-		ctx, err := b.fsCache.SyncFrom(context.Background(), csi)
-		if err != nil {
-			return "", err
+		if b.options.RemoteContext == "client-session" {
+			csi, err := NewClientSessionIdentifier(caller, "_main",
+				b.options.SessionId, []string{"/"})
+			if err != nil {
+				return "", err
+			}
+			ctx, err := b.fsCache.SyncFrom(context.Background(), csi)
+			if err != nil {
+				return "", err
+			}
+			b.remote = ctx
+			defer ctx.Close()
 		}
-		b.auth = NewAuthConfigProvider(b.options.AuthConfigs, csi.caller)
 
-		b.remote = ctx
-		defer ctx.Close()
+		b.auth = NewAuthConfigProvider(b.options.AuthConfigs, caller)
 		logrus.Debugf("sync-time: %v", time.Since(st))
 	} else {
 		b.auth = NewAuthConfigProvider(b.options.AuthConfigs, nil)

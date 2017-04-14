@@ -25,7 +25,7 @@ func (bm *BuildManager) DetectRemoteContext(ctx context.Context, remoteURL strin
 	switch {
 	case remoteURL == "":
 		remote, dockerfile, err = newArchiveRemote(r, dockerfilePath)
-	case strings.HasPrefix(remoteURL, "session:"):
+	case remoteURL == "client-session":
 		return nil, r, nil
 	case urlutil.IsGitURL(remoteURL):
 		remote, dockerfile, err = newGitRemote(remoteURL, dockerfilePath)

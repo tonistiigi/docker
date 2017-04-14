@@ -176,6 +176,8 @@ type ImageBuildOptions struct {
 	CacheFrom   []string
 	SecurityOpt []string
 	ExtraHosts  []string // List of extra hosts
+	// grpc session id
+	SessionId string
 }
 
 // ImageBuildResponse holds information
