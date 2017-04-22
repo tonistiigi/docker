@@ -223,8 +223,8 @@ func (pm *Manager) Privileges(ctx context.Context, ref reference.Named, metaHead
 	// DownloadManager not defined because only pulling configuration.
 	pluginPullConfig := &distribution.ImagePullConfig{
 		Config: distribution.Config{
-			MetaHeaders:      metaHeader,
-			AuthConfig:       authConfig,
+			MetaHeaders: metaHeader,
+			// AuthConfig:       authConfig,
 			RegistryService:  pm.config.RegistryService,
 			ImageEventLogger: func(string, string, string) {},
 			ImageStore:       cs,
@@ -281,8 +281,8 @@ func (pm *Manager) Upgrade(ctx context.Context, ref reference.Named, name string
 
 	pluginPullConfig := &distribution.ImagePullConfig{
 		Config: distribution.Config{
-			MetaHeaders:      metaHeader,
-			AuthConfig:       authConfig,
+			MetaHeaders: metaHeader,
+			// AuthConfig:       authConfig,
 			RegistryService:  pm.config.RegistryService,
 			ImageEventLogger: pm.config.LogPluginEvent,
 			ImageStore:       dm,
@@ -333,8 +333,8 @@ func (pm *Manager) Pull(ctx context.Context, ref reference.Named, name string, m
 
 	pluginPullConfig := &distribution.ImagePullConfig{
 		Config: distribution.Config{
-			MetaHeaders:      metaHeader,
-			AuthConfig:       authConfig,
+			MetaHeaders: metaHeader,
+			// AuthConfig:       authConfig,
 			RegistryService:  pm.config.RegistryService,
 			ImageEventLogger: pm.config.LogPluginEvent,
 			ImageStore:       dm,
@@ -455,8 +455,8 @@ func (pm *Manager) Push(ctx context.Context, name string, metaHeader http.Header
 
 	imagePushConfig := &distribution.ImagePushConfig{
 		Config: distribution.Config{
-			MetaHeaders:      metaHeader,
-			AuthConfig:       authConfig,
+			MetaHeaders: metaHeader,
+			// AuthConfig:       authConfig,
 			ProgressOutput:   po,
 			RegistryService:  pm.config.RegistryService,
 			ReferenceStore:   rs,

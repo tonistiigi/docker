@@ -23,6 +23,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/parser"
@@ -539,7 +540,20 @@ func (b *Builder) create() (string, error) {
 		ExtraHosts: b.options.ExtraHosts,
 	}
 
+	sockPath := "/run/.ssh_auth_sock"
+
+	if b.sshAuthSock != "" {
+		m := mount.Mount{
+			Type:   mount.TypeBind,
+			Source: b.sshAuthSock,
+			Target: sockPath,
+		}
+		hostConfig.Mounts = []mount.Mount{m}
+	}
+
 	config := *b.runConfig
+
+	b.runConfig.Env = append(b.runConfig.Env, "SSH_AUTH_SOCK="+sockPath)
 
 	// Create the container
 	c, err := b.docker.ContainerCreate(types.ContainerCreateConfig{

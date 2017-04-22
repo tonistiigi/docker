@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package ssh;
+
+message Packet {
+	bytes data = 1;
+}

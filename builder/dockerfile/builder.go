@@ -2,7 +2,6 @@ package dockerfile
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -21,9 +20,10 @@ import (
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/client/session"
+	"github.com/docker/docker/client/session/ssh"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/stringid"
-	perrors "github.com/pkg/errors"
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
 
@@ -72,6 +72,7 @@ type Builder struct {
 	fsCache       *FSCache
 	sessionGetter SessionGetter
 	auth          AuthConfigProvider
+	sshAuthSock   string
 
 	dockerfile       *parser.Node
 	runConfig        *container.Config // runconfig for cmd, run, entrypoint etc.
@@ -119,14 +120,14 @@ func NewBuildManager(b builder.Backend, sg SessionGetter) (*BuildManager, error)
 
 	tmpdir, err := ioutil.TempDir("", "fscache")
 	if err != nil {
-		return nil, perrors.Wrap(err, "failed to create tmp directory")
+		return nil, errors.Wrap(err, "failed to create tmp directory")
 	}
 
 	fsCache, err := NewFSCache(FSCacheOpt{
 		Backend: &tmpCacheBackend{tmpdir},
 	})
 	if err != nil {
-		return nil, perrors.Wrap(err, "failed to create fscache")
+		return nil, errors.Wrap(err, "failed to create fscache")
 	}
 	bm.fsCache = fsCache
 	fsCache.RegisterTransport(ClientSessionTransportName, NewClientSessionTransport())
@@ -292,7 +293,7 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 		defer cancel()
 		_, caller, err := b.sessionGetter.GetSession(ctx, b.options.SessionId)
 		if err != nil {
-			return "", perrors.Wrapf(err, "failed to get session for %s", b.options.SessionId)
+			return "", errors.Wrapf(err, "failed to get session for %s", b.options.SessionId)
 		}
 
 		if b.options.RemoteContext == "client-session" {
@@ -310,6 +311,18 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 		}
 
 		b.auth = NewAuthConfigProvider(b.options.AuthConfigs, caller)
+		sshProvider, err := ssh.NewSSHAuthProvider("_main", caller)
+		if err != nil && errors.Cause(err) != ssh.ErrNotSupported {
+			return "", err
+		}
+		// TODO: lazy create
+		sock, release, err := sshProvider.CreateListenSocket()
+		if err != nil {
+			return "", err
+		}
+		defer release()
+		b.sshAuthSock = sock
+
 		logrus.Debugf("sync-time: %v", time.Since(st))
 	} else {
 		b.auth = NewAuthConfigProvider(b.options.AuthConfigs, nil)
@@ -326,7 +339,7 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 	total := len(b.dockerfile.Children)
 	for _, n := range b.dockerfile.Children {
 		if err := b.checkDispatch(n, false); err != nil {
-			return "", perrors.Wrapf(err, "Dockerfile parse error line %d", n.StartLine)
+			return "", errors.Wrapf(err, "Dockerfile parse error line %d", n.StartLine)
 		}
 	}
 
@@ -367,7 +380,7 @@ func (b *Builder) build(stdout io.Writer, stderr io.Writer, out io.Writer) (stri
 		}
 		b.image, err = b.docker.SquashImage(b.image, fromID)
 		if err != nil {
-			return "", perrors.Wrap(err, "error squashing image")
+			return "", errors.Wrap(err, "error squashing image")
 		}
 	}
 
@@ -459,7 +472,7 @@ type tmpCacheBackend struct {
 func (tcb *tmpCacheBackend) Get(id string) (string, error) {
 	d := filepath.Join(tcb.root, id)
 	if err := os.MkdirAll(d, 0700); err != nil {
-		return "", perrors.Wrapf(err, "failed to create tmp dir for %s", d)
+		return "", errors.Wrapf(err, "failed to create tmp dir for %s", d)
 	}
 	return d, nil
 }

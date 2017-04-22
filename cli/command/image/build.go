@@ -34,6 +34,7 @@ import (
 	"github.com/docker/docker/client/session/authsession"
 	"github.com/docker/docker/client/session/fssession"
 	"github.com/docker/docker/client/session/grpctransport"
+	"github.com/docker/docker/client/session/ssh"
 	"github.com/docker/docker/opts"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/fileutils"
@@ -79,6 +80,7 @@ type buildOptions struct {
 	networkMode    string
 	squash         bool
 	stream         bool
+	enableSSH      bool
 }
 
 // NewBuildCommand creates a new `docker build` command
@@ -130,6 +132,8 @@ func NewBuildCommand(dockerCli *command.DockerCli) *cobra.Command {
 	flags.StringVar(&options.networkMode, "network", "default", "Set the networking mode for the RUN instructions during build")
 	flags.SetAnnotation("network", "version", []string{"1.25"})
 	flags.Var(&options.extraHosts, "add-host", "Add a custom host-to-IP mapping (host:ip)")
+
+	flags.BoolVar(&options.enableSSH, "ssh", false, "Expose ssh-agent to the builder")
 
 	command.AddTrustVerificationFlags(flags)
 
@@ -443,11 +447,21 @@ func runBuild(dockerCli *command.DockerCli, options buildOptions) error {
 	var authConfigs map[string]types.AuthConfig
 	if grpcSession == nil {
 		authConfigs, _ = dockerCli.GetAllCredentials()
+		if options.enableSSH {
+			return errors.Errorf("SSH can't be enabled in this daemon")
+		}
 	} else {
 		authHandler := authsession.NewAuthconfigHandler("_main", &authCfgProvider{dockerCli}, func(registry string) {
 			progressOutput.WriteProgress(progress.Progress{Action: "Authenticating to " + registry, LastUpdate: true})
 		})
 		grpcSession.Allow(authHandler)
+		if options.enableSSH {
+			sshHandler, err := ssh.NewSSHHandler("_main", ssh.SSHOpt{})
+			if err != nil {
+				return err
+			}
+			grpcSession.Allow(sshHandler)
+		}
 	}
 
 	if grpcSession != nil {
