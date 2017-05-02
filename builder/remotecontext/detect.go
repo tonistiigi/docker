@@ -47,7 +47,7 @@ func newArchiveRemote(rc io.ReadCloser, dockerfilePath string) (builder.Source, 
 }
 
 func withDockerfileFromContext(c modifiableContext, dockerfilePath string) (builder.Source, io.ReadCloser, error) {
-	df, err := openAt(c, dockerfilePath)
+	dfile, err := openAt(c, dockerfilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			if dockerfilePath == builder.DefaultDockerfileName {
@@ -61,7 +61,11 @@ func withDockerfileFromContext(c modifiableContext, dockerfilePath string) (buil
 		c.Close()
 		return nil, nil, err
 	}
-
+	df, err := beforeClosing(dfile)
+	if err != nil {
+		c.Close()
+		return nil, nil, err
+	}
 	if err := removeDockerfile(c, dockerfilePath); err != nil {
 		c.Close()
 		return nil, nil, err
