@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"strings"
+	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
@@ -14,6 +15,7 @@ import (
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/command"
 	"github.com/docker/docker/builder/dockerfile/parser"
+	"github.com/docker/docker/builder/fscache"
 	"github.com/docker/docker/builder/remotecontext"
 	"github.com/docker/docker/client/session"
 	"github.com/docker/docker/pkg/streamformatter"
@@ -45,18 +47,25 @@ type SessionGetter interface {
 
 // BuildManager is shared across all Builder objects
 type BuildManager struct {
-	backend   builder.Backend
-	pathCache pathCache // TODO: make this persistent
-	sg        SessionGetter
+	backend          builder.Backend
+	pathCache        pathCache // TODO: make this persistent
+	fsCache          *fscache.FSCache
+	sessionTransport *ClientSessionTransport
+	sg               SessionGetter
 }
 
 // NewBuildManager creates a BuildManager
-func NewBuildManager(b builder.Backend, sg SessionGetter) *BuildManager {
-	return &BuildManager{
+func NewBuildManager(b builder.Backend, sg SessionGetter, fsCache *fscache.FSCache) (*BuildManager, error) {
+	bm := &BuildManager{
 		backend:   b,
 		pathCache: &syncmap.Map{},
 		sg:        sg,
+		fsCache:   fsCache,
 	}
+	if err := fsCache.RegisterTransport(ClientSessionTransportName, NewClientSessionTransport()); err != nil {
+		return nil, err
+	}
+	return bm, nil
 }
 
 // Build starts a new build from a BuildConfig
@@ -91,6 +100,22 @@ func (bm *BuildManager) Build(ctx context.Context, config backend.BuildConfig) (
 			<-c.Context().Done()
 			cancel()
 		}()
+
+		if config.Options.RemoteContext == "client-session" {
+			st := time.Now()
+			csi, err := NewClientSessionIdentifier(bm.sg, "_main",
+				config.Options.SessionID, []string{"/"})
+			if err != nil {
+				return nil, err
+			}
+			src, err := bm.fsCache.SyncFrom(ctx, csi)
+			if err != nil {
+				return nil, err
+			}
+			source = src
+			defer src.Close()
+			logrus.Debugf("sync-time: %v", time.Since(st))
+		}
 	}
 
 	builderOptions := builderOptions{
@@ -98,7 +123,6 @@ func (bm *BuildManager) Build(ctx context.Context, config backend.BuildConfig) (
 		ProgressWriter: config.ProgressWriter,
 		Backend:        bm.backend,
 		PathCache:      bm.pathCache,
-		sessionGetter:  bm.sg,
 	}
 	return newBuilder(ctx, builderOptions).build(source, dockerfile)
 }
@@ -109,7 +133,6 @@ type builderOptions struct {
 	Backend        builder.Backend
 	ProgressWriter backend.ProgressWriter
 	PathCache      pathCache
-	sessionGetter  SessionGetter
 }
 
 // Builder is a Dockerfile builder
@@ -122,10 +145,9 @@ type Builder struct {
 	Aux    *streamformatter.AuxFormatter
 	Output io.Writer
 
-	docker        builder.Backend
-	source        builder.Source
-	clientCtx     context.Context
-	sessionGetter SessionGetter
+	docker    builder.Backend
+	source    builder.Source
+	clientCtx context.Context
 
 	tmpContainers map[string]struct{}
 	buildStages   *buildStages
@@ -154,7 +176,6 @@ func newBuilder(clientCtx context.Context, options builderOptions) *Builder {
 		buildArgs:     newBuildArgs(config.BuildArgs),
 		buildStages:   newBuildStages(),
 		imageSources:  newImageSources(clientCtx, options),
-		sessionGetter: options.sessionGetter,
 	}
 	return b
 }

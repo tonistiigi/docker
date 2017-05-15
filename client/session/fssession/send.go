@@ -1,0 +1,211 @@
+package fssession
+
+import (
+	"os"
+	"strings"
+
+	"github.com/docker/docker/client/session"
+	"github.com/pkg/errors"
+	"github.com/tonistiigi/fsutil"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
+)
+
+type fsSendProvider struct {
+	name     string
+	root     string
+	excludes []string
+	p        progressCb
+	doneCh   chan error
+}
+
+// NewFSSendProvider creates a new provider for sending files from client
+func NewFSSendProvider(name, root string, excludes []string) session.Attachable {
+	p := &fsSendProvider{
+		name:     name,
+		root:     root,
+		excludes: excludes,
+	}
+	return p
+}
+
+func (sp *fsSendProvider) Register(fn func(*grpc.ServiceDesc, interface{})) {
+	desc := _FileSync_serviceDesc
+	desc.ServiceName += "." + sp.name
+	// TODO: remove this env override after testing
+	desc.Streams = nil
+	for _, s := range _FileSync_serviceDesc.Streams {
+		if isProtoSupported(s.StreamName) {
+			desc.Streams = append(desc.Streams, s)
+		}
+	}
+	fn(&desc, sp)
+}
+
+func (sp *fsSendProvider) DiffCopy(stream FileSync_DiffCopyServer) error {
+	return sp.handle("diffcopy", stream)
+}
+func (sp *fsSendProvider) TarStream(stream FileSync_TarStreamServer) error {
+	return sp.handle("tarstream", stream)
+}
+
+func (sp *fsSendProvider) handle(method string, stream grpc.ServerStream) error {
+	var pr *protocol
+	for _, p := range supportedProtocols {
+		if isProtoSupported(p.name) {
+			pr = &p
+			break
+		}
+	}
+	if pr == nil {
+		return errors.New("failed to negotiate protocol")
+	}
+
+	opts, _ := metadata.FromContext(stream.Context())
+
+	var excludes []string
+	if len(opts["Override-Excludes"]) == 0 || opts["Override-Excludes"][0] != "true" {
+		excludes = sp.excludes
+	}
+
+	var progress progressCb
+	if sp.p != nil {
+		progress = sp.p
+		sp.p = nil
+	}
+
+	var doneCh chan error
+	if sp.doneCh != nil {
+		doneCh = sp.doneCh
+		sp.doneCh = nil
+	}
+	err := pr.sendFn(stream, sp.root, excludes, progress)
+	if doneCh != nil {
+		if err != nil {
+			doneCh <- err
+		}
+		close(doneCh)
+	}
+	return err
+}
+
+func (sp *fsSendProvider) SetNextProgressCallback(f func(int, bool), doneCh chan error) {
+	sp.p = f
+	sp.doneCh = doneCh
+}
+
+type progressCb func(int, bool)
+
+type protocol struct {
+	name   string
+	sendFn func(stream grpc.Stream, srcDir string, excludes []string, progress progressCb) error
+	recvFn func(stream grpc.Stream, destDir string, cu CacheUpdater) error
+}
+
+func isProtoSupported(p string) bool {
+	if override := os.Getenv("BUILD_STREAM_PROTOCOL"); override != "" {
+		return strings.EqualFold(p, override)
+	}
+	return true
+}
+
+var supportedProtocols = []protocol{
+	{
+		name:   "tarstream",
+		sendFn: sendTarStream,
+		recvFn: recvTarStream,
+	},
+	{
+		name:   "diffcopy",
+		sendFn: sendDiffCopy,
+		recvFn: recvDiffCopy,
+	},
+}
+
+// FSSendRequestOpt defines options for FSSend request
+type FSSendRequestOpt struct {
+	SrcPaths         []string
+	OverrideExcludes bool
+	DestDir          string
+	CacheUpdater     CacheUpdater
+}
+
+// CacheUpdater is an object capable of sending notifications for the cache hash changes
+type CacheUpdater interface {
+	MarkSupported(bool)
+	HandleChange(fsutil.ChangeKind, string, os.FileInfo, error) error
+}
+
+// FSSend initializes a transfer of files
+func FSSend(ctx context.Context, name string, c session.Caller, opt FSSendRequestOpt) error {
+	var pr *protocol
+	for _, p := range supportedProtocols {
+		if isProtoSupported(p.name) && c.Supports(session.MethodURL(_FileSync_serviceDesc.ServiceName+"."+name, p.name)) {
+			pr = &p
+			break
+		}
+	}
+	if pr == nil {
+		return errors.Errorf("no fssend handlers for %s", name)
+	}
+
+	opts := make(map[string][]string)
+	if opt.OverrideExcludes {
+		opts["Override-Excludes"] = []string{"true"}
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	client := newFileSyncClientWithName(name, c.Conn())
+
+	var stream grpc.ClientStream
+
+	ctx = metadata.NewContext(ctx, opts)
+
+	switch pr.name {
+	case "tarstream":
+		cc, err := client.TarStream(ctx)
+		if err != nil {
+			return err
+		}
+		stream = cc
+	case "diffcopy":
+		cc, err := client.DiffCopy(ctx)
+		if err != nil {
+			return err
+		}
+		stream = cc
+	}
+
+	return pr.recvFn(stream, opt.DestDir, opt.CacheUpdater)
+}
+
+// TODO: generate this, or use clientinterceptor
+type namedFileSyncClient struct {
+	cc   *grpc.ClientConn
+	name string
+}
+
+func newFileSyncClientWithName(name string, cc *grpc.ClientConn) FileSyncClient {
+	return &namedFileSyncClient{cc, name}
+}
+
+func (c *namedFileSyncClient) DiffCopy(ctx context.Context, opts ...grpc.CallOption) (FileSync_DiffCopyClient, error) {
+	stream, err := grpc.NewClientStream(ctx, &_FileSync_serviceDesc.Streams[0], c.cc, "/"+_FileSync_serviceDesc.ServiceName+"."+c.name+"/DiffCopy", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &fileSyncDiffCopyClient{stream}
+	return x, nil
+}
+
+func (c *namedFileSyncClient) TarStream(ctx context.Context, opts ...grpc.CallOption) (FileSync_TarStreamClient, error) {
+	stream, err := grpc.NewClientStream(ctx, &_FileSync_serviceDesc.Streams[1], c.cc, "/"+_FileSync_serviceDesc.ServiceName+"."+c.name+"/TarStream", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &fileSyncTarStreamClient{stream}
+	return x, nil
+}

@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package fssession;
+
+service FileSync{
+  rpc DiffCopy(stream RawBytes) returns (stream RawBytes);
+  rpc TarStream(stream RawBytes) returns (stream RawBytes);
+}
+
+// RawBytes contains a chunk of byte data
+message RawBytes{
+	bytes content = 1;
+}
