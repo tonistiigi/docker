@@ -27,6 +27,8 @@ import (
 	swarmrouter "github.com/docker/docker/api/server/router/swarm"
 	systemrouter "github.com/docker/docker/api/server/router/system"
 	"github.com/docker/docker/api/server/router/volume"
+	"github.com/docker/docker/builder/dockerfile"
+	"github.com/docker/docker/builder/fscache"
 	"github.com/docker/docker/cli/debug"
 	cliflags "github.com/docker/docker/cli/flags"
 	"github.com/docker/docker/client/session"
@@ -259,7 +261,26 @@ func (cli *DaemonCli) start(opts daemonOptions) (err error) {
 		logrus.Fatalf("Error starting cluster component: %v", err)
 	}
 
-	bb, err := buildbackend.NewBackend(d, d, sm)
+	builderStateDir := filepath.Join(cli.Config.Root, "builder")
+
+	fsCache, err := fscache.NewFSCache(fscache.Opt{
+		Backend: fscache.NewNaiveCacheBackend(builderStateDir),
+		Root:    builderStateDir,
+		GCPolicy: fscache.GCPolicy{ // TODO: expose this in config
+			MaxSize:         1024 * 1024 * 512,  // 512MB
+			MaxKeepDuration: 7 * 24 * time.Hour, // 1 week
+		},
+	})
+	if err != nil {
+		return errors.Wrap(err, "failed to create fscache")
+	}
+
+	manager, err := dockerfile.NewBuildManager(d, sm, fsCache)
+	if err != nil {
+		return err
+	}
+
+	bb, err := buildbackend.NewBackend(d, manager, fsCache)
 	if err != nil {
 		return errors.Wrap(err, "failed to create buildmanager")
 	}
@@ -279,7 +300,7 @@ func (cli *DaemonCli) start(opts daemonOptions) (err error) {
 
 	cli.d = d
 
-	initRouter(api, d, c, sm, bb)
+	initRouter(api, d, c, sm, bb, fsCache)
 
 	// process cluster change notifications
 	watchCtx, cancel := context.WithCancel(context.Background())
@@ -448,7 +469,7 @@ func loadDaemonCliConfig(opts daemonOptions) (*config.Config, error) {
 	return conf, nil
 }
 
-func initRouter(s *apiserver.Server, d *daemon.Daemon, c *cluster.Cluster, sm *session.Manager, bb *buildbackend.Backend) {
+func initRouter(s *apiserver.Server, d *daemon.Daemon, c *cluster.Cluster, sm *session.Manager, bb *buildbackend.Backend, bc *fscache.FSCache) {
 	decoder := runconfig.ContainerDecoder{}
 
 	routers := []router.Router{
@@ -456,7 +477,7 @@ func initRouter(s *apiserver.Server, d *daemon.Daemon, c *cluster.Cluster, sm *s
 		checkpointrouter.NewRouter(d, decoder),
 		container.NewRouter(d, decoder),
 		image.NewRouter(d, decoder),
-		systemrouter.NewRouter(d, c),
+		systemrouter.NewRouter(d, c, bc),
 		volume.NewRouter(d),
 		build.NewRouter(bb, d),
 		sessionrouter.NewRouter(sm),
