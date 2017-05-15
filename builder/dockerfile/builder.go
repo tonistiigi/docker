@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/builder/dockerfile/command"
 	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/builder/remotecontext"
+	"github.com/docker/docker/client/session"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/pkg/errors"
@@ -37,17 +38,24 @@ var validCommitCommands = map[string]bool{
 
 var defaultLogConfig = container.LogConfig{Type: "none"}
 
+// SessionGetter is object used to get access to a session by uuid
+type SessionGetter interface {
+	Get(ctx context.Context, uuid string) (session.Caller, error)
+}
+
 // BuildManager is shared across all Builder objects
 type BuildManager struct {
 	backend   builder.Backend
 	pathCache pathCache // TODO: make this persistent
+	sg        SessionGetter
 }
 
 // NewBuildManager creates a BuildManager
-func NewBuildManager(b builder.Backend) *BuildManager {
+func NewBuildManager(b builder.Backend, sg SessionGetter) *BuildManager {
 	return &BuildManager{
 		backend:   b,
 		pathCache: &syncmap.Map{},
+		sg:        sg,
 	}
 }
 
@@ -70,11 +78,27 @@ func (bm *BuildManager) Build(ctx context.Context, config backend.BuildConfig) (
 		}()
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	if config.Options.SessionID != "" && bm.sg != nil {
+		logrus.Debug("client is session enabled")
+		c, err := bm.sg.Get(ctx, config.Options.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		go func() {
+			<-c.Context().Done()
+			cancel()
+		}()
+	}
+
 	builderOptions := builderOptions{
 		Options:        config.Options,
 		ProgressWriter: config.ProgressWriter,
 		Backend:        bm.backend,
 		PathCache:      bm.pathCache,
+		sessionGetter:  bm.sg,
 	}
 	return newBuilder(ctx, builderOptions).build(source, dockerfile)
 }
@@ -85,6 +109,7 @@ type builderOptions struct {
 	Backend        builder.Backend
 	ProgressWriter backend.ProgressWriter
 	PathCache      pathCache
+	sessionGetter  SessionGetter
 }
 
 // Builder is a Dockerfile builder
@@ -97,9 +122,10 @@ type Builder struct {
 	Aux    *streamformatter.AuxFormatter
 	Output io.Writer
 
-	docker    builder.Backend
-	source    builder.Source
-	clientCtx context.Context
+	docker        builder.Backend
+	source        builder.Source
+	clientCtx     context.Context
+	sessionGetter SessionGetter
 
 	tmpContainers map[string]struct{}
 	buildStages   *buildStages
@@ -128,6 +154,7 @@ func newBuilder(clientCtx context.Context, options builderOptions) *Builder {
 		buildArgs:     newBuildArgs(config.BuildArgs),
 		buildStages:   newBuildStages(),
 		imageSources:  newImageSources(clientCtx, options),
+		sessionGetter: options.sessionGetter,
 	}
 	return b
 }

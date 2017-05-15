@@ -22,11 +22,13 @@ import (
 	"github.com/docker/docker/api/server/router/image"
 	"github.com/docker/docker/api/server/router/network"
 	pluginrouter "github.com/docker/docker/api/server/router/plugin"
+	sessionrouter "github.com/docker/docker/api/server/router/session"
 	swarmrouter "github.com/docker/docker/api/server/router/swarm"
 	systemrouter "github.com/docker/docker/api/server/router/system"
 	"github.com/docker/docker/api/server/router/volume"
 	"github.com/docker/docker/cli/debug"
 	cliflags "github.com/docker/docker/cli/flags"
+	"github.com/docker/docker/client/session"
 	"github.com/docker/docker/daemon"
 	"github.com/docker/docker/daemon/cluster"
 	"github.com/docker/docker/daemon/config"
@@ -44,6 +46,7 @@ import (
 	"github.com/docker/docker/registry"
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/go-connections/tlsconfig"
+	"github.com/pkg/errors"
 	"github.com/spf13/pflag"
 )
 
@@ -206,6 +209,11 @@ func (cli *DaemonCli) start(opts daemonOptions) (err error) {
 		logrus.Fatalf("Error creating middlewares: %v", err)
 	}
 
+	sm, err := session.NewManager()
+	if err != nil {
+		return errors.Wrap(err, "failed to create sessionmanager")
+	}
+
 	d, err := daemon.NewDaemon(cli.Config, registryService, containerdRemote, pluginStore)
 	if err != nil {
 		return fmt.Errorf("Error starting daemon: %v", err)
@@ -244,6 +252,11 @@ func (cli *DaemonCli) start(opts daemonOptions) (err error) {
 		logrus.Fatalf("Error starting cluster component: %v", err)
 	}
 
+	bb, err := buildbackend.NewBackend(d, d, sm)
+	if err != nil {
+		return errors.Wrap(err, "failed to create buildmanager")
+	}
+
 	// Restart all autostart containers which has a swarm endpoint
 	// and is not yet running now that we have successfully
 	// initialized the cluster.
@@ -259,7 +272,7 @@ func (cli *DaemonCli) start(opts daemonOptions) (err error) {
 
 	cli.d = d
 
-	initRouter(api, d, c)
+	initRouter(api, d, c, sm, bb)
 
 	cli.setupConfigReloadTrap()
 
@@ -423,7 +436,7 @@ func loadDaemonCliConfig(opts daemonOptions) (*config.Config, error) {
 	return conf, nil
 }
 
-func initRouter(s *apiserver.Server, d *daemon.Daemon, c *cluster.Cluster) {
+func initRouter(s *apiserver.Server, d *daemon.Daemon, c *cluster.Cluster, sm *session.Manager, bb *buildbackend.Backend) {
 	decoder := runconfig.ContainerDecoder{}
 
 	routers := []router.Router{
@@ -433,7 +446,8 @@ func initRouter(s *apiserver.Server, d *daemon.Daemon, c *cluster.Cluster) {
 		image.NewRouter(d, decoder),
 		systemrouter.NewRouter(d, c),
 		volume.NewRouter(d),
-		build.NewRouter(buildbackend.NewBackend(d, d), d),
+		build.NewRouter(bb, d),
+		sessionrouter.NewRouter(sm),
 		swarmrouter.NewRouter(c),
 		pluginrouter.NewRouter(d.PluginManager()),
 		distributionrouter.NewRouter(d),
