@@ -60,36 +60,38 @@ var allowWordExpansion = map[string]bool{
 	command.Expose: true,
 }
 
-type dispatchRequest struct {
-	builder    *Builder // TODO: replace this with a smaller interface
-	args       []string
-	attributes map[string]bool
-	flags      *BFlags
-	original   string
-	shlex      *ShellLex
-	state      *dispatchState
-	source     builder.Source
+type parseRequest struct {
+	builder         *Builder // TODO: replace this with a smaller interface
+	args            []string
+	attributes      map[string]bool
+	flags           *BFlags
+	original        string
+	shlex           *ShellLex
+	state           *parsingState
+	source          builder.Source
+	dispatchMessage string
 }
 
-func newDispatchRequestFromOptions(options dispatchOptions, builder *Builder, args []string) dispatchRequest {
-	return dispatchRequest{
-		builder:    builder,
-		args:       args,
-		attributes: options.node.Attributes,
-		original:   options.node.Original,
-		flags:      NewBFlagsWithArgs(options.node.Flags),
-		shlex:      options.shlex,
-		state:      options.state,
-		source:     options.source,
+func newParseRequestFromOptions(options parsingOptions, builder *Builder, args []string, dispatchMessage string) parseRequest {
+	return parseRequest{
+		builder:         builder,
+		args:            args,
+		attributes:      options.node.Attributes,
+		original:        options.node.Original,
+		flags:           NewBFlagsWithArgs(options.node.Flags),
+		shlex:           options.shlex,
+		state:           options.state,
+		source:          options.source,
+		dispatchMessage: dispatchMessage,
 	}
 }
 
-type dispatcher func(dispatchRequest) error
+type nodeParser func(parseRequest) error
 
-var evaluateTable map[string]dispatcher
+var parseTable map[string]nodeParser
 
 func init() {
-	evaluateTable = map[string]dispatcher{
+	parseTable = map[string]nodeParser{
 		command.Add:         add,
 		command.Arg:         arg,
 		command.Cmd:         cmd,
@@ -129,7 +131,7 @@ func formatStep(stepN int, stepTotal int) string {
 // such as `RUN` in ONBUILD RUN foo. There is special case logic in here to
 // deal with that, at least until it becomes more of a general concern with new
 // features.
-func (b *Builder) dispatch(options dispatchOptions) (*dispatchState, error) {
+func (b *Builder) parse(options parsingOptions) (*parsingState, error) {
 	node := options.node
 	cmd := node.Value
 	upperCasedCmd := strings.ToUpper(cmd)
@@ -154,8 +156,8 @@ func (b *Builder) dispatch(options dispatchOptions) (*dispatchState, error) {
 		}
 	}
 
-	runConfigEnv := options.state.runConfig.Env
-	envs := append(runConfigEnv, b.buildArgs.FilterAllowed(runConfigEnv)...)
+	parsingEnv := options.state.env
+	envs := append(parsingEnv, b.buildArgs.FilterAllowed(parsingEnv)...)
 	processFunc := createProcessWordFunc(options.shlex, cmd, envs)
 	words, err := getDispatchArgsFromNode(ast, processFunc, msg)
 	if err != nil {
@@ -164,26 +166,15 @@ func (b *Builder) dispatch(options dispatchOptions) (*dispatchState, error) {
 	}
 	args = append(args, words...)
 
-	fmt.Fprintln(b.Stdout, msg.String())
-
-	f, ok := evaluateTable[cmd]
+	f, ok := parseTable[cmd]
 	if !ok {
 		buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
 		return nil, fmt.Errorf("unknown instruction: %s", upperCasedCmd)
 	}
-	if err := f(newDispatchRequestFromOptions(options, b, args)); err != nil {
+	if err := f(newParseRequestFromOptions(options, b, args, msg.String())); err != nil {
 		return nil, err
 	}
-	options.state.updateRunConfig()
 	return options.state, nil
-}
-
-type dispatchOptions struct {
-	state   *dispatchState
-	stepMsg string
-	node    *parser.Node
-	shlex   *ShellLex
-	source  builder.Source
 }
 
 // dispatchState is a data object which is modified by dispatchers
@@ -199,7 +190,6 @@ type dispatchState struct {
 func newDispatchState() *dispatchState {
 	return &dispatchState{runConfig: &container.Config{}}
 }
-
 func (s *dispatchState) updateRunConfig() {
 	s.runConfig.Image = s.imageID
 }
@@ -239,6 +229,65 @@ func (s *dispatchState) setDefaultPath() {
 	if _, ok := envMap["PATH"]; !ok {
 		s.runConfig.Env = append(s.runConfig.Env, "PATH="+system.DefaultPathEnv)
 	}
+}
+
+type dispatchCommand interface {
+	dispatch(*dispatchState) error
+	writeDispatchMessage()
+}
+type parsingOptions struct {
+	state   *parsingState
+	stepMsg string
+	node    *parser.Node
+	shlex   *ShellLex
+	source  builder.Source
+}
+type parsingState struct {
+	stages []buildableStage
+	env    []string
+}
+
+func newParsingState() *parsingState {
+	return &parsingState{}
+}
+func (s *parsingState) isCurrentStage(name string) bool {
+	if len(s.stages) == 0 {
+		return false
+	}
+	return s.stages[len(s.stages)-1].name == name
+}
+
+func (s *parsingState) currentStage() (*buildableStage, error) {
+	if len(s.stages) == 0 {
+		return nil, errors.New("No build stage in current context")
+	}
+	return &s.stages[len(s.stages)-1], nil
+}
+
+func (s *parsingState) hasStage(name string) bool {
+	for _, stage := range s.stages {
+		if stage.name == name {
+			return true
+		}
+	}
+	return false
+}
+func (s *parsingState) beginStage(env []string) {
+
+	s.env = env
+	envMap := opts.ConvertKVStringsToMap(s.env)
+	if _, ok := envMap["PATH"]; !ok {
+		s.env = append(s.env, "PATH="+system.DefaultPathEnv)
+	}
+}
+
+type buildableStage struct {
+	name     string
+	commands []dispatchCommand
+}
+
+func (s *buildableStage) addCommand(cmd dispatchCommand) {
+	s.commands = append(s.commands, cmd)
 }
 
 func handleOnBuildNode(ast *parser.Node, msg *bytes.Buffer) (*parser.Node, []string, error) {
@@ -315,7 +364,7 @@ func checkDispatch(ast *parser.Node) error {
 		}
 	}
 
-	if _, ok := evaluateTable[cmd]; ok {
+	if _, ok := parseTable[cmd]; ok {
 		return nil
 	}
 	buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
