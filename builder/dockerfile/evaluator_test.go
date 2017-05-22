@@ -1,12 +1,10 @@
 package dockerfile
 
 import (
-	"io/ioutil"
 	"strings"
 	"testing"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/builder/dockerfile/instructions"
 	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/builder/remotecontext"
 	"github.com/docker/docker/pkg/archive"
@@ -25,8 +23,8 @@ func init() {
 func initDispatchTestCases() []dispatchTestCase {
 	dispatchTestCases := []dispatchTestCase{{
 		name: "copyEmptyWhitespace",
-		dockerfile: `COPY
-	quux \
+		dockerfile: `COPY	
+		quux \
       bar`,
 		expectedError: "COPY requires at least two arguments",
 	},
@@ -59,25 +57,25 @@ func initDispatchTestCases() []dispatchTestCase {
 			dockerfile:    "ADD file1.txt file2.txt test",
 			expectedError: "When using ADD with more than one source file, the destination must be a directory and end with a /",
 			files:         map[string]string{"file1.txt": "test1", "file2.txt": "test2"},
-		},
+		}, // this is validated at dispatch time (not at parse time)
 		{
 			name:          "JSON ADD multiple files to file",
 			dockerfile:    `ADD ["file1.txt", "file2.txt", "test"]`,
 			expectedError: "When using ADD with more than one source file, the destination must be a directory and end with a /",
 			files:         map[string]string{"file1.txt": "test1", "file2.txt": "test2"},
-		},
+		}, // this is validated at dispatch time (not at parse time)
 		{
 			name:          "Wildcard ADD multiple files to file",
 			dockerfile:    "ADD file*.txt test",
 			expectedError: "When using ADD with more than one source file, the destination must be a directory and end with a /",
 			files:         map[string]string{"file1.txt": "test1", "file2.txt": "test2"},
-		},
+		}, // this is validated at dispatch time (not at parse time)
 		{
 			name:          "Wildcard JSON ADD multiple files to file",
 			dockerfile:    `ADD ["file*.txt", "test"]`,
 			expectedError: "When using ADD with more than one source file, the destination must be a directory and end with a /",
 			files:         map[string]string{"file1.txt": "test1", "file2.txt": "test2"},
-		},
+		}, // this is validated at dispatch time (not at parse time)
 		{
 			name:          "COPY multiple files to file",
 			dockerfile:    "COPY file1.txt file2.txt test",
@@ -177,34 +175,27 @@ func executeTestCase(t *testing.T, testCase dispatchTestCase) {
 		t.Fatalf("Error when parsing Dockerfile: %s", err)
 	}
 
-	options := &types.ImageBuildOptions{
-		BuildArgs: make(map[string]*string),
+	n := result.AST.Children[0]
+	cmd, err := instructions.ParseCommand(n)
+
+	if err != nil {
+		if !strings.Contains(err.Error(), testCase.expectedError) {
+			t.Fatalf("Wrong error message. Should be \"%s\". Got \"%s\"", testCase.expectedError, err.Error())
+		}
+		return
 	}
 
-	b := &Builder{
-		options:   options,
-		Stdout:    ioutil.Discard,
-		buildArgs: newBuildArgs(options.BuildArgs),
+	b := newBuilderWithMockBackend()
+	sb := newStageBuilder(b, '`', context)
+	err = sb.dispatch(cmd)
+	if err != nil {
+		if !strings.Contains(err.Error(), testCase.expectedError) {
+			t.Fatalf("Wrong error message. Should be \"%s\". Got \"%s\"", testCase.expectedError, err.Error())
+		}
+		return
 	}
-
-	shlex := NewShellLex(parser.DefaultEscapeToken)
-	n := result.AST
-	state := &dispatchState{runConfig: &container.Config{}}
-	opts := dispatchOptions{
-		state:   state,
-		stepMsg: formatStep(0, len(n.Children)),
-		node:    n.Children[0],
-		shlex:   shlex,
-		source:  context,
-	}
-	state, err = b.dispatch(opts)
-
 	if err == nil {
 		t.Fatalf("No error when executing test %s", testCase.name)
-	}
-
-	if !strings.Contains(err.Error(), testCase.expectedError) {
-		t.Fatalf("Wrong error message. Should be \"%s\". Got \"%s\"", testCase.expectedError, err.Error())
 	}
 
 }
