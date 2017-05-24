@@ -152,18 +152,22 @@ func (b *Builder) build(source builder.Source, dockerfile *parser.Result) (*buil
 		return nil, err
 	}
 
-	dispatchState, err := b.dispatchDockerfileWithCancellation(dockerfile, source)
+	parseResult, err := b.parseDockerfileWithCancellation(dockerfile, source)
 	if err != nil {
 		return nil, err
 	}
 
-	if b.options.Target != "" && !dispatchState.isCurrentStage(b.options.Target) {
+	if b.options.Target != "" && !parseResult.IsCurrentStage(b.options.Target) {
 		buildsFailed.WithValues(metricsBuildTargetNotReachableError).Inc()
 		return nil, errors.Errorf("failed to reach build target %s in Dockerfile", b.options.Target)
 	}
 
 	b.buildArgs.WarnOnUnusedBuildArgs(b.Stderr)
 
+	dispatchState, err := b.dispatchDockerfileWithCancellation(parseResult, dockerfile.EscapeToken, source)
+	if err != nil {
+		return nil, err
+	}
 	if dispatchState.imageID == "" {
 		buildsFailed.WithValues(metricsDockerfileEmptyError).Inc()
 		return nil, errors.New("No image was generated. Is your Dockerfile empty?")
@@ -177,13 +181,51 @@ func emitImageID(aux *streamformatter.AuxFormatter, state *dispatchState) error 
 	}
 	return aux.Emit(types.BuildResult{ID: state.imageID})
 }
+func (b *Builder) dispatchDockerfileWithCancellation(parseResult *command.ParsingResult, escapeToken rune, source builder.Source) (*dispatchState, error) {
+	var state *dispatchState
+	for _, stage := range parseResult.Stages {
+		state = newDispatchState(b, escapeToken, source)
+		for i, cmd := range stage.Commands {
+			select {
+			case <-b.clientCtx.Done():
+				logrus.Debug("Builder: build cancelled!")
+				fmt.Fprint(b.Stdout, "Build cancelled")
+				buildsFailed.WithValues(metricsBuildCanceled).Inc()
+				return nil, errors.New("Build cancelled")
+			default:
+				// Not cancelled yet, keep going...
+			}
+			sourceCode := "..."
+			if src, ok := cmd.(command.WithSourceCode); ok {
+				sourceCode = src.SourceCode()
+			}
+			if len(parseResult.Stages) > 1 {
+				fmt.Fprintf(b.Stdout, "Stage %v: %v / %v %v", stage.Name, i+1, len(stage.Commands), sourceCode)
+			} else {
+				fmt.Fprintf(b.Stdout, "%v / %v %v", i+1, len(stage.Commands), sourceCode)
+			}
+			fmt.Fprintln(b.Stdout)
 
-func (b *Builder) dispatchDockerfileWithCancellation(dockerfile *parser.Result, source builder.Source) (*dispatchState, error) {
-	shlex := NewShellLex(dockerfile.EscapeToken)
-	state := newDispatchState()
-	total := len(dockerfile.AST.Children)
+			if err := b.dispatch(state, cmd); err != nil {
+				return nil, err
+			}
+
+			state.updateRunConfig()
+			fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(state.imageID))
+			if b.options.Remove {
+				b.clearTmp()
+			}
+		}
+		if err := emitImageID(b.Aux, state); err != nil {
+			return nil, err
+		}
+	}
+	return state, nil
+}
+func (b *Builder) parseDockerfileWithCancellation(dockerfile *parser.Result, source builder.Source) (*command.ParsingResult, error) {
+	state := &command.ParsingResult{}
 	var err error
-	for i, n := range dockerfile.AST.Children {
+	for _, n := range dockerfile.AST.Children {
 		select {
 		case <-b.clientCtx.Done():
 			logrus.Debug("Builder: build cancelled!")
@@ -194,42 +236,21 @@ func (b *Builder) dispatchDockerfileWithCancellation(dockerfile *parser.Result, 
 			// Not cancelled yet, keep going...
 		}
 
-		// If this is a FROM and we have a previous image then
-		// emit an aux message for that image since it is the
-		// end of the previous stage
-		if n.Value == command.From {
-			if err := emitImageID(b.Aux, state); err != nil {
-				return nil, err
-			}
-		}
-
-		if n.Value == command.From && state.isCurrentStage(b.options.Target) {
+		if n.Value == command.From && state.IsCurrentStage(b.options.Target) {
 			break
 		}
 
-		opts := dispatchOptions{
-			state:   state,
-			stepMsg: formatStep(i, total),
-			node:    n,
-			shlex:   shlex,
-			source:  source,
+		opts := parsingOptions{
+			state: state,
+			node:  n,
 		}
-		if state, err = b.dispatch(opts); err != nil {
+		if state, err = b.parse(opts); err != nil {
 			if b.options.ForceRemove {
 				b.clearTmp()
 			}
 			return nil, err
 		}
 
-		fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(state.imageID))
-		if b.options.Remove {
-			b.clearTmp()
-		}
-	}
-
-	// Emit a final aux message for the final image
-	if err := emitImageID(b.Aux, state); err != nil {
-		return nil, err
 	}
 
 	return state, nil
@@ -279,9 +300,46 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	if err := checkDispatchDockerfile(dockerfile.AST); err != nil {
 		return nil, err
 	}
-	dispatchState := newDispatchState()
-	dispatchState.runConfig = config
-	return dispatchFromDockerfile(b, dockerfile, dispatchState)
+	// dispatchState := newDispatchState()
+	// dispatchState.runConfig = config
+	// return dispatchFromDockerfile(b, dockerfile, dispatchState)
+
+	stage := command.BuildableStage{
+		Name: "0",
+		Commands: []interface{}{&command.ResumeBuildCommand{
+			BaseConfig: config,
+		}},
+	}
+
+	parseState := &command.ParsingResult{
+		Stages: []command.BuildableStage{
+			stage,
+		},
+	}
+	b.buildArgs.ResetAllowed()
+	parseState, err = parseFromDockerfile(b, dockerfile, parseState)
+	if err != nil {
+		return nil, err
+	}
+	res, err := b.dispatchDockerfileWithCancellation(parseState, dockerfile.EscapeToken, nil)
+
+	if err != nil {
+		return nil, err
+	}
+	return res.runConfig, nil
+}
+
+type resumeBuildCommand struct {
+	baseCommand
+	runConfig *container.Config
+}
+
+func (c *resumeBuildCommand) dispatch(state *dispatchState) error {
+	c.builder.resetImageCache()
+	state.runConfig = c.runConfig
+	state.runConfig.OnBuild = []string{}
+
+	return nil
 }
 
 func checkDispatchDockerfile(dockerfile *parser.Node) error {
@@ -293,21 +351,17 @@ func checkDispatchDockerfile(dockerfile *parser.Node) error {
 	return nil
 }
 
-func dispatchFromDockerfile(b *Builder, result *parser.Result, dispatchState *dispatchState) (*container.Config, error) {
-	shlex := NewShellLex(result.EscapeToken)
+func parseFromDockerfile(b *Builder, result *parser.Result, state *command.ParsingResult) (*command.ParsingResult, error) {
 	ast := result.AST
-	total := len(ast.Children)
 
-	for i, n := range ast.Children {
-		opts := dispatchOptions{
-			state:   dispatchState,
-			stepMsg: formatStep(i, total),
-			node:    n,
-			shlex:   shlex,
+	for _, n := range ast.Children {
+		opts := parsingOptions{
+			state: state,
+			node:  n,
 		}
-		if _, err := b.dispatch(opts); err != nil {
+		if _, err := b.parse(opts); err != nil {
 			return nil, err
 		}
 	}
-	return dispatchState.runConfig, nil
+	return state, nil
 }

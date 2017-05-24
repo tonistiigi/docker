@@ -5,8 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	_context "context"
+
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/builder/dockerfile/command"
 	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/builder/remotecontext"
 	"github.com/docker/docker/pkg/archive"
@@ -182,27 +184,31 @@ func executeTestCase(t *testing.T, testCase dispatchTestCase) {
 	}
 
 	b := &Builder{
+		clientCtx: _context.Background(),
 		options:   options,
 		Stdout:    ioutil.Discard,
 		buildArgs: newBuildArgs(options.BuildArgs),
 	}
 
-	shlex := NewShellLex(parser.DefaultEscapeToken)
 	n := result.AST
-	state := &dispatchState{runConfig: &container.Config{}}
-	opts := dispatchOptions{
-		state:   state,
-		stepMsg: formatStep(0, len(n.Children)),
-		node:    n.Children[0],
-		shlex:   shlex,
-		source:  context,
+	parseState := &command.ParsingResult{}
+	parseOptions := parsingOptions{
+		node:  n,
+		state: parseState,
 	}
-	state, err = b.dispatch(opts)
+	_, err = b.parse(parseOptions)
+
+	if err != nil {
+		if !strings.Contains(err.Error(), testCase.expectedError) {
+			t.Fatalf("Wrong error message. Should be \"%s\". Got \"%s\"", testCase.expectedError, err.Error())
+		}
+		return
+	}
+	_, err = b.dispatchDockerfileWithCancellation(parseState, result.EscapeToken, context)
 
 	if err == nil {
 		t.Fatalf("No error when executing test %s", testCase.name)
 	}
-
 	if !strings.Contains(err.Error(), testCase.expectedError) {
 		t.Fatalf("Wrong error message. Should be \"%s\". Got \"%s\"", testCase.expectedError, err.Error())
 	}

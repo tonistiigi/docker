@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"strings"
 
+	"reflect"
+
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/command"
@@ -34,17 +36,18 @@ import (
 )
 
 // Environment variable interpolation will happen on these statements only.
-var replaceEnvAllowed = map[string]bool{
-	command.Env:        true,
-	command.Label:      true,
-	command.Add:        true,
-	command.Copy:       true,
-	command.Workdir:    true,
-	command.Expose:     true,
-	command.Volume:     true,
-	command.User:       true,
-	command.StopSignal: true,
-	command.Arg:        true,
+var replaceEnvAllowed = map[reflect.Type]bool{
+	reflect.TypeOf((*command.EnvCommand)(nil)):        true,
+	reflect.TypeOf((*command.LabelCommand)(nil)):      true,
+	reflect.TypeOf((*command.AddCommand)(nil)):        true,
+	reflect.TypeOf((*command.CopyCommand)(nil)):       true,
+	reflect.TypeOf((*command.WorkdirCommand)(nil)):    true,
+	reflect.TypeOf((*command.ExposeCommand)(nil)):     true,
+	reflect.TypeOf((*command.VolumeCommand)(nil)):     true,
+	reflect.TypeOf((*command.UserCommand)(nil)):       true,
+	reflect.TypeOf((*command.StopSignalCommand)(nil)): true,
+	reflect.TypeOf((*command.ArgCommand)(nil)):        true,
+	reflect.TypeOf((*command.OnbuildCommand)(nil)):    true,
 }
 
 // Certain commands are allowed to have their args split into more
@@ -56,63 +59,68 @@ var replaceEnvAllowed = map[string]bool{
 // and not treat "123 456" as a single word.
 // Note that: EXPOSE "$foo" and EXPOSE $foo are not the same thing.
 // Quotes will cause it to still be treated as single word.
-var allowWordExpansion = map[string]bool{
-	command.Expose: true,
+var allowWordExpansion = map[reflect.Type]bool{
+	reflect.TypeOf((*command.ExposeCommand)(nil)): true,
 }
 
-type dispatchRequest struct {
-	builder    *Builder // TODO: replace this with a smaller interface
+type parseRequest struct {
+	buildArgs  *buildArgs
 	args       []string
 	attributes map[string]bool
 	flags      *BFlags
 	original   string
-	shlex      *ShellLex
-	state      *dispatchState
-	source     builder.Source
+	state      *command.ParsingResult
 }
 
-func newDispatchRequestFromOptions(options dispatchOptions, builder *Builder, args []string) dispatchRequest {
-	return dispatchRequest{
-		builder:    builder,
+func newParseRequestFromOptions(options parsingOptions, builder *Builder, args []string) parseRequest {
+	return parseRequest{
+		buildArgs:  builder.buildArgs,
 		args:       args,
 		attributes: options.node.Attributes,
 		original:   options.node.Original,
 		flags:      NewBFlagsWithArgs(options.node.Flags),
-		shlex:      options.shlex,
 		state:      options.state,
-		source:     options.source,
 	}
 }
 
-type dispatcher func(dispatchRequest) error
+type nodeParser func(parseRequest) error
 
-var evaluateTable map[string]dispatcher
+var parseTable map[string]nodeParser
 
 func init() {
-	evaluateTable = map[string]dispatcher{
-		command.Add:         add,
-		command.Arg:         arg,
-		command.Cmd:         cmd,
-		command.Copy:        dispatchCopy, // copy() is a go builtin
-		command.Entrypoint:  entrypoint,
-		command.Env:         env,
-		command.Expose:      expose,
-		command.From:        from,
-		command.Healthcheck: healthcheck,
-		command.Label:       label,
-		command.Maintainer:  maintainer,
-		command.Onbuild:     onbuild,
-		command.Run:         run,
-		command.Shell:       shell,
-		command.StopSignal:  stopSignal,
-		command.User:        user,
-		command.Volume:      volume,
-		command.Workdir:     workdir,
+	parseTable = map[string]nodeParser{
+		command.Add:         parseAdd,
+		command.Arg:         parseArg,
+		command.Cmd:         parseCmd,
+		command.Copy:        parseCopy, // copy() is a go builtin
+		command.Entrypoint:  parseEntrypoint,
+		command.Env:         parseEnv,
+		command.Expose:      parseExpose,
+		command.From:        parseFrom,
+		command.Healthcheck: parseHealthcheck,
+		command.Label:       parseLabel,
+		command.Maintainer:  parseMaintainer,
+		command.Onbuild:     parseOnbuild,
+		command.Run:         parseRun,
+		command.Shell:       parseShell,
+		command.StopSignal:  parseStopSignal,
+		command.User:        parseUser,
+		command.Volume:      parseVolume,
+		command.Workdir:     parseWorkdir,
 	}
 }
 
 func formatStep(stepN int, stepTotal int) string {
 	return fmt.Sprintf("%d/%d", stepN+1, stepTotal)
+}
+
+func nodeArgs(node *parser.Node) []string {
+	result := []string{}
+	for ; node.Next != nil; node = node.Next {
+		arg := node.Next
+		result = append(result, arg.Value)
+	}
+	return result
 }
 
 // This method is the entrypoint to all statement handling routines.
@@ -129,7 +137,7 @@ func formatStep(stepN int, stepTotal int) string {
 // such as `RUN` in ONBUILD RUN foo. There is special case logic in here to
 // deal with that, at least until it becomes more of a general concern with new
 // features.
-func (b *Builder) dispatch(options dispatchOptions) (*dispatchState, error) {
+func (b *Builder) parse(options parsingOptions) (*command.ParsingResult, error) {
 	node := options.node
 	cmd := node.Value
 	upperCasedCmd := strings.ToUpper(cmd)
@@ -141,49 +149,83 @@ func (b *Builder) dispatch(options dispatchOptions) (*dispatchState, error) {
 		return nil, err
 	}
 
-	msg := bytes.NewBufferString(fmt.Sprintf("Step %s : %s%s",
-		options.stepMsg, upperCasedCmd, formatFlags(node.Flags)))
+	// TODO: handle that at dispatch time
 
-	args := []string{}
-	ast := node
-	if cmd == command.Onbuild {
-		var err error
-		ast, args, err = handleOnBuildNode(node, msg)
-		if err != nil {
-			return nil, err
-		}
-	}
+	// args := []string{}
+	// ast := node
+	// if cmd == command.Onbuild {
+	// 	var err error
+	// 	ast, args, err = handleOnBuildNode(node, msg)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// }
 
-	runConfigEnv := options.state.runConfig.Env
-	envs := append(runConfigEnv, b.buildArgs.FilterAllowed(runConfigEnv)...)
-	processFunc := createProcessWordFunc(options.shlex, cmd, envs)
-	words, err := getDispatchArgsFromNode(ast, processFunc, msg)
-	if err != nil {
-		buildsFailed.WithValues(metricsErrorProcessingCommandsError).Inc()
-		return nil, err
-	}
-	args = append(args, words...)
+	// parsingEnv := options.state.env
+	// envs := append(parsingEnv, b.buildArgs.FilterAllowed(parsingEnv)...)
+	// processFunc := createProcessWordFunc(options.shlex, cmd, envs)
+	// words, err := getDispatchArgsFromNode(ast, processFunc, msg)
+	// if err != nil {
+	// 	buildsFailed.WithValues(metricsErrorProcessingCommandsError).Inc()
+	// 	return nil, err
+	// }
+	// args = append(args, words...)
+	args := nodeArgs(node)
 
-	fmt.Fprintln(b.Stdout, msg.String())
-
-	f, ok := evaluateTable[cmd]
+	f, ok := parseTable[cmd]
 	if !ok {
 		buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
 		return nil, fmt.Errorf("unknown instruction: %s", upperCasedCmd)
 	}
-	if err := f(newDispatchRequestFromOptions(options, b, args)); err != nil {
+	if err := f(newParseRequestFromOptions(options, b, args)); err != nil {
 		return nil, err
 	}
-	options.state.updateRunConfig()
 	return options.state, nil
 }
 
-type dispatchOptions struct {
-	state   *dispatchState
-	stepMsg string
-	node    *parser.Node
-	shlex   *ShellLex
-	source  builder.Source
+func (b *Builder) dispatch(state *dispatchState, cmd interface{}) error {
+	runConfigEnv := state.runConfig.Env
+	envs := append(runConfigEnv, b.buildArgs.FilterAllowed(runConfigEnv)...)
+	processWord := createProcessWordFunc(state.shlex, reflect.TypeOf(cmd), envs)
+	switch c := cmd.(type) {
+	case *command.FromCommand:
+		return dispatchFrom(state, c)
+	case *command.EnvCommand:
+		return dispatchEnv(state, c, processWord)
+	case *command.MaintainerCommand:
+		return dispatchMaintainer(state, c, processWord)
+	case *command.LabelCommand:
+		return dispatchLabel(state, c, processWord)
+	case *command.AddCommand:
+		return dispatchAdd(state, c, processWord)
+	case *command.CopyCommand:
+		return dispatchCopy(state, c, processWord)
+	case *command.OnbuildCommand:
+		return dispatchOnbuild(state, c, processWord)
+	case *command.WorkdirCommand:
+		return dispatchWorkdir(state, c, processWord)
+	case *command.RunCommand:
+		return dispatchRun(state, c, processWord)
+	case *command.CmdCommand:
+		return dispatchCmd(state, c, processWord)
+	case *command.HealthCheckCommand:
+		return dispatchHealthcheck(state, c, processWord)
+	case *command.EntrypointCommand:
+		return dispatchEntrypoint(state, c, processWord)
+	case *command.ExposeCommand:
+		return dispatchExpose(state, c, processWord)
+	case *command.UserCommand:
+		return dispatchUser(state, c, processWord)
+	case *command.VolumeCommand:
+		return dispatchVolume(state, c, processWord)
+	case *command.StopSignalCommand:
+		return dispatchStopSignal(state, c, processWord)
+	case *command.ArgCommand:
+		return dispatchArg(state, c, processWord)
+	case *command.ShellCommand:
+		return dispatchShell(state, c, processWord)
+	}
+	return errors.Errorf("unsupported command type: %v", reflect.TypeOf(cmd))
 }
 
 // dispatchState is a data object which is modified by dispatchers
@@ -194,12 +236,14 @@ type dispatchState struct {
 	imageID    string
 	baseImage  builder.Image
 	stageName  string
+	shlex      *ShellLex
+	builder    *Builder
+	source     builder.Source
 }
 
-func newDispatchState() *dispatchState {
-	return &dispatchState{runConfig: &container.Config{}}
+func newDispatchState(builder *Builder, escapeToken rune, source builder.Source) *dispatchState {
+	return &dispatchState{runConfig: &container.Config{}, shlex: NewShellLex(escapeToken), builder: builder, source: source}
 }
-
 func (s *dispatchState) updateRunConfig() {
 	s.runConfig.Image = s.imageID
 }
@@ -241,6 +285,15 @@ func (s *dispatchState) setDefaultPath() {
 	}
 }
 
+type dispatchCommand interface {
+	dispatch(*dispatchState) error
+	writeDispatchMessage()
+}
+type parsingOptions struct {
+	state *command.ParsingResult
+	node  *parser.Node
+}
+
 func handleOnBuildNode(ast *parser.Node, msg *bytes.Buffer) (*parser.Node, []string, error) {
 	if ast.Next == nil {
 		return nil, nil, errors.New("ONBUILD requires at least one argument")
@@ -273,13 +326,46 @@ func getDispatchArgsFromNode(ast *parser.Node, processFunc processWordFunc, msg 
 
 type processWordFunc func(string) ([]string, error)
 
-func createProcessWordFunc(shlex *ShellLex, cmd string, envs []string) processWordFunc {
+func processWordSingleOutput(value string, f processWordFunc) (string, error) {
+	vals, err := f(value)
+	if err != nil {
+		return "", err
+	}
+	if len(vals) != 1 {
+		return "", errors.Errorf("output has %v values", len(vals))
+	}
+	return vals[0], nil
+}
+func processWordSingleOutputs(value []string, f processWordFunc) ([]string, error) {
+	result := make([]string, len(value))
+	for i, v := range value {
+		r, err := processWordSingleOutput(v, f)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = r
+	}
+	return result, nil
+}
+func processWordManyOutputs(value []string, f processWordFunc) ([]string, error) {
+	result := []string{}
+	for _, v := range value {
+		r, err := f(v)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, r...)
+	}
+	return result, nil
+}
+
+func createProcessWordFunc(shlex *ShellLex, cmdType reflect.Type, envs []string) processWordFunc {
 	switch {
-	case !replaceEnvAllowed[cmd]:
+	case !replaceEnvAllowed[cmdType]:
 		return func(word string) ([]string, error) {
 			return []string{word}, nil
 		}
-	case allowWordExpansion[cmd]:
+	case allowWordExpansion[cmdType]:
 		return func(word string) ([]string, error) {
 			return shlex.ProcessWords(word, envs)
 		}
@@ -315,7 +401,7 @@ func checkDispatch(ast *parser.Node) error {
 		}
 	}
 
-	if _, ok := evaluateTable[cmd]; ok {
+	if _, ok := parseTable[cmd]; ok {
 		return nil
 	}
 	buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
