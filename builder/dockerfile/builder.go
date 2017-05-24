@@ -157,14 +157,14 @@ func (b *Builder) build(source builder.Source, dockerfile *parser.Result) (*buil
 		return nil, err
 	}
 
-	if b.options.Target != "" && !parseResult.isCurrentStage(b.options.Target) {
+	if b.options.Target != "" && !parseResult.IsCurrentStage(b.options.Target) {
 		buildsFailed.WithValues(metricsBuildTargetNotReachableError).Inc()
 		return nil, errors.Errorf("failed to reach build target %s in Dockerfile", b.options.Target)
 	}
 
 	b.buildArgs.WarnOnUnusedBuildArgs(b.Stderr)
 
-	dispatchState, err := b.dispatchDockerfileWithCancellation(parseResult)
+	dispatchState, err := b.dispatchDockerfileWithCancellation(parseResult, dockerfile.EscapeToken, source)
 	if err != nil {
 		return nil, err
 	}
@@ -181,11 +181,11 @@ func emitImageID(aux *streamformatter.AuxFormatter, state *dispatchState) error 
 	}
 	return aux.Emit(types.BuildResult{ID: state.imageID})
 }
-func (b *Builder) dispatchDockerfileWithCancellation(parseResult *parsingState) (*dispatchState, error) {
+func (b *Builder) dispatchDockerfileWithCancellation(parseResult *command.ParsingResult, escapeToken rune, source builder.Source) (*dispatchState, error) {
 	var state *dispatchState
-	for _, stage := range parseResult.stages {
-		state = newDispatchState()
-		for _, command := range stage.commands {
+	for _, stage := range parseResult.Stages {
+		state = newDispatchState(b, escapeToken, source)
+		for i, cmd := range stage.Commands {
 			select {
 			case <-b.clientCtx.Done():
 				logrus.Debug("Builder: build cancelled!")
@@ -195,8 +195,18 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult *parsingState) 
 			default:
 				// Not cancelled yet, keep going...
 			}
-			command.writeDispatchMessage()
-			if err := command.dispatch(state); err != nil {
+			sourceCode := "..."
+			if src, ok := cmd.(command.WithSourceCode); ok {
+				sourceCode = src.SourceCode()
+			}
+			if len(parseResult.Stages) > 1 {
+				fmt.Fprintf(b.Stdout, "Stage %v: %v / %v %v", stage.Name, i+1, len(stage.Commands), sourceCode)
+			} else {
+				fmt.Fprintf(b.Stdout, "%v / %v %v", i+1, len(stage.Commands), sourceCode)
+			}
+			fmt.Fprintln(b.Stdout)
+
+			if err := b.dispatch(state, cmd); err != nil {
 				return nil, err
 			}
 
@@ -212,12 +222,10 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult *parsingState) 
 	}
 	return state, nil
 }
-func (b *Builder) parseDockerfileWithCancellation(dockerfile *parser.Result, source builder.Source) (*parsingState, error) {
-	shlex := NewShellLex(dockerfile.EscapeToken)
-	state := newParsingState()
-	total := len(dockerfile.AST.Children)
+func (b *Builder) parseDockerfileWithCancellation(dockerfile *parser.Result, source builder.Source) (*command.ParsingResult, error) {
+	state := &command.ParsingResult{}
 	var err error
-	for i, n := range dockerfile.AST.Children {
+	for _, n := range dockerfile.AST.Children {
 		select {
 		case <-b.clientCtx.Done():
 			logrus.Debug("Builder: build cancelled!")
@@ -228,16 +236,13 @@ func (b *Builder) parseDockerfileWithCancellation(dockerfile *parser.Result, sou
 			// Not cancelled yet, keep going...
 		}
 
-		if n.Value == command.From && state.isCurrentStage(b.options.Target) {
+		if n.Value == command.From && state.IsCurrentStage(b.options.Target) {
 			break
 		}
 
 		opts := parsingOptions{
-			state:   state,
-			stepMsg: formatStep(i, total),
-			node:    n,
-			shlex:   shlex,
-			source:  source,
+			state: state,
+			node:  n,
 		}
 		if state, err = b.parse(opts); err != nil {
 			if b.options.ForceRemove {
@@ -299,26 +304,24 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	// dispatchState.runConfig = config
 	// return dispatchFromDockerfile(b, dockerfile, dispatchState)
 
-	stage := buildableStage{
-		name: "0",
-		commands: []dispatchCommand{&resumeBuildCommand{
-			baseCommand: baseCommand{
-				builder:         b,
-				dispatchMessage: "Building from config",
-			},
-			runConfig: config,
+	stage := command.BuildableStage{
+		Name: "0",
+		Commands: []interface{}{&command.ResumeBuildCommand{
+			BaseConfig: config,
 		}},
 	}
 
-	parseState := newParsingState()
-	parseState.stages = []buildableStage{stage}
-	parseState.beginStage(config.Env)
+	parseState := &command.ParsingResult{
+		Stages: []command.BuildableStage{
+			stage,
+		},
+	}
 	b.buildArgs.ResetAllowed()
 	parseState, err = parseFromDockerfile(b, dockerfile, parseState)
 	if err != nil {
 		return nil, err
 	}
-	res, err := b.dispatchDockerfileWithCancellation(parseState)
+	res, err := b.dispatchDockerfileWithCancellation(parseState, dockerfile.EscapeToken, nil)
 
 	if err != nil {
 		return nil, err
@@ -348,17 +351,13 @@ func checkDispatchDockerfile(dockerfile *parser.Node) error {
 	return nil
 }
 
-func parseFromDockerfile(b *Builder, result *parser.Result, state *parsingState) (*parsingState, error) {
-	shlex := NewShellLex(result.EscapeToken)
+func parseFromDockerfile(b *Builder, result *parser.Result, state *command.ParsingResult) (*command.ParsingResult, error) {
 	ast := result.AST
-	total := len(ast.Children)
 
-	for i, n := range ast.Children {
+	for _, n := range ast.Children {
 		opts := parsingOptions{
-			state:   state,
-			stepMsg: formatStep(i, total),
-			node:    n,
-			shlex:   shlex,
+			state: state,
+			node:  n,
 		}
 		if _, err := b.parse(opts); err != nil {
 			return nil, err
