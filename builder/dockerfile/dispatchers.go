@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/builder"
+	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/builder/dockerfile/typedcommand"
 	"github.com/docker/docker/pkg/signal"
 	"github.com/docker/go-connections/nat"
@@ -46,19 +47,12 @@ func (c *baseCommand) writeDispatchMessage() {
 // Sets the environment variable foo to bar, also makes interpolation
 // in the dockerfile available from the next statement on via ${foo}.
 //
-func (d *dispatcher) dispatchEnv(c *typedcommand.EnvCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchEnv(c *typedcommand.EnvCommand) error {
 	runConfig := d.state.runConfig
 	commitMessage := bytes.NewBufferString("ENV")
 	for _, e := range c.Env {
-		name, err := processWordSingleOutput(e.Key, expand)
-		if err != nil {
-			return err
-		}
-		value, err := processWordSingleOutput(e.Value, expand)
-		if err != nil {
-			return err
-		}
-		newVar := name + "=" + value
+		name := e.Key
+		newVar := e.String()
 
 		commitMessage.WriteString(" " + newVar)
 		gotOne := false
@@ -81,35 +75,24 @@ func (d *dispatcher) dispatchEnv(c *typedcommand.EnvCommand, expand processWordF
 // MAINTAINER some text <maybe@an.email.address>
 //
 // Sets the maintainer metadata.
-func (d *dispatcher) dispatchMaintainer(c *typedcommand.MaintainerCommand, expand processWordFunc) error {
-	maintainer, err := processWordSingleOutput(c.Maintainer, expand)
-	if err != nil {
-		return err
-	}
-	d.state.maintainer = maintainer
-	return d.builder.commit(d.state, "MAINTAINER "+maintainer)
+func (d *dispatcher) dispatchMaintainer(c *typedcommand.MaintainerCommand) error {
+
+	d.state.maintainer = c.Maintainer
+	return d.builder.commit(d.state, "MAINTAINER "+c.Maintainer)
 }
 
 // LABEL some json data describing the image
 //
 // Sets the Label variable foo to bar,
 //
-func (d *dispatcher) dispatchLabel(c *typedcommand.LabelCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchLabel(c *typedcommand.LabelCommand) error {
 	if d.state.runConfig.Labels == nil {
 		d.state.runConfig.Labels = make(map[string]string)
 	}
 	commitStr := "LABEL"
 	for _, v := range c.Labels {
-		k, err := processWordSingleOutput(v.Key, expand)
-		if err != nil {
-			return err
-		}
-		v, err := processWordSingleOutput(v.Value, expand)
-		if err != nil {
-			return err
-		}
-		d.state.runConfig.Labels[k] = v
-		commitStr += " " + k + "=" + v
+		d.state.runConfig.Labels[v.Key] = v.Value
+		commitStr += " " + v.String()
 	}
 	return d.builder.commit(d.state, commitStr)
 }
@@ -119,19 +102,12 @@ func (d *dispatcher) dispatchLabel(c *typedcommand.LabelCommand, expand processW
 // Add the file 'foo' to '/path'. Tarball and Remote URL (git, http) handling
 // exist here. If you do not wish to have this automatic handling, use COPY.
 //
-func (d *dispatcher) dispatchAdd(c *typedcommand.AddCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchAdd(c *typedcommand.AddCommand) error {
 	downloader := newRemoteSourceDownloader(d.builder.Output, d.builder.Stdout)
 	copier := newCopier(d.source, d.builder.pathCache, downloader, nil)
 	defer copier.Cleanup()
-	srcs, err := processWordSingleOutputs(c.Srcs, expand)
-	if err != nil {
-		return err
-	}
-	dst, err := processWordSingleOutput(c.Dest, expand)
-	if err != nil {
-		return err
-	}
-	copyInstruction, err := copier.createCopyInstruction(append(srcs, dst), "ADD")
+
+	copyInstruction, err := copier.createCopyInstruction(append(c.Srcs, c.Dest), "ADD")
 	if err != nil {
 		return err
 	}
@@ -144,30 +120,18 @@ func (d *dispatcher) dispatchAdd(c *typedcommand.AddCommand, expand processWordF
 //
 // Same as 'ADD' but without the tar and remote url handling.
 //
-func (d *dispatcher) dispatchCopy(c *typedcommand.CopyCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchCopy(c *typedcommand.CopyCommand) error {
 	var im *imageMount
-	srcs, err := processWordSingleOutputs(c.Srcs, expand)
-	if err != nil {
-		return err
-	}
-	dst, err := processWordSingleOutput(c.Dest, expand)
-	if err != nil {
-		return err
-	}
+	var err error
 	if c.From != "" {
-
-		from, err := processWordSingleOutput(c.From, expand)
-		if err != nil {
-			return err
-		}
-		im, err = d.builder.getImageMount(from)
+		im, err = d.builder.getImageMount(c.From)
 		if err != nil {
 			return err
 		}
 	}
 	copier := newCopier(d.source, d.builder.pathCache, errOnSourceDownload, im)
 	defer copier.Cleanup()
-	copyInstruction, err := copier.createCopyInstruction(append(srcs, dst), "COPY")
+	copyInstruction, err := copier.createCopyInstruction(append(c.Srcs, c.Dest), "COPY")
 	if err != nil {
 		return err
 	}
@@ -204,12 +168,28 @@ func (d *dispatcher) dispatchFrom(cmd *typedcommand.FromCommand) error {
 	}
 	state := d.state
 	state.beginStage(cmd.StageName, image)
-	state.runConfig.OnBuild = []string{}
 	state.runConfig.OpenStdin = false
 	state.runConfig.StdinOnce = false
 	if state.runConfig.OnBuild != nil {
-		// TODO: parse & run on build
+		triggers := state.runConfig.OnBuild
 		state.runConfig.OnBuild = nil
+		for _, trigger := range triggers {
+			ast, err := parser.Parse(strings.NewReader(trigger))
+			if err != nil {
+				return err
+			}
+			if len(ast.AST.Children) != 1 {
+				return errors.New("onbuild trigger should be a single expression")
+			}
+			cmd, err := typedcommand.ParseCommand(ast.AST.Children[0], buildsFailed)
+			if err != nil {
+				return err
+			}
+			err = d.dispatch(cmd)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	state.hasDispatchedFrom = true
 	return nil
@@ -303,27 +283,20 @@ func (b *Builder) getFromImage(shlex *ShellLex, name string) (builder.Image, err
 // special cases. search for 'OnBuild' in internals.go for additional special
 // cases.
 //
-func (d *dispatcher) dispatchOnbuild(c *typedcommand.OnbuildCommand, expand processWordFunc) error {
-	ex, err := processWordSingleOutput(c.Expression, expand)
-	if err != nil {
-		return err
-	}
-	d.state.runConfig.OnBuild = append(d.state.runConfig.OnBuild, ex)
-	return d.builder.commit(d.state, "ONBUILD "+ex)
+func (d *dispatcher) dispatchOnbuild(c *typedcommand.OnbuildCommand) error {
+
+	d.state.runConfig.OnBuild = append(d.state.runConfig.OnBuild, c.Expression)
+	return d.builder.commit(d.state, "ONBUILD "+c.Expression)
 }
 
 // WORKDIR /tmp
 //
 // Set the working directory for future RUN/CMD/etc statements.
 //
-func (d *dispatcher) dispatchWorkdir(c *typedcommand.WorkdirCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchWorkdir(c *typedcommand.WorkdirCommand) error {
 	runConfig := d.state.runConfig
 	var err error
-	p, err := processWordSingleOutput(c.Path, expand)
-	if err != nil {
-		return err
-	}
-	runConfig.WorkingDir, err = normaliseWorkdir(runConfig.WorkingDir, p)
+	runConfig.WorkingDir, err = normaliseWorkdir(runConfig.WorkingDir, c.Path)
 	if err != nil {
 		return err
 	}
@@ -370,13 +343,10 @@ func (d *dispatcher) dispatchWorkdir(c *typedcommand.WorkdirCommand, expand proc
 // RUN echo hi          # cmd /S /C echo hi   (Windows)
 // RUN [ "echo", "hi" ] # echo hi
 //
-func (d *dispatcher) dispatchRun(c *typedcommand.RunCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchRun(c *typedcommand.RunCommand) error {
 
 	stateRunConfig := d.state.runConfig
-	cmdFromArgs, err := processWordSingleOutputs(c.Expression, expand)
-	if err != nil {
-		return err
-	}
+	cmdFromArgs := c.Expression
 	if c.PrependShell {
 		cmdFromArgs = append(getShell(stateRunConfig), cmdFromArgs...)
 	}
@@ -445,12 +415,9 @@ func prependEnvOnCmd(buildArgs *buildArgs, buildArgVars []string, cmd strslice.S
 // Set the default command to run in the container (which may be empty).
 // Argument handling is the same as RUN.
 //
-func (d *dispatcher) dispatchCmd(c *typedcommand.CmdCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchCmd(c *typedcommand.CmdCommand) error {
 	runConfig := d.state.runConfig
-	cmd, err := processWordSingleOutputs(c.Cmd, expand)
-	if err != nil {
-		return err
-	}
+	cmd := c.Cmd
 	if c.PrependShell {
 		cmd = append(getShell(runConfig), cmd...)
 	}
@@ -474,7 +441,7 @@ func (d *dispatcher) dispatchCmd(c *typedcommand.CmdCommand, expand processWordF
 // Set the default healthcheck command to run in the container (which may be empty).
 // Argument handling is the same as RUN.
 //
-func (d *dispatcher) dispatchHealthcheck(c *typedcommand.HealthCheckCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchHealthcheck(c *typedcommand.HealthCheckCommand) error {
 	runConfig := d.state.runConfig
 	if runConfig.Healthcheck != nil {
 		oldCmd := runConfig.Healthcheck.Test
@@ -482,11 +449,6 @@ func (d *dispatcher) dispatchHealthcheck(c *typedcommand.HealthCheckCommand, exp
 			fmt.Fprintf(d.builder.Stdout, "Note: overriding previous HEALTHCHECK: %v\n", oldCmd)
 		}
 	}
-	test, err := processWordSingleOutputs(c.Health.Test, expand)
-	if err != nil {
-		return err
-	}
-	c.Health.Test = test
 	runConfig.Healthcheck = c.Health
 	return d.builder.commit(d.state, fmt.Sprintf("HEALTHCHECK %q", runConfig.Healthcheck))
 }
@@ -499,14 +461,10 @@ func (d *dispatcher) dispatchHealthcheck(c *typedcommand.HealthCheckCommand, exp
 // Handles command processing similar to CMD and RUN, only req.runConfig.Entrypoint
 // is initialized at newBuilder time instead of through argument parsing.
 //
-func (d *dispatcher) dispatchEntrypoint(c *typedcommand.EntrypointCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchEntrypoint(c *typedcommand.EntrypointCommand) error {
 	runConfig := d.state.runConfig
 	cmd := c.Cmd
 	if cmd != nil {
-		cmd, err := processWordSingleOutputs(cmd, expand)
-		if err != nil {
-			return err
-		}
 		if c.PrependShell {
 			cmd = append(getShell(runConfig), cmd...)
 		}
@@ -524,19 +482,15 @@ func (d *dispatcher) dispatchEntrypoint(c *typedcommand.EntrypointCommand, expan
 // Expose ports for links and port mappings. This all ends up in
 // req.runConfig.ExposedPorts for runconfig.
 //
-func (d *dispatcher) dispatchExpose(c *typedcommand.ExposeCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchExpose(c *typedcommand.ExposeCommand) error {
 	if d.state.runConfig.ExposedPorts == nil {
 		d.state.runConfig.ExposedPorts = make(nat.PortSet)
 	}
-	ports, err := processWordManyOutputs(c.Ports, expand)
-	if err != nil {
-		return nil
-	}
-	for _, p := range ports {
+	for _, p := range c.Ports {
 		d.state.runConfig.ExposedPorts[nat.Port(p)] = struct{}{}
 	}
 
-	return d.builder.commit(d.state, "EXPOSE "+strings.Join(ports, " "))
+	return d.builder.commit(d.state, "EXPOSE "+strings.Join(c.Ports, " "))
 }
 
 // USER foo
@@ -544,47 +498,36 @@ func (d *dispatcher) dispatchExpose(c *typedcommand.ExposeCommand, expand proces
 // Set the user to 'foo' for future commands and when running the
 // ENTRYPOINT/CMD at container run time.
 //
-func (d *dispatcher) dispatchUser(c *typedcommand.UserCommand, expand processWordFunc) error {
-	user, err := processWordSingleOutput(c.User, expand)
-	if err != nil {
-		return err
-	}
-	d.state.runConfig.User = user
-	return d.builder.commit(d.state, fmt.Sprintf("USER %v", user))
+func (d *dispatcher) dispatchUser(c *typedcommand.UserCommand) error {
+	d.state.runConfig.User = c.User
+	return d.builder.commit(d.state, fmt.Sprintf("USER %v", c.User))
 }
 
 // VOLUME /foo
 //
 // Expose the volume /foo for use. Will also accept the JSON array form.
 //
-func (d *dispatcher) dispatchVolume(c *typedcommand.VolumeCommand, expand processWordFunc) error {
-	volumes, err := processWordSingleOutputs(c.Volumes, expand)
-	if err != nil {
-		return err
-	}
+func (d *dispatcher) dispatchVolume(c *typedcommand.VolumeCommand) error {
 	if d.state.runConfig.Volumes == nil {
 		d.state.runConfig.Volumes = map[string]struct{}{}
 	}
-	for _, v := range volumes {
+	for _, v := range c.Volumes {
 		d.state.runConfig.Volumes[v] = struct{}{}
 	}
-	return d.builder.commit(d.state, fmt.Sprintf("VOLUME %v", volumes))
+	return d.builder.commit(d.state, fmt.Sprintf("VOLUME %v", c.Volumes))
 }
 
 // STOPSIGNAL signal
 //
 // Set the signal that will be used to kill the container.
-func (d *dispatcher) dispatchStopSignal(c *typedcommand.StopSignalCommand, expand processWordFunc) error {
-	sig, err := processWordSingleOutput(c.Signal, expand)
+func (d *dispatcher) dispatchStopSignal(c *typedcommand.StopSignalCommand) error {
+
+	_, err := signal.ParseSignal(c.Signal)
 	if err != nil {
 		return err
 	}
-	_, err = signal.ParseSignal(sig)
-	if err != nil {
-		return err
-	}
-	d.state.runConfig.StopSignal = sig
-	return d.builder.commit(d.state, fmt.Sprintf("STOPSIGNAL %v", sig))
+	d.state.runConfig.StopSignal = c.Signal
+	return d.builder.commit(d.state, fmt.Sprintf("STOPSIGNAL %v", c.Signal))
 }
 
 // ARG name[=value]
@@ -592,56 +535,29 @@ func (d *dispatcher) dispatchStopSignal(c *typedcommand.StopSignalCommand, expan
 // Adds the variable foo to the trusted list of variables that can be passed
 // to builder using the --build-arg flag for expansion/substitution or passing to 'run'.
 // Dockerfile author may optionally set a default value of this variable.
-func (d *dispatcher) dispatchInStageArg(c *typedcommand.ArgCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchInStageArg(c *typedcommand.ArgCommand) error {
 
-	name, err := processWordSingleOutput(c.Name, expand)
-	if err != nil {
-		return err
-	}
-	commitStr := "ARG " + name
-	var value *string
+	commitStr := "ARG " + c.Name
 	if c.Value != nil {
-		v, err := processWordSingleOutput(*c.Value, expand)
-		if err != nil {
-			return err
-		}
-		value = &v
-		commitStr += "=" + v
+		commitStr += "=" + *c.Value
 	}
 
-	d.builder.buildArgs.AddArg(name, value)
+	d.builder.buildArgs.AddArg(c.Name, c.Value)
 	return d.builder.commit(d.state, commitStr)
 }
 
-func (d *dispatcher) dispatchMetaArg(c *typedcommand.ArgCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchMetaArg(c *typedcommand.ArgCommand) error {
 
-	name, err := processWordSingleOutput(c.Name, expand)
-	if err != nil {
-		return err
-	}
-	var value *string
-	if c.Value != nil {
-		v, err := processWordSingleOutput(*c.Value, expand)
-		if err != nil {
-			return err
-		}
-		value = &v
-	}
-
-	d.builder.buildArgs.AddArg(name, value)
-	d.builder.buildArgs.AddMetaArg(name, value)
+	d.builder.buildArgs.AddArg(c.Name, c.Value)
+	d.builder.buildArgs.AddMetaArg(c.Name, c.Value)
 	return nil
 }
 
 // SHELL powershell -command
 //
 // Set the non-default shell to use.
-func (d *dispatcher) dispatchShell(c *typedcommand.ShellCommand, expand processWordFunc) error {
-	var err error
-	d.state.runConfig.Shell, err = processWordSingleOutputs(c.Shell, expand)
-	if err != nil {
-		return err
-	}
+func (d *dispatcher) dispatchShell(c *typedcommand.ShellCommand) error {
+	d.state.runConfig.Shell = c.Shell
 	return d.builder.commit(d.state, fmt.Sprintf("SHELL %v", d.state.runConfig.Shell))
 }
 

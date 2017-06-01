@@ -87,7 +87,7 @@ func ParseCommand(node *parser.Node, buildsFailed metrics.LabeledCounter) (inter
 	}
 
 	buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
-	return nil, fmt.Errorf("unknown instruction: %s", node.Value)
+	return nil, fmt.Errorf("unknown instruction: %s", strings.ToUpper(node.Value))
 }
 
 func Parse(ast *parser.Node, targetStage string, buildsFailed metrics.LabeledCounter) (stages BuildableStages, metaArgs []ArgCommand, err error) {

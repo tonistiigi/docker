@@ -278,11 +278,13 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 		}},
 	}
 
-	cmd, err := typedcommand.ParseCommand(dockerfile.AST, buildsFailed)
-	if err != nil {
-		return nil, err
+	for _, n := range dockerfile.AST.Children {
+		cmd, err := typedcommand.ParseCommand(n, buildsFailed)
+		if err != nil {
+			return nil, err
+		}
+		stage.AddCommand(cmd)
 	}
-	stage.AddCommand(cmd)
 
 	parseState := typedcommand.BuildableStages{
 		stage,

@@ -35,34 +35,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Environment variable interpolation will happen on these statements only.
-var replaceEnvAllowed = map[reflect.Type]bool{
-	reflect.TypeOf((*typedcommand.EnvCommand)(nil)):        true,
-	reflect.TypeOf((*typedcommand.LabelCommand)(nil)):      true,
-	reflect.TypeOf((*typedcommand.AddCommand)(nil)):        true,
-	reflect.TypeOf((*typedcommand.CopyCommand)(nil)):       true,
-	reflect.TypeOf((*typedcommand.WorkdirCommand)(nil)):    true,
-	reflect.TypeOf((*typedcommand.ExposeCommand)(nil)):     true,
-	reflect.TypeOf((*typedcommand.VolumeCommand)(nil)):     true,
-	reflect.TypeOf((*typedcommand.UserCommand)(nil)):       true,
-	reflect.TypeOf((*typedcommand.StopSignalCommand)(nil)): true,
-	reflect.TypeOf((*typedcommand.ArgCommand)(nil)):        true,
-	reflect.TypeOf((*typedcommand.OnbuildCommand)(nil)):    true,
-}
-
-// Certain commands are allowed to have their args split into more
-// words after env var replacements. Meaning:
-//   ENV foo="123 456"
-//   EXPOSE $foo
-// should result in the same thing as:
-//   EXPOSE 123 456
-// and not treat "123 456" as a single word.
-// Note that: EXPOSE "$foo" and EXPOSE $foo are not the same thing.
-// Quotes will cause it to still be treated as single word.
-var allowWordExpansion = map[reflect.Type]bool{
-	reflect.TypeOf((*typedcommand.ExposeCommand)(nil)): true,
-}
-
 func formatStep(stepN int, stepTotal int) string {
 	return fmt.Sprintf("%d/%d", stepN+1, stepTotal)
 }
@@ -74,44 +46,58 @@ func (d *dispatcher) dispatch(cmd interface{}) error {
 	}
 	runConfigEnv := d.state.runConfig.Env
 	envs := append(runConfigEnv, d.builder.buildArgs.FilterAllowed(runConfigEnv)...)
-	processWord := createProcessWordFunc(d.shlex, reflect.TypeOf(cmd), envs)
+	if ex, ok := cmd.(typedcommand.SupportsMultiWordExpansion); ok {
+		ex.Expand(func(word string) ([]string, error) {
+			return d.shlex.ProcessWords(word, envs)
+		})
+	}
+	if ex, ok := cmd.(typedcommand.SupportsSingleWordExpansion); ok {
+		ex.Expand(func(word string) (string, error) {
+			return d.shlex.ProcessWord(word, envs)
+		})
+	}
+
 	switch c := cmd.(type) {
 	case *typedcommand.FromCommand:
 		return d.dispatchFrom(c)
 	case *typedcommand.EnvCommand:
-		return d.dispatchEnv(c, processWord)
+		return d.dispatchEnv(c)
 	case *typedcommand.MaintainerCommand:
-		return d.dispatchMaintainer(c, processWord)
+		return d.dispatchMaintainer(c)
 	case *typedcommand.LabelCommand:
-		return d.dispatchLabel(c, processWord)
+		return d.dispatchLabel(c)
 	case *typedcommand.AddCommand:
-		return d.dispatchAdd(c, processWord)
+		return d.dispatchAdd(c)
 	case *typedcommand.CopyCommand:
-		return d.dispatchCopy(c, processWord)
+		return d.dispatchCopy(c)
 	case *typedcommand.OnbuildCommand:
-		return d.dispatchOnbuild(c, processWord)
+		return d.dispatchOnbuild(c)
 	case *typedcommand.WorkdirCommand:
-		return d.dispatchWorkdir(c, processWord)
+		return d.dispatchWorkdir(c)
 	case *typedcommand.RunCommand:
-		return d.dispatchRun(c, processWord)
+		return d.dispatchRun(c)
 	case *typedcommand.CmdCommand:
-		return d.dispatchCmd(c, processWord)
+		return d.dispatchCmd(c)
 	case *typedcommand.HealthCheckCommand:
-		return d.dispatchHealthcheck(c, processWord)
+		return d.dispatchHealthcheck(c)
 	case *typedcommand.EntrypointCommand:
-		return d.dispatchEntrypoint(c, processWord)
+		return d.dispatchEntrypoint(c)
 	case *typedcommand.ExposeCommand:
-		return d.dispatchExpose(c, processWord)
+		return d.dispatchExpose(c)
 	case *typedcommand.UserCommand:
-		return d.dispatchUser(c, processWord)
+		return d.dispatchUser(c)
 	case *typedcommand.VolumeCommand:
-		return d.dispatchVolume(c, processWord)
+		return d.dispatchVolume(c)
 	case *typedcommand.StopSignalCommand:
-		return d.dispatchStopSignal(c, processWord)
+		return d.dispatchStopSignal(c)
 	case *typedcommand.ArgCommand:
-		return d.dispatchInStageArg(c, processWord)
+		if d.state.hasDispatchedFrom {
+			return d.dispatchInStageArg(c)
+		} else {
+			return d.dispatchMetaArg(c)
+		}
 	case *typedcommand.ShellCommand:
-		return d.dispatchShell(c, processWord)
+		return d.dispatchShell(c)
 	case *typedcommand.ResumeBuildCommand:
 		return d.dispatchResumeBuild(c)
 	}
@@ -203,71 +189,4 @@ func formatFlags(flags []string) string {
 		return " " + strings.Join(flags, " ")
 	}
 	return ""
-}
-
-func getDispatchArgsFromNode(ast *parser.Node, processFunc processWordFunc, msg *bytes.Buffer) ([]string, error) {
-	args := []string{}
-	for i := 0; ast.Next != nil; i++ {
-		ast = ast.Next
-		words, err := processFunc(ast.Value)
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, words...)
-		msg.WriteString(" " + ast.Value)
-	}
-	return args, nil
-}
-
-type processWordFunc func(string) ([]string, error)
-
-func processWordSingleOutput(value string, f processWordFunc) (string, error) {
-	vals, err := f(value)
-	if err != nil {
-		return "", err
-	}
-	if len(vals) != 1 {
-		return "", errors.Errorf("output has %v values", len(vals))
-	}
-	return vals[0], nil
-}
-func processWordSingleOutputs(value []string, f processWordFunc) ([]string, error) {
-	result := make([]string, len(value))
-	for i, v := range value {
-		r, err := processWordSingleOutput(v, f)
-		if err != nil {
-			return nil, err
-		}
-		result[i] = r
-	}
-	return result, nil
-}
-func processWordManyOutputs(value []string, f processWordFunc) ([]string, error) {
-	result := []string{}
-	for _, v := range value {
-		r, err := f(v)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, r...)
-	}
-	return result, nil
-}
-
-func createProcessWordFunc(shlex *ShellLex, cmdType reflect.Type, envs []string) processWordFunc {
-	switch {
-	case !replaceEnvAllowed[cmdType]:
-		return func(word string) ([]string, error) {
-			return []string{word}, nil
-		}
-	case allowWordExpansion[cmdType]:
-		return func(word string) ([]string, error) {
-			return shlex.ProcessWords(word, envs)
-		}
-	default:
-		return func(word string) ([]string, error) {
-			word, err := shlex.ProcessWord(word, envs)
-			return []string{word}, err
-		}
-	}
 }
