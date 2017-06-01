@@ -12,8 +12,8 @@ import (
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder"
-	"github.com/docker/docker/builder/dockerfile/command"
 	"github.com/docker/docker/builder/dockerfile/parser"
+	"github.com/docker/docker/builder/dockerfile/typedcommand"
 	"github.com/docker/docker/builder/remotecontext"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/stringid"
@@ -147,24 +147,19 @@ func (b *Builder) build(source builder.Source, dockerfile *parser.Result) (*buil
 
 	addNodesForLabelOption(dockerfile.AST, b.options.Labels)
 
-	if err := checkDispatchDockerfile(dockerfile.AST); err != nil {
-		buildsFailed.WithValues(metricsDockerfileSyntaxError).Inc()
-		return nil, err
-	}
-
-	parseResult, err := b.parseDockerfile(dockerfile, source)
+	stages, metaArgs, err := typedcommand.Parse(dockerfile.AST, b.options.Target, buildsFailed)
 	if err != nil {
 		return nil, err
 	}
 
-	if b.options.Target != "" && !parseResult.IsCurrentStage(b.options.Target) {
+	if b.options.Target != "" && !stages.IsCurrentStage(b.options.Target) {
 		buildsFailed.WithValues(metricsBuildTargetNotReachableError).Inc()
 		return nil, errors.Errorf("failed to reach build target %s in Dockerfile", b.options.Target)
 	}
 
 	b.buildArgs.WarnOnUnusedBuildArgs(b.Stderr)
 
-	dispatchState, err := b.dispatchDockerfileWithCancellation(parseResult, dockerfile.EscapeToken, source)
+	dispatchState, err := b.dispatchDockerfileWithCancellation(stages, metaArgs, dockerfile.EscapeToken, source)
 	if err != nil {
 		return nil, err
 	}
@@ -181,9 +176,17 @@ func emitImageID(aux *streamformatter.AuxFormatter, state *dispatchState) error 
 	}
 	return aux.Emit(types.BuildResult{ID: state.imageID})
 }
-func (b *Builder) dispatchDockerfileWithCancellation(parseResult *command.ParsingResult, escapeToken rune, source builder.Source) (*dispatchState, error) {
+func (b *Builder) dispatchDockerfileWithCancellation(parseResult typedcommand.BuildableStages, metaArgs []typedcommand.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
 	var dispatcher *dispatcher
-	for _, stage := range parseResult.Stages {
+	// metaargs dispatcher
+	dispatcher = newDispatcher(b, escapeToken, source)
+	for _, meta := range metaArgs {
+		if err := dispatcher.dispatch(&meta); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, stage := range parseResult {
 		dispatcher = newDispatcher(b, escapeToken, source)
 		for i, cmd := range stage.Commands {
 			select {
@@ -196,10 +199,10 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult *command.Parsin
 				// Not cancelled yet, keep going...
 			}
 			sourceCode := "..."
-			if src, ok := cmd.(command.WithSourceCode); ok {
+			if src, ok := cmd.(typedcommand.WithSourceCode); ok {
 				sourceCode = src.SourceCode()
 			}
-			if len(parseResult.Stages) > 1 {
+			if len(parseResult) > 1 {
 				fmt.Fprintf(b.Stdout, "Stage %v: %v / %v %v", stage.Name, i+1, len(stage.Commands), sourceCode)
 			} else {
 				fmt.Fprintf(b.Stdout, "%v / %v %v", i+1, len(stage.Commands), sourceCode)
@@ -221,28 +224,6 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult *command.Parsin
 		}
 	}
 	return dispatcher.state, nil
-}
-func (b *Builder) parseDockerfile(dockerfile *parser.Result, source builder.Source) (*command.ParsingResult, error) {
-	state := &command.ParsingResult{}
-	return parseDockerfileIntoPartialState(b, dockerfile, state)
-}
-
-func parseDockerfileIntoPartialState(b *Builder, result *parser.Result, state *command.ParsingResult) (*command.ParsingResult, error) {
-	ast := result.AST
-
-	for _, n := range ast.Children {
-		if n.Value == command.From && state.IsCurrentStage(b.options.Target) {
-			break
-		}
-		opts := parsingOptions{
-			state: state,
-			node:  n,
-		}
-		if _, err := b.parse(opts); err != nil {
-			return nil, err
-		}
-	}
-	return state, nil
 }
 
 func addNodesForLabelOption(dockerfile *parser.Node, labels map[string]string) {
@@ -286,56 +267,31 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	b.Stderr = ioutil.Discard
 	b.disableCommit = true
 
-	if err := checkDispatchDockerfile(dockerfile.AST); err != nil {
-		return nil, err
-	}
 	// dispatchState := newDispatchState()
 	// dispatchState.runConfig = config
 	// return dispatchFromDockerfile(b, dockerfile, dispatchState)
 
-	stage := command.BuildableStage{
+	stage := typedcommand.BuildableStage{
 		Name: "0",
-		Commands: []interface{}{&command.ResumeBuildCommand{
+		Commands: []interface{}{&typedcommand.ResumeBuildCommand{
 			BaseConfig: config,
 		}},
 	}
 
-	parseState := &command.ParsingResult{
-		Stages: []command.BuildableStage{
-			stage,
-		},
-	}
-	b.buildArgs.ResetAllowed()
-	parseState, err = parseDockerfileIntoPartialState(b, dockerfile, parseState)
+	cmd, err := typedcommand.ParseCommand(dockerfile.AST, buildsFailed)
 	if err != nil {
 		return nil, err
 	}
-	res, err := b.dispatchDockerfileWithCancellation(parseState, dockerfile.EscapeToken, nil)
+	stage.AddCommand(cmd)
+
+	parseState := typedcommand.BuildableStages{
+		stage,
+	}
+	b.buildArgs.ResetAllowed()
+	res, err := b.dispatchDockerfileWithCancellation(parseState, nil, dockerfile.EscapeToken, nil)
 
 	if err != nil {
 		return nil, err
 	}
 	return res.runConfig, nil
-}
-
-type resumeBuildCommand struct {
-	baseCommand
-	runConfig *container.Config
-}
-
-func (c *resumeBuildCommand) dispatch(state *dispatchState) error {
-	c.builder.resetImageCache()
-	state.runConfig = c.runConfig
-	state.runConfig.OnBuild = []string{}
-
-	return nil
-}
-
-func checkDispatchDockerfile(dockerfile *parser.Node) error {
-	for _, n := range dockerfile.Children {
-		if err := checkDispatch(n); err != nil {
-			return errors.Wrapf(err, "Dockerfile parse error line %d", n.StartLine)
-		}
-	}
-	return nil
 }

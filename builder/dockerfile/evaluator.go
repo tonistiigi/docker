@@ -28,8 +28,8 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder"
-	"github.com/docker/docker/builder/dockerfile/command"
 	"github.com/docker/docker/builder/dockerfile/parser"
+	"github.com/docker/docker/builder/dockerfile/typedcommand"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig/opts"
 	"github.com/pkg/errors"
@@ -37,17 +37,17 @@ import (
 
 // Environment variable interpolation will happen on these statements only.
 var replaceEnvAllowed = map[reflect.Type]bool{
-	reflect.TypeOf((*command.EnvCommand)(nil)):        true,
-	reflect.TypeOf((*command.LabelCommand)(nil)):      true,
-	reflect.TypeOf((*command.AddCommand)(nil)):        true,
-	reflect.TypeOf((*command.CopyCommand)(nil)):       true,
-	reflect.TypeOf((*command.WorkdirCommand)(nil)):    true,
-	reflect.TypeOf((*command.ExposeCommand)(nil)):     true,
-	reflect.TypeOf((*command.VolumeCommand)(nil)):     true,
-	reflect.TypeOf((*command.UserCommand)(nil)):       true,
-	reflect.TypeOf((*command.StopSignalCommand)(nil)): true,
-	reflect.TypeOf((*command.ArgCommand)(nil)):        true,
-	reflect.TypeOf((*command.OnbuildCommand)(nil)):    true,
+	reflect.TypeOf((*typedcommand.EnvCommand)(nil)):        true,
+	reflect.TypeOf((*typedcommand.LabelCommand)(nil)):      true,
+	reflect.TypeOf((*typedcommand.AddCommand)(nil)):        true,
+	reflect.TypeOf((*typedcommand.CopyCommand)(nil)):       true,
+	reflect.TypeOf((*typedcommand.WorkdirCommand)(nil)):    true,
+	reflect.TypeOf((*typedcommand.ExposeCommand)(nil)):     true,
+	reflect.TypeOf((*typedcommand.VolumeCommand)(nil)):     true,
+	reflect.TypeOf((*typedcommand.UserCommand)(nil)):       true,
+	reflect.TypeOf((*typedcommand.StopSignalCommand)(nil)): true,
+	reflect.TypeOf((*typedcommand.ArgCommand)(nil)):        true,
+	reflect.TypeOf((*typedcommand.OnbuildCommand)(nil)):    true,
 }
 
 // Certain commands are allowed to have their args split into more
@@ -60,182 +60,73 @@ var replaceEnvAllowed = map[reflect.Type]bool{
 // Note that: EXPOSE "$foo" and EXPOSE $foo are not the same thing.
 // Quotes will cause it to still be treated as single word.
 var allowWordExpansion = map[reflect.Type]bool{
-	reflect.TypeOf((*command.ExposeCommand)(nil)): true,
-}
-
-type parseRequest struct {
-	buildArgs  *buildArgs
-	args       []string
-	attributes map[string]bool
-	flags      *BFlags
-	original   string
-	state      *command.ParsingResult
-}
-
-func newParseRequestFromOptions(options parsingOptions, builder *Builder, args []string) parseRequest {
-	return parseRequest{
-		buildArgs:  builder.buildArgs,
-		args:       args,
-		attributes: options.node.Attributes,
-		original:   options.node.Original,
-		flags:      NewBFlagsWithArgs(options.node.Flags),
-		state:      options.state,
-	}
-}
-
-type nodeParser func(parseRequest) error
-
-var parseTable map[string]nodeParser
-
-func init() {
-	parseTable = map[string]nodeParser{
-		command.Add:         parseAdd,
-		command.Arg:         parseArg,
-		command.Cmd:         parseCmd,
-		command.Copy:        parseCopy, // copy() is a go builtin
-		command.Entrypoint:  parseEntrypoint,
-		command.Env:         parseEnv,
-		command.Expose:      parseExpose,
-		command.From:        parseFrom,
-		command.Healthcheck: parseHealthcheck,
-		command.Label:       parseLabel,
-		command.Maintainer:  parseMaintainer,
-		command.Onbuild:     parseOnbuild,
-		command.Run:         parseRun,
-		command.Shell:       parseShell,
-		command.StopSignal:  parseStopSignal,
-		command.User:        parseUser,
-		command.Volume:      parseVolume,
-		command.Workdir:     parseWorkdir,
-	}
+	reflect.TypeOf((*typedcommand.ExposeCommand)(nil)): true,
 }
 
 func formatStep(stepN int, stepTotal int) string {
 	return fmt.Sprintf("%d/%d", stepN+1, stepTotal)
 }
 
-func nodeArgs(node *parser.Node) []string {
-	result := []string{}
-	for ; node.Next != nil; node = node.Next {
-		arg := node.Next
-		result = append(result, arg.Value)
-	}
-	return result
-}
-
-// This method is the entrypoint to all statement handling routines.
-//
-// Almost all nodes will have this structure:
-// Child[Node, Node, Node] where Child is from parser.Node.Children and each
-// node comes from parser.Node.Next. This forms a "line" with a statement and
-// arguments and we process them in this normalized form by hitting
-// evaluateTable with the leaf nodes of the command and the Builder object.
-//
-// ONBUILD is a special case; in this case the parser will emit:
-// Child[Node, Child[Node, Node...]] where the first node is the literal
-// "onbuild" and the child entrypoint is the command of the ONBUILD statement,
-// such as `RUN` in ONBUILD RUN foo. There is special case logic in here to
-// deal with that, at least until it becomes more of a general concern with new
-// features.
-func (b *Builder) parse(options parsingOptions) (*command.ParsingResult, error) {
-	node := options.node
-	cmd := node.Value
-	upperCasedCmd := strings.ToUpper(cmd)
-
-	// To ensure the user is given a decent error message if the platform
-	// on which the daemon is running does not support a builder command.
-	if err := platformSupports(strings.ToLower(cmd)); err != nil {
-		buildsFailed.WithValues(metricsCommandNotSupportedError).Inc()
-		return nil, err
-	}
-
-	// TODO: handle that at dispatch time
-
-	// args := []string{}
-	// ast := node
-	// if cmd == command.Onbuild {
-	// 	var err error
-	// 	ast, args, err = handleOnBuildNode(node, msg)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// }
-
-	// parsingEnv := options.state.env
-	// envs := append(parsingEnv, b.buildArgs.FilterAllowed(parsingEnv)...)
-	// processFunc := createProcessWordFunc(options.shlex, cmd, envs)
-	// words, err := getDispatchArgsFromNode(ast, processFunc, msg)
-	// if err != nil {
-	// 	buildsFailed.WithValues(metricsErrorProcessingCommandsError).Inc()
-	// 	return nil, err
-	// }
-	// args = append(args, words...)
-	args := nodeArgs(node)
-
-	f, ok := parseTable[cmd]
-	if !ok {
-		buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
-		return nil, fmt.Errorf("unknown instruction: %s", upperCasedCmd)
-	}
-	if err := f(newParseRequestFromOptions(options, b, args)); err != nil {
-		return nil, err
-	}
-	return options.state, nil
-}
-
 func (d *dispatcher) dispatch(cmd interface{}) error {
+	if err := platformSupports(cmd); err != nil {
+		buildsFailed.WithValues(metricsCommandNotSupportedError).Inc()
+		return err
+	}
 	runConfigEnv := d.state.runConfig.Env
 	envs := append(runConfigEnv, d.builder.buildArgs.FilterAllowed(runConfigEnv)...)
 	processWord := createProcessWordFunc(d.shlex, reflect.TypeOf(cmd), envs)
 	switch c := cmd.(type) {
-	case *command.FromCommand:
+	case *typedcommand.FromCommand:
 		return d.dispatchFrom(c)
-	case *command.EnvCommand:
+	case *typedcommand.EnvCommand:
 		return d.dispatchEnv(c, processWord)
-	case *command.MaintainerCommand:
+	case *typedcommand.MaintainerCommand:
 		return d.dispatchMaintainer(c, processWord)
-	case *command.LabelCommand:
+	case *typedcommand.LabelCommand:
 		return d.dispatchLabel(c, processWord)
-	case *command.AddCommand:
+	case *typedcommand.AddCommand:
 		return d.dispatchAdd(c, processWord)
-	case *command.CopyCommand:
+	case *typedcommand.CopyCommand:
 		return d.dispatchCopy(c, processWord)
-	case *command.OnbuildCommand:
+	case *typedcommand.OnbuildCommand:
 		return d.dispatchOnbuild(c, processWord)
-	case *command.WorkdirCommand:
+	case *typedcommand.WorkdirCommand:
 		return d.dispatchWorkdir(c, processWord)
-	case *command.RunCommand:
+	case *typedcommand.RunCommand:
 		return d.dispatchRun(c, processWord)
-	case *command.CmdCommand:
+	case *typedcommand.CmdCommand:
 		return d.dispatchCmd(c, processWord)
-	case *command.HealthCheckCommand:
+	case *typedcommand.HealthCheckCommand:
 		return d.dispatchHealthcheck(c, processWord)
-	case *command.EntrypointCommand:
+	case *typedcommand.EntrypointCommand:
 		return d.dispatchEntrypoint(c, processWord)
-	case *command.ExposeCommand:
+	case *typedcommand.ExposeCommand:
 		return d.dispatchExpose(c, processWord)
-	case *command.UserCommand:
+	case *typedcommand.UserCommand:
 		return d.dispatchUser(c, processWord)
-	case *command.VolumeCommand:
+	case *typedcommand.VolumeCommand:
 		return d.dispatchVolume(c, processWord)
-	case *command.StopSignalCommand:
+	case *typedcommand.StopSignalCommand:
 		return d.dispatchStopSignal(c, processWord)
-	case *command.ArgCommand:
-		return d.dispatchArg(c, processWord)
-	case *command.ShellCommand:
+	case *typedcommand.ArgCommand:
+		return d.dispatchInStageArg(c, processWord)
+	case *typedcommand.ShellCommand:
 		return d.dispatchShell(c, processWord)
+	case *typedcommand.ResumeBuildCommand:
+		return d.dispatchResumeBuild(c)
 	}
 	return errors.Errorf("unsupported command type: %v", reflect.TypeOf(cmd))
 }
 
 // dispatchState is a data object which is modified by dispatchers
 type dispatchState struct {
-	runConfig  *container.Config
-	maintainer string
-	cmdSet     bool
-	imageID    string
-	baseImage  builder.Image
-	stageName  string
+	runConfig         *container.Config
+	maintainer        string
+	cmdSet            bool
+	imageID           string
+	baseImage         builder.Image
+	stageName         string
+	hasDispatchedFrom bool
 }
 
 type dispatcher struct {
@@ -296,11 +187,6 @@ func (s *dispatchState) setDefaultPath() {
 	if _, ok := envMap["PATH"]; !ok {
 		s.runConfig.Env = append(s.runConfig.Env, "PATH="+system.DefaultPathEnv)
 	}
-}
-
-type parsingOptions struct {
-	state *command.ParsingResult
-	node  *parser.Node
 }
 
 func handleOnBuildNode(ast *parser.Node, msg *bytes.Buffer) (*parser.Node, []string, error) {
@@ -384,35 +270,4 @@ func createProcessWordFunc(shlex *ShellLex, cmdType reflect.Type, envs []string)
 			return []string{word}, err
 		}
 	}
-}
-
-// checkDispatch does a simple check for syntax errors of the Dockerfile.
-// Because some of the instructions can only be validated through runtime,
-// arg, env, etc., this syntax check will not be complete and could not replace
-// the runtime check. Instead, this function is only a helper that allows
-// user to find out the obvious error in Dockerfile earlier on.
-func checkDispatch(ast *parser.Node) error {
-	cmd := ast.Value
-	upperCasedCmd := strings.ToUpper(cmd)
-
-	// To ensure the user is given a decent error message if the platform
-	// on which the daemon is running does not support a builder command.
-	if err := platformSupports(strings.ToLower(cmd)); err != nil {
-		return err
-	}
-
-	// The instruction itself is ONBUILD, we will make sure it follows with at
-	// least one argument
-	if upperCasedCmd == "ONBUILD" {
-		if ast.Next == nil {
-			buildsFailed.WithValues(metricsMissingOnbuildArgumentsError).Inc()
-			return errors.New("ONBUILD requires at least one argument")
-		}
-	}
-
-	if _, ok := parseTable[cmd]; ok {
-		return nil
-	}
-	buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
-	return errors.Errorf("unknown instruction: %s", upperCasedCmd)
 }

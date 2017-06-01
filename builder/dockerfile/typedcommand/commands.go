@@ -1,4 +1,4 @@
-package command
+package typedcommand
 
 import (
 	"errors"
@@ -117,7 +117,8 @@ type StopSignalCommand struct {
 
 type ArgCommand struct {
 	CommandSourceCode
-	ArgAndValue string
+	Name  string
+	Value *string
 }
 
 type ShellCommand struct {
@@ -139,26 +140,24 @@ func (s *BuildableStage) AddCommand(cmd interface{}) {
 	s.Commands = append(s.Commands, cmd)
 }
 
-type ParsingResult struct {
-	Stages []BuildableStage
-}
+type BuildableStages []BuildableStage
 
-func (s *ParsingResult) IsCurrentStage(name string) bool {
-	if len(s.Stages) == 0 {
+func (s BuildableStages) IsCurrentStage(name string) bool {
+	if len(s) == 0 {
 		return false
 	}
-	return s.Stages[len(s.Stages)-1].Name == name
+	return s[len(s)-1].Name == name
 }
 
-func (s *ParsingResult) CurrentStage() (*BuildableStage, error) {
-	if len(s.Stages) == 0 {
+func (s BuildableStages) CurrentStage() (*BuildableStage, error) {
+	if len(s) == 0 {
 		return nil, errors.New("No build stage in current context")
 	}
-	return &s.Stages[len(s.Stages)-1], nil
+	return &s[len(s)-1], nil
 }
 
-func (s *ParsingResult) HasStage(name string) bool {
-	for _, stage := range s.Stages {
+func (s BuildableStages) HasStage(name string) bool {
+	for _, stage := range s {
 		if stage.Name == name {
 			return true
 		}
