@@ -91,8 +91,7 @@ type HealthCheckCommand struct {
 
 type EntrypointCommand struct {
 	CommandSourceCode
-	CmdLine      strslice.StrSlice
-	Discard      bool
+	Cmd          strslice.StrSlice
 	PrependShell bool
 }
 
@@ -113,12 +112,12 @@ type VolumeCommand struct {
 
 type StopSignalCommand struct {
 	CommandSourceCode
-	Sig string
+	Signal string
 }
 
 type ArgCommand struct {
 	CommandSourceCode
-	Arg string
+	ArgAndValue string
 }
 
 type ShellCommand struct {

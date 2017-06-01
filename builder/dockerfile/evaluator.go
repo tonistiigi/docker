@@ -183,47 +183,47 @@ func (b *Builder) parse(options parsingOptions) (*command.ParsingResult, error) 
 	return options.state, nil
 }
 
-func (b *Builder) dispatch(state *dispatchState, cmd interface{}) error {
-	runConfigEnv := state.runConfig.Env
-	envs := append(runConfigEnv, b.buildArgs.FilterAllowed(runConfigEnv)...)
-	processWord := createProcessWordFunc(state.shlex, reflect.TypeOf(cmd), envs)
+func (d *dispatcher) dispatch(cmd interface{}) error {
+	runConfigEnv := d.state.runConfig.Env
+	envs := append(runConfigEnv, d.builder.buildArgs.FilterAllowed(runConfigEnv)...)
+	processWord := createProcessWordFunc(d.shlex, reflect.TypeOf(cmd), envs)
 	switch c := cmd.(type) {
 	case *command.FromCommand:
-		return dispatchFrom(state, c)
+		return d.dispatchFrom(c)
 	case *command.EnvCommand:
-		return dispatchEnv(state, c, processWord)
+		return d.dispatchEnv(c, processWord)
 	case *command.MaintainerCommand:
-		return dispatchMaintainer(state, c, processWord)
+		return d.dispatchMaintainer(c, processWord)
 	case *command.LabelCommand:
-		return dispatchLabel(state, c, processWord)
+		return d.dispatchLabel(c, processWord)
 	case *command.AddCommand:
-		return dispatchAdd(state, c, processWord)
+		return d.dispatchAdd(c, processWord)
 	case *command.CopyCommand:
-		return dispatchCopy(state, c, processWord)
+		return d.dispatchCopy(c, processWord)
 	case *command.OnbuildCommand:
-		return dispatchOnbuild(state, c, processWord)
+		return d.dispatchOnbuild(c, processWord)
 	case *command.WorkdirCommand:
-		return dispatchWorkdir(state, c, processWord)
+		return d.dispatchWorkdir(c, processWord)
 	case *command.RunCommand:
-		return dispatchRun(state, c, processWord)
+		return d.dispatchRun(c, processWord)
 	case *command.CmdCommand:
-		return dispatchCmd(state, c, processWord)
+		return d.dispatchCmd(c, processWord)
 	case *command.HealthCheckCommand:
-		return dispatchHealthcheck(state, c, processWord)
+		return d.dispatchHealthcheck(c, processWord)
 	case *command.EntrypointCommand:
-		return dispatchEntrypoint(state, c, processWord)
+		return d.dispatchEntrypoint(c, processWord)
 	case *command.ExposeCommand:
-		return dispatchExpose(state, c, processWord)
+		return d.dispatchExpose(c, processWord)
 	case *command.UserCommand:
-		return dispatchUser(state, c, processWord)
+		return d.dispatchUser(c, processWord)
 	case *command.VolumeCommand:
-		return dispatchVolume(state, c, processWord)
+		return d.dispatchVolume(c, processWord)
 	case *command.StopSignalCommand:
-		return dispatchStopSignal(state, c, processWord)
+		return d.dispatchStopSignal(c, processWord)
 	case *command.ArgCommand:
-		return dispatchArg(state, c, processWord)
+		return d.dispatchArg(c, processWord)
 	case *command.ShellCommand:
-		return dispatchShell(state, c, processWord)
+		return d.dispatchShell(c, processWord)
 	}
 	return errors.Errorf("unsupported command type: %v", reflect.TypeOf(cmd))
 }
@@ -236,16 +236,29 @@ type dispatchState struct {
 	imageID    string
 	baseImage  builder.Image
 	stageName  string
-	shlex      *ShellLex
-	builder    *Builder
-	source     builder.Source
 }
 
-func newDispatchState(builder *Builder, escapeToken rune, source builder.Source) *dispatchState {
-	return &dispatchState{runConfig: &container.Config{}, shlex: NewShellLex(escapeToken), builder: builder, source: source}
+type dispatcher struct {
+	state   *dispatchState
+	shlex   *ShellLex
+	builder *Builder
+	source  builder.Source
 }
-func (s *dispatchState) updateRunConfig() {
-	s.runConfig.Image = s.imageID
+
+func newDispatchState() *dispatchState {
+	return &dispatchState{runConfig: &container.Config{}}
+}
+
+func newDispatcher(builder *Builder, escapeToken rune, source builder.Source) *dispatcher {
+	return &dispatcher{
+		state:   newDispatchState(),
+		shlex:   NewShellLex(escapeToken),
+		builder: builder,
+		source:  source,
+	}
+}
+func (s *dispatcher) updateRunConfig() {
+	s.state.runConfig.Image = s.state.imageID
 }
 
 // hasFromImage returns true if the builder has processed a `FROM <image>` line
@@ -285,10 +298,6 @@ func (s *dispatchState) setDefaultPath() {
 	}
 }
 
-type dispatchCommand interface {
-	dispatch(*dispatchState) error
-	writeDispatchMessage()
-}
 type parsingOptions struct {
 	state *command.ParsingResult
 	node  *parser.Node

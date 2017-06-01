@@ -152,7 +152,7 @@ func (b *Builder) build(source builder.Source, dockerfile *parser.Result) (*buil
 		return nil, err
 	}
 
-	parseResult, err := b.parseDockerfileWithCancellation(dockerfile, source)
+	parseResult, err := b.parseDockerfile(dockerfile, source)
 	if err != nil {
 		return nil, err
 	}
@@ -182,9 +182,9 @@ func emitImageID(aux *streamformatter.AuxFormatter, state *dispatchState) error 
 	return aux.Emit(types.BuildResult{ID: state.imageID})
 }
 func (b *Builder) dispatchDockerfileWithCancellation(parseResult *command.ParsingResult, escapeToken rune, source builder.Source) (*dispatchState, error) {
-	var state *dispatchState
+	var dispatcher *dispatcher
 	for _, stage := range parseResult.Stages {
-		state = newDispatchState(b, escapeToken, source)
+		dispatcher = newDispatcher(b, escapeToken, source)
 		for i, cmd := range stage.Commands {
 			select {
 			case <-b.clientCtx.Done():
@@ -206,53 +206,42 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult *command.Parsin
 			}
 			fmt.Fprintln(b.Stdout)
 
-			if err := b.dispatch(state, cmd); err != nil {
+			if err := dispatcher.dispatch(cmd); err != nil {
 				return nil, err
 			}
 
-			state.updateRunConfig()
-			fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(state.imageID))
+			dispatcher.updateRunConfig()
+			fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(dispatcher.state.imageID))
 			if b.options.Remove {
 				b.clearTmp()
 			}
 		}
-		if err := emitImageID(b.Aux, state); err != nil {
+		if err := emitImageID(b.Aux, dispatcher.state); err != nil {
 			return nil, err
 		}
 	}
-	return state, nil
+	return dispatcher.state, nil
 }
-func (b *Builder) parseDockerfileWithCancellation(dockerfile *parser.Result, source builder.Source) (*command.ParsingResult, error) {
+func (b *Builder) parseDockerfile(dockerfile *parser.Result, source builder.Source) (*command.ParsingResult, error) {
 	state := &command.ParsingResult{}
-	var err error
-	for _, n := range dockerfile.AST.Children {
-		select {
-		case <-b.clientCtx.Done():
-			logrus.Debug("Builder: build cancelled!")
-			fmt.Fprint(b.Stdout, "Build cancelled")
-			buildsFailed.WithValues(metricsBuildCanceled).Inc()
-			return nil, errors.New("Build cancelled")
-		default:
-			// Not cancelled yet, keep going...
-		}
+	return parseDockerfileIntoPartialState(b, dockerfile, state)
+}
 
+func parseDockerfileIntoPartialState(b *Builder, result *parser.Result, state *command.ParsingResult) (*command.ParsingResult, error) {
+	ast := result.AST
+
+	for _, n := range ast.Children {
 		if n.Value == command.From && state.IsCurrentStage(b.options.Target) {
 			break
 		}
-
 		opts := parsingOptions{
 			state: state,
 			node:  n,
 		}
-		if state, err = b.parse(opts); err != nil {
-			if b.options.ForceRemove {
-				b.clearTmp()
-			}
+		if _, err := b.parse(opts); err != nil {
 			return nil, err
 		}
-
 	}
-
 	return state, nil
 }
 
@@ -317,7 +306,7 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 		},
 	}
 	b.buildArgs.ResetAllowed()
-	parseState, err = parseFromDockerfile(b, dockerfile, parseState)
+	parseState, err = parseDockerfileIntoPartialState(b, dockerfile, parseState)
 	if err != nil {
 		return nil, err
 	}
@@ -349,19 +338,4 @@ func checkDispatchDockerfile(dockerfile *parser.Node) error {
 		}
 	}
 	return nil
-}
-
-func parseFromDockerfile(b *Builder, result *parser.Result, state *command.ParsingResult) (*command.ParsingResult, error) {
-	ast := result.AST
-
-	for _, n := range ast.Children {
-		opts := parsingOptions{
-			state: state,
-			node:  n,
-		}
-		if _, err := b.parse(opts); err != nil {
-			return nil, err
-		}
-	}
-	return state, nil
 }

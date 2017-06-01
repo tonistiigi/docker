@@ -44,8 +44,8 @@ func (c *baseCommand) writeDispatchMessage() {
 	fmt.Fprintln(c.builder.Stdout, c.dispatchMessage)
 }
 
-func dispatchEnv(state *dispatchState, c *command.EnvCommand, expand processWordFunc) error {
-	runConfig := state.runConfig
+func (d *dispatcher) dispatchEnv(c *command.EnvCommand, expand processWordFunc) error {
+	runConfig := d.state.runConfig
 	commitMessage := bytes.NewBufferString("ENV")
 	for _, e := range c.Env {
 		name, err := processWordSingleOutput(e.Key, expand)
@@ -73,7 +73,7 @@ func dispatchEnv(state *dispatchState, c *command.EnvCommand, expand processWord
 			runConfig.Env = append(runConfig.Env, newVar)
 		}
 	}
-	return state.builder.commit(state, commitMessage.String())
+	return d.builder.commit(d.state, commitMessage.String())
 }
 
 // ENV foo bar
@@ -115,13 +115,13 @@ func parseEnv(req parseRequest) error {
 
 	return nil
 }
-func dispatchMaintainer(state *dispatchState, c *command.MaintainerCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchMaintainer(c *command.MaintainerCommand, expand processWordFunc) error {
 	maintainer, err := processWordSingleOutput(c.Maintainer, expand)
 	if err != nil {
 		return err
 	}
-	state.maintainer = maintainer
-	return state.builder.commit(state, "MAINTAINER "+maintainer)
+	d.state.maintainer = maintainer
+	return d.builder.commit(d.state, "MAINTAINER "+maintainer)
 }
 
 // MAINTAINER some text <maybe@an.email.address>
@@ -146,9 +146,9 @@ func parseMaintainer(req parseRequest) error {
 	return nil
 }
 
-func dispatchLabel(state *dispatchState, c *command.LabelCommand, expand processWordFunc) error {
-	if state.runConfig.Labels == nil {
-		state.runConfig.Labels = make(map[string]string)
+func (d *dispatcher) dispatchLabel(c *command.LabelCommand, expand processWordFunc) error {
+	if d.state.runConfig.Labels == nil {
+		d.state.runConfig.Labels = make(map[string]string)
 	}
 	commitStr := "LABEL"
 	for _, v := range c.Labels {
@@ -160,10 +160,10 @@ func dispatchLabel(state *dispatchState, c *command.LabelCommand, expand process
 		if err != nil {
 			return err
 		}
-		state.runConfig.Labels[k] = v
+		d.state.runConfig.Labels[k] = v
 		commitStr += " " + k + "=" + v
 	}
-	return state.builder.commit(state, commitStr)
+	return d.builder.commit(d.state, commitStr)
 }
 
 // LABEL some json data describing the image
@@ -207,9 +207,9 @@ func parseLabel(req parseRequest) error {
 	return nil
 }
 
-func dispatchAdd(state *dispatchState, c *command.AddCommand, expand processWordFunc) error {
-	downloader := newRemoteSourceDownloader(state.builder.Output, state.builder.Stdout)
-	copier := newCopier(state.source, state.builder.pathCache, downloader, nil)
+func (d *dispatcher) dispatchAdd(c *command.AddCommand, expand processWordFunc) error {
+	downloader := newRemoteSourceDownloader(d.builder.Output, d.builder.Stdout)
+	copier := newCopier(d.source, d.builder.pathCache, downloader, nil)
 	defer copier.Cleanup()
 	srcs, err := processWordSingleOutputs(c.Srcs, expand)
 	if err != nil {
@@ -225,7 +225,7 @@ func dispatchAdd(state *dispatchState, c *command.AddCommand, expand processWord
 	}
 	copyInstruction.allowLocalDecompression = true
 
-	return state.builder.performCopy(state, copyInstruction)
+	return d.builder.performCopy(d.state, copyInstruction)
 }
 
 // ADD foo /path
@@ -255,7 +255,7 @@ func parseAdd(req parseRequest) error {
 	return nil
 }
 
-func dispatchCopy(state *dispatchState, c *command.CopyCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchCopy(c *command.CopyCommand, expand processWordFunc) error {
 	var im *imageMount
 	srcs, err := processWordSingleOutputs(c.Srcs, expand)
 	if err != nil {
@@ -271,19 +271,19 @@ func dispatchCopy(state *dispatchState, c *command.CopyCommand, expand processWo
 		if err != nil {
 			return err
 		}
-		im, err = state.builder.getImageMount(from)
+		im, err = d.builder.getImageMount(from)
 		if err != nil {
 			return err
 		}
 	}
-	copier := newCopier(state.source, state.builder.pathCache, errOnSourceDownload, im)
+	copier := newCopier(d.source, d.builder.pathCache, errOnSourceDownload, im)
 	defer copier.Cleanup()
 	copyInstruction, err := copier.createCopyInstruction(append(srcs, dst), "COPY")
 	if err != nil {
 		return err
 	}
 
-	return state.builder.performCopy(state, copyInstruction)
+	return d.builder.performCopy(d.state, copyInstruction)
 }
 
 // COPY foo /path
@@ -334,15 +334,16 @@ func (b *Builder) getImageMount(imageRefOrID string) (*imageMount, error) {
 	return b.imageSources.Get(imageRefOrID)
 }
 
-func dispatchFrom(state *dispatchState, cmd *command.FromCommand) error {
-	state.builder.resetImageCache()
-	image, err := state.builder.getFromImage(state.shlex, cmd.BaseName)
+func (d *dispatcher) dispatchFrom(cmd *command.FromCommand) error {
+	d.builder.resetImageCache()
+	image, err := d.builder.getFromImage(d.shlex, cmd.BaseName)
 	if err != nil {
 		return err
 	}
-	if err := state.builder.buildStages.add(cmd.StageName, image); err != nil {
+	if err := d.builder.buildStages.add(cmd.StageName, image); err != nil {
 		return err
 	}
+	state := d.state
 	state.beginStage(cmd.StageName, image)
 	state.runConfig.OnBuild = []string{}
 	state.runConfig.OpenStdin = false
@@ -482,13 +483,13 @@ func (b *Builder) getFromImage(shlex *ShellLex, name string) (builder.Image, err
 // 	return nil
 // }
 
-func dispatchOnbuild(state *dispatchState, c *command.OnbuildCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchOnbuild(c *command.OnbuildCommand, expand processWordFunc) error {
 	ex, err := processWordSingleOutput(c.Expression, expand)
 	if err != nil {
 		return err
 	}
-	state.runConfig.OnBuild = append(state.runConfig.OnBuild, ex)
-	return state.builder.commit(state, "ONBUILD "+ex)
+	d.state.runConfig.OnBuild = append(d.state.runConfig.OnBuild, ex)
+	return d.builder.commit(d.state, "ONBUILD "+ex)
 }
 
 // ONBUILD RUN echo yo
@@ -529,8 +530,8 @@ func parseOnbuild(req parseRequest) error {
 
 }
 
-func dispatchWorkdir(state *dispatchState, c *command.WorkdirCommand, expand processWordFunc) error {
-	runConfig := state.runConfig
+func (d *dispatcher) dispatchWorkdir(c *command.WorkdirCommand, expand processWordFunc) error {
+	runConfig := d.state.runConfig
 	var err error
 	p, err := processWordSingleOutput(c.Path, expand)
 	if err != nil {
@@ -545,7 +546,7 @@ func dispatchWorkdir(state *dispatchState, c *command.WorkdirCommand, expand pro
 	// This avoids having an unnecessary expensive mount/unmount calls
 	// (on Windows in particular) during each container create.
 	// Prior to 1.13, the mkdir was deferred and not executed at this step.
-	if state.builder.disableCommit {
+	if d.builder.disableCommit {
 		// Don't call back into the daemon if we're going through docker commit --change "WORKDIR /foo".
 		// We've already updated the runConfig and that's enough.
 		return nil
@@ -553,11 +554,11 @@ func dispatchWorkdir(state *dispatchState, c *command.WorkdirCommand, expand pro
 
 	comment := "WORKDIR " + runConfig.WorkingDir
 	runConfigWithCommentCmd := copyRunConfig(runConfig, withCmdCommentString(comment))
-	if hit, err := state.builder.probeCache(state, runConfigWithCommentCmd); err != nil || hit {
+	if hit, err := d.builder.probeCache(d.state, runConfigWithCommentCmd); err != nil || hit {
 		return err
 	}
 
-	container, err := state.builder.docker.ContainerCreate(types.ContainerCreateConfig{
+	container, err := d.builder.docker.ContainerCreate(types.ContainerCreateConfig{
 		Config: runConfigWithCommentCmd,
 		// Set a log config to override any default value set on the daemon
 		HostConfig: &container.HostConfig{LogConfig: defaultLogConfig},
@@ -565,12 +566,12 @@ func dispatchWorkdir(state *dispatchState, c *command.WorkdirCommand, expand pro
 	if err != nil {
 		return err
 	}
-	state.builder.tmpContainers[container.ID] = struct{}{}
-	if err := state.builder.docker.ContainerCreateWorkdir(container.ID); err != nil {
+	d.builder.tmpContainers[container.ID] = struct{}{}
+	if err := d.builder.docker.ContainerCreateWorkdir(container.ID); err != nil {
 		return err
 	}
 
-	return state.builder.commitContainer(state, container.ID, runConfigWithCommentCmd)
+	return d.builder.commitContainer(d.state, container.ID, runConfigWithCommentCmd)
 }
 
 // WORKDIR /tmp
@@ -598,9 +599,9 @@ func parseWorkdir(req parseRequest) error {
 
 }
 
-func dispatchRun(state *dispatchState, c *command.RunCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchRun(c *command.RunCommand, expand processWordFunc) error {
 
-	stateRunConfig := state.runConfig
+	stateRunConfig := d.state.runConfig
 	cmdFromArgs, err := processWordSingleOutputs(c.Expression, expand)
 	if err != nil {
 		return err
@@ -608,17 +609,17 @@ func dispatchRun(state *dispatchState, c *command.RunCommand, expand processWord
 	if c.PrependShell {
 		cmdFromArgs = append(getShell(stateRunConfig), cmdFromArgs...)
 	}
-	buildArgs := state.builder.buildArgs.FilterAllowed(stateRunConfig.Env)
+	buildArgs := d.builder.buildArgs.FilterAllowed(stateRunConfig.Env)
 
 	saveCmd := cmdFromArgs
 	if len(buildArgs) > 0 {
-		saveCmd = prependEnvOnCmd(state.builder.buildArgs, buildArgs, cmdFromArgs)
+		saveCmd = prependEnvOnCmd(d.builder.buildArgs, buildArgs, cmdFromArgs)
 	}
 
 	runConfigForCacheProbe := copyRunConfig(stateRunConfig,
 		withCmd(saveCmd),
 		withEntrypointOverride(saveCmd, nil))
-	hit, err := state.builder.probeCache(state, runConfigForCacheProbe)
+	hit, err := d.builder.probeCache(d.state, runConfigForCacheProbe)
 	if err != nil || hit {
 		return err
 	}
@@ -632,15 +633,15 @@ func dispatchRun(state *dispatchState, c *command.RunCommand, expand processWord
 	runConfig.ArgsEscaped = true
 
 	logrus.Debugf("[BUILDER] Command to be executed: %v", runConfig.Cmd)
-	cID, err := state.builder.create(runConfig)
+	cID, err := d.builder.create(runConfig)
 	if err != nil {
 		return err
 	}
-	if err := state.builder.run(cID, runConfig.Cmd); err != nil {
+	if err := d.builder.run(cID, runConfig.Cmd); err != nil {
 		return err
 	}
 
-	return state.builder.commitContainer(state, cID, runConfigForCacheProbe)
+	return d.builder.commitContainer(d.state, cID, runConfigForCacheProbe)
 }
 
 // RUN some command yo
@@ -711,8 +712,8 @@ func prependEnvOnCmd(buildArgs *buildArgs, buildArgVars []string, cmd strslice.S
 	return strslice.StrSlice(append(tmpEnv, cmd...))
 }
 
-func dispatchCmd(state *dispatchState, c *command.CmdCommand, expand processWordFunc) error {
-	runConfig := state.runConfig
+func (d *dispatcher) dispatchCmd(c *command.CmdCommand, expand processWordFunc) error {
+	runConfig := d.state.runConfig
 	cmd, err := processWordSingleOutputs(c.Cmd, expand)
 	if err != nil {
 		return err
@@ -724,12 +725,12 @@ func dispatchCmd(state *dispatchState, c *command.CmdCommand, expand processWord
 	// set config as already being escaped, this prevents double escaping on windows
 	runConfig.ArgsEscaped = true
 
-	if err := state.builder.commit(state, fmt.Sprintf("CMD %q", cmd)); err != nil {
+	if err := d.builder.commit(d.state, fmt.Sprintf("CMD %q", cmd)); err != nil {
 		return err
 	}
 
 	if len(c.Cmd) != 0 {
-		state.cmdSet = true
+		d.state.cmdSet = true
 	}
 
 	return nil
@@ -780,12 +781,12 @@ func parseOptInterval(f *Flag) (time.Duration, error) {
 	return d, nil
 }
 
-func dispatchHealthcheck(state *dispatchState, c *command.HealthCheckCommand, expand processWordFunc) error {
-	runConfig := state.runConfig
+func (d *dispatcher) dispatchHealthcheck(c *command.HealthCheckCommand, expand processWordFunc) error {
+	runConfig := d.state.runConfig
 	if runConfig.Healthcheck != nil {
 		oldCmd := runConfig.Healthcheck.Test
 		if len(oldCmd) > 0 && oldCmd[0] != "NONE" {
-			fmt.Fprintf(state.builder.Stdout, "Note: overriding previous HEALTHCHECK: %v\n", oldCmd)
+			fmt.Fprintf(d.builder.Stdout, "Note: overriding previous HEALTHCHECK: %v\n", oldCmd)
 		}
 	}
 	test, err := processWordSingleOutputs(c.Health.Test, expand)
@@ -794,7 +795,7 @@ func dispatchHealthcheck(state *dispatchState, c *command.HealthCheckCommand, ex
 	}
 	c.Health.Test = test
 	runConfig.Healthcheck = c.Health
-	return state.builder.commit(state, fmt.Sprintf("HEALTHCHECK %q", runConfig.Healthcheck))
+	return d.builder.commit(d.state, fmt.Sprintf("HEALTHCHECK %q", runConfig.Healthcheck))
 }
 
 // HEALTHCHECK foo
@@ -890,30 +891,24 @@ func parseHealthcheck(req parseRequest) error {
 	return nil
 }
 
-func dispatchEntrypoint(state *dispatchState, c *command.EntrypointCommand, expand processWordFunc) error {
-	runConfig := state.runConfig
-	switch {
-	case c.Discard:
-		runConfig.Entrypoint = nil
-	case c.PrependShell:
-		cmd, err := processWordSingleOutputs(c.CmdLine, expand)
+func (d *dispatcher) dispatchEntrypoint(c *command.EntrypointCommand, expand processWordFunc) error {
+	runConfig := d.state.runConfig
+	cmd := c.Cmd
+	if cmd != nil {
+		cmd, err := processWordSingleOutputs(cmd, expand)
 		if err != nil {
 			return err
 		}
-		runConfig.Entrypoint = append(getShell(runConfig), cmd...)
-	default:
-		cmd, err := processWordSingleOutputs(c.CmdLine, expand)
-		if err != nil {
-			return err
+		if c.PrependShell {
+			cmd = append(getShell(runConfig), cmd...)
 		}
-		runConfig.Entrypoint = cmd
 	}
-
-	if !state.cmdSet {
+	runConfig.Entrypoint = cmd
+	if !d.state.cmdSet {
 		runConfig.Cmd = nil
 	}
 
-	return state.builder.commit(state, fmt.Sprintf("ENTRYPOINT %q", runConfig.Entrypoint))
+	return d.builder.commit(d.state, fmt.Sprintf("ENTRYPOINT %q", runConfig.Entrypoint))
 }
 
 // ENTRYPOINT /usr/sbin/nginx
@@ -939,35 +934,30 @@ func parseEntrypoint(req parseRequest) error {
 
 	parsed := handleJSONArgs(req.args, req.attributes)
 
-	switch {
-	case req.attributes["json"]:
-		// ENTRYPOINT ["echo", "hi"]
-		cmd.CmdLine = strslice.StrSlice(parsed)
-	case len(parsed) == 0:
-		// ENTRYPOINT []
-		cmd.Discard = true
-	default:
-		// ENTRYPOINT echo hi
-		cmd.CmdLine = strslice.StrSlice(parsed)
-		cmd.PrependShell = true
+	if len(parsed) != 0 {
+		cmd.Cmd = strslice.StrSlice(parsed)
+		if !req.attributes["json"] {
+			cmd.PrependShell = true
+		}
 	}
+
 	stage.AddCommand(cmd)
 	return nil
 }
 
-func dispatchExpose(state *dispatchState, c *command.ExposeCommand, expand processWordFunc) error {
-	if state.runConfig.ExposedPorts == nil {
-		state.runConfig.ExposedPorts = make(nat.PortSet)
+func (d *dispatcher) dispatchExpose(c *command.ExposeCommand, expand processWordFunc) error {
+	if d.state.runConfig.ExposedPorts == nil {
+		d.state.runConfig.ExposedPorts = make(nat.PortSet)
 	}
 	ports, err := processWordManyOutputs(c.Ports, expand)
 	if err != nil {
 		return nil
 	}
 	for _, p := range ports {
-		state.runConfig.ExposedPorts[nat.Port(p)] = struct{}{}
+		d.state.runConfig.ExposedPorts[nat.Port(p)] = struct{}{}
 	}
 
-	return state.builder.commit(state, "EXPOSE "+strings.Join(ports, " "))
+	return d.builder.commit(d.state, "EXPOSE "+strings.Join(ports, " "))
 }
 
 // EXPOSE 6667/tcp 7000/tcp
@@ -1012,13 +1002,13 @@ func parseExpose(req parseRequest) error {
 	return nil
 }
 
-func dispatchUser(state *dispatchState, c *command.UserCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchUser(c *command.UserCommand, expand processWordFunc) error {
 	user, err := processWordSingleOutput(c.User, expand)
 	if err != nil {
 		return err
 	}
-	state.runConfig.User = user
-	return state.builder.commit(state, fmt.Sprintf("USER %v", user))
+	d.state.runConfig.User = user
+	return d.builder.commit(d.state, fmt.Sprintf("USER %v", user))
 }
 
 // USER foo
@@ -1045,18 +1035,18 @@ func parseUser(req parseRequest) error {
 	return nil
 }
 
-func dispatchVolume(state *dispatchState, c *command.VolumeCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchVolume(c *command.VolumeCommand, expand processWordFunc) error {
 	volumes, err := processWordSingleOutputs(c.Volumes, expand)
 	if err != nil {
 		return err
 	}
-	if state.runConfig.Volumes == nil {
-		state.runConfig.Volumes = map[string]struct{}{}
+	if d.state.runConfig.Volumes == nil {
+		d.state.runConfig.Volumes = map[string]struct{}{}
 	}
 	for _, v := range volumes {
-		state.runConfig.Volumes[v] = struct{}{}
+		d.state.runConfig.Volumes[v] = struct{}{}
 	}
-	return state.builder.commit(state, fmt.Sprintf("VOLUME %v", volumes))
+	return d.builder.commit(d.state, fmt.Sprintf("VOLUME %v", volumes))
 }
 
 // VOLUME /foo
@@ -1092,8 +1082,8 @@ func parseVolume(req parseRequest) error {
 
 }
 
-func dispatchStopSignal(state *dispatchState, c *command.StopSignalCommand, expand processWordFunc) error {
-	sig, err := processWordSingleOutput(c.Sig, expand)
+func (d *dispatcher) dispatchStopSignal(c *command.StopSignalCommand, expand processWordFunc) error {
+	sig, err := processWordSingleOutput(c.Signal, expand)
 	if err != nil {
 		return err
 	}
@@ -1101,8 +1091,8 @@ func dispatchStopSignal(state *dispatchState, c *command.StopSignalCommand, expa
 	if err != nil {
 		return err
 	}
-	state.runConfig.StopSignal = sig
-	return state.builder.commit(state, fmt.Sprintf("STOPSIGNAL %v", sig))
+	d.state.runConfig.StopSignal = sig
+	return d.builder.commit(d.state, fmt.Sprintf("STOPSIGNAL %v", sig))
 }
 
 // STOPSIGNAL signal
@@ -1119,7 +1109,7 @@ func parseStopSignal(req parseRequest) error {
 	sig := req.args[0]
 
 	cmd := &command.StopSignalCommand{
-		Sig:               sig,
+		Signal:            sig,
 		CommandSourceCode: command.CommandSourceCode{req.original},
 	}
 	stage.AddCommand(cmd)
@@ -1127,12 +1117,12 @@ func parseStopSignal(req parseRequest) error {
 
 }
 
-func dispatchArg(state *dispatchState, c *command.ArgCommand, expand processWordFunc) error {
-	arg, err := processWordSingleOutput(c.Arg, expand)
+func (d *dispatcher) dispatchArg(c *command.ArgCommand, expand processWordFunc) error {
+	arg, err := processWordSingleOutput(c.ArgAndValue, expand)
 	if err != nil {
 		return err
 	}
-	return state.builder.commit(state, "ARG "+arg)
+	return d.builder.commit(d.state, "ARG "+arg)
 }
 
 // ARG name[=value]
@@ -1187,19 +1177,19 @@ func parseArg(req parseRequest) error {
 		return err
 	}
 	stage.AddCommand(&command.ArgCommand{
-		Arg:               arg,
+		ArgAndValue:       arg,
 		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 	return nil
 }
 
-func dispatchShell(state *dispatchState, c *command.ShellCommand, expand processWordFunc) error {
+func (d *dispatcher) dispatchShell(c *command.ShellCommand, expand processWordFunc) error {
 	var err error
-	state.runConfig.Shell, err = processWordSingleOutputs(c.Shell, expand)
+	d.state.runConfig.Shell, err = processWordSingleOutputs(c.Shell, expand)
 	if err != nil {
 		return err
 	}
-	return state.builder.commit(state, fmt.Sprintf("SHELL %v", state.runConfig.Shell))
+	return d.builder.commit(d.state, fmt.Sprintf("SHELL %v", d.state.runConfig.Shell))
 }
 
 // SHELL powershell -command
