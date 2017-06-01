@@ -109,8 +109,8 @@ func parseEnv(req parseRequest) error {
 		envs = append(envs, command.KeyValuePair{Key: name, Value: value})
 	}
 	stage.AddCommand(&command.EnvCommand{
-		Env:            envs,
-		OriginalSource: req.original,
+		Env:               envs,
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 
 	return nil
@@ -140,8 +140,8 @@ func parseMaintainer(req parseRequest) error {
 		return err
 	}
 	stage.AddCommand(&command.MaintainerCommand{
-		Maintainer:     req.args[0],
-		OriginalSource: req.original,
+		Maintainer:        req.args[0],
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 	return nil
 }
@@ -201,8 +201,8 @@ func parseLabel(req parseRequest) error {
 		j++
 	}
 	stage.AddCommand(&command.LabelCommand{
-		Labels:         labels,
-		OriginalSource: req.original,
+		Labels:            labels,
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 	return nil
 }
@@ -248,9 +248,9 @@ func parseAdd(req parseRequest) error {
 	}
 
 	stage.AddCommand(&command.AddCommand{
-		Srcs:           req.args[:len(req.args)-1],
-		Dest:           req.args[len(req.args)-1],
-		OriginalSource: req.original,
+		Srcs:              req.args[:len(req.args)-1],
+		Dest:              req.args[len(req.args)-1],
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 	return nil
 }
@@ -310,10 +310,10 @@ func parseCopy(req parseRequest) error {
 		return err
 	}
 	stage.AddCommand(&command.CopyCommand{
-		Srcs:           req.args[:len(req.args)-1],
-		Dest:           req.args[len(req.args)-1],
-		From:           flFrom.Value,
-		OriginalSource: req.original,
+		Srcs:              req.args[:len(req.args)-1],
+		Dest:              req.args[len(req.args)-1],
+		From:              flFrom.Value,
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 	return nil
 }
@@ -374,9 +374,9 @@ func parseFrom(req parseRequest) error {
 	stage := command.BuildableStage{
 		Name: stageName,
 		Commands: []interface{}{&command.FromCommand{
-			BaseName:       req.args[0],
-			StageName:      stageName,
-			OriginalSource: req.original,
+			BaseName:          req.args[0],
+			StageName:         stageName,
+			CommandSourceCode: command.CommandSourceCode{req.original},
 		}},
 	}
 
@@ -522,8 +522,8 @@ func parseOnbuild(req parseRequest) error {
 
 	original := regexp.MustCompile(`(?i)^\s*ONBUILD\s*`).ReplaceAllString(req.original, "")
 	stage.AddCommand(&command.OnbuildCommand{
-		Expression:     original,
-		OriginalSource: req.original,
+		Expression:        original,
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 	return nil
 
@@ -591,8 +591,8 @@ func parseWorkdir(req parseRequest) error {
 		return err
 	}
 	stage.AddCommand(&command.WorkdirCommand{
-		Path:           req.args[0],
-		OriginalSource: req.original,
+		Path:              req.args[0],
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 	return nil
 
@@ -678,9 +678,9 @@ func parseRun(req parseRequest) error {
 	// }
 
 	stage.AddCommand(&command.RunCommand{
-		Expression:     cmdFromArgs,
-		PrependShell:   prependShell,
-		OriginalSource: req.original,
+		Expression:        cmdFromArgs,
+		PrependShell:      prependShell,
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 	return nil
 
@@ -755,9 +755,9 @@ func parseCmd(req parseRequest) error {
 		return err
 	}
 	stage.AddCommand(&command.CmdCommand{
-		Cmd:            strslice.StrSlice(cmdSlice),
-		PrependShell:   prependShell,
-		OriginalSource: req.original,
+		Cmd:               strslice.StrSlice(cmdSlice),
+		PrependShell:      prependShell,
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 	return nil
 
@@ -811,7 +811,7 @@ func parseHealthcheck(req parseRequest) error {
 		return err
 	}
 	cmd := &command.HealthCheckCommand{
-		OriginalSource: req.original,
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	}
 
 	typ := strings.ToUpper(req.args[0])
@@ -934,7 +934,7 @@ func parseEntrypoint(req parseRequest) error {
 	}
 
 	cmd := &command.EntrypointCommand{
-		OriginalSource: req.original,
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	}
 
 	parsed := handleJSONArgs(req.args, req.attributes)
@@ -1006,8 +1006,8 @@ func parseExpose(req parseRequest) error {
 	}
 	sort.Strings(portList)
 	stage.AddCommand(&command.ExposeCommand{
-		Ports:          portList,
-		OriginalSource: req.original,
+		Ports:             portList,
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 	return nil
 }
@@ -1039,8 +1039,8 @@ func parseUser(req parseRequest) error {
 		return err
 	}
 	stage.AddCommand(&command.UserCommand{
-		User:           req.args[0],
-		OriginalSource: req.original,
+		User:              req.args[0],
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 	return nil
 }
@@ -1077,7 +1077,7 @@ func parseVolume(req parseRequest) error {
 	}
 
 	cmd := &command.VolumeCommand{
-		OriginalSource: req.original,
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	}
 
 	for _, v := range req.args {
@@ -1119,8 +1119,8 @@ func parseStopSignal(req parseRequest) error {
 	sig := req.args[0]
 
 	cmd := &command.StopSignalCommand{
-		Sig:            sig,
-		OriginalSource: req.original,
+		Sig:               sig,
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	}
 	stage.AddCommand(cmd)
 	return nil
@@ -1187,8 +1187,8 @@ func parseArg(req parseRequest) error {
 		return err
 	}
 	stage.AddCommand(&command.ArgCommand{
-		Arg:            arg,
-		OriginalSource: req.original,
+		Arg:               arg,
+		CommandSourceCode: command.CommandSourceCode{req.original},
 	})
 	return nil
 }
@@ -1221,8 +1221,8 @@ func parseShell(req parseRequest) error {
 			return err
 		}
 		stage.AddCommand(&command.ShellCommand{
-			Shell:          strslice.StrSlice(shellSlice),
-			OriginalSource: req.original,
+			Shell:             strslice.StrSlice(shellSlice),
+			CommandSourceCode: command.CommandSourceCode{req.original},
 		})
 		return nil
 	default:

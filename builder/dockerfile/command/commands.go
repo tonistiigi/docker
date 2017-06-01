@@ -14,6 +14,14 @@ type KeyValuePair struct {
 
 type KeyValuePairs []KeyValuePair
 
+type CommandSourceCode struct {
+	Code string
+}
+
+func (c *CommandSourceCode) SourceCode() string {
+	return c.Code
+}
+
 // WithSourceCode is a marker indicating that a given command
 // Has been parsed from source code (wich can be displayed in builder output)
 type WithSourceCode interface {
@@ -21,173 +29,101 @@ type WithSourceCode interface {
 }
 
 type EnvCommand struct {
-	OriginalSource string
-	Env            KeyValuePairs // kvp slice instead of map to preserve ordering
-}
-
-func (c *EnvCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Env KeyValuePairs // kvp slice instead of map to preserve ordering
 }
 
 type MaintainerCommand struct {
-	OriginalSource string
-	Maintainer     string
-}
-
-func (c *MaintainerCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Maintainer string
 }
 
 type LabelCommand struct {
-	OriginalSource string
-	Labels         KeyValuePairs // kvp slice instead of map to preserve ordering
-}
-
-func (c *LabelCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Labels KeyValuePairs // kvp slice instead of map to preserve ordering
 }
 
 type AddCommand struct {
-	OriginalSource string
-	Srcs           []string
-	Dest           string
-}
-
-func (c *AddCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Srcs []string
+	Dest string
 }
 
 type CopyCommand struct {
-	OriginalSource string
-	Srcs           []string
-	Dest           string
-	From           string
-}
-
-func (c *CopyCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Srcs []string
+	Dest string
+	From string
 }
 
 type FromCommand struct {
-	OriginalSource string
-	BaseName       string
-	StageName      string
-}
-
-func (c *FromCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	BaseName  string
+	StageName string
 }
 
 type OnbuildCommand struct {
-	OriginalSource string
-	Expression     string
-}
-
-func (c *OnbuildCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Expression string
 }
 
 type WorkdirCommand struct {
-	OriginalSource string
-	Path           string
-}
-
-func (c *WorkdirCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Path string
 }
 
 type RunCommand struct {
-	OriginalSource string
-	Expression     strslice.StrSlice
-	PrependShell   bool
-}
-
-func (c *RunCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Expression   strslice.StrSlice
+	PrependShell bool
 }
 
 type CmdCommand struct {
-	OriginalSource string
-	Cmd            strslice.StrSlice
-	PrependShell   bool
-}
-
-func (c *CmdCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Cmd          strslice.StrSlice
+	PrependShell bool
 }
 
 type HealthCheckCommand struct {
-	OriginalSource string
-	Health         *container.HealthConfig
-}
-
-func (c *HealthCheckCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Health *container.HealthConfig
 }
 
 type EntrypointCommand struct {
-	OriginalSource string
-	CmdLine        strslice.StrSlice
-	Discard        bool
-	PrependShell   bool
-}
-
-func (c *EntrypointCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	CmdLine      strslice.StrSlice
+	Discard      bool
+	PrependShell bool
 }
 
 type ExposeCommand struct {
-	OriginalSource string
-	Ports          []string
-}
-
-func (c *ExposeCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Ports []string
 }
 
 type UserCommand struct {
-	OriginalSource string
-	User           string
-}
-
-func (c *UserCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	User string
 }
 
 type VolumeCommand struct {
-	OriginalSource string
-	Volumes        []string
-}
-
-func (c *VolumeCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Volumes []string
 }
 
 type StopSignalCommand struct {
-	OriginalSource string
-	Sig            string
-}
-
-func (c *StopSignalCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Sig string
 }
 
 type ArgCommand struct {
-	OriginalSource string
-	Arg            string
-}
-
-func (c *ArgCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Arg string
 }
 
 type ShellCommand struct {
-	OriginalSource string
-	Shell          strslice.StrSlice
-}
-
-func (c *ShellCommand) SourceCode() string {
-	return c.OriginalSource
+	CommandSourceCode
+	Shell strslice.StrSlice
 }
 
 type ResumeBuildCommand struct {
