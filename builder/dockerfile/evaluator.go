@@ -29,7 +29,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/parser"
-	"github.com/docker/docker/builder/dockerfile/typedcommand"
+	"github.com/docker/docker/builder/dockerfile/instructions"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig/opts"
 	"github.com/pkg/errors"
@@ -46,59 +46,59 @@ func (d *dispatcher) dispatch(cmd interface{}) error {
 	}
 	runConfigEnv := d.state.runConfig.Env
 	envs := append(runConfigEnv, d.builder.buildArgs.FilterAllowed(runConfigEnv)...)
-	if ex, ok := cmd.(typedcommand.SupportsMultiWordExpansion); ok {
+	if ex, ok := cmd.(instructions.SupportsMultiWordExpansion); ok {
 		ex.Expand(func(word string) ([]string, error) {
 			return d.shlex.ProcessWords(word, envs)
 		})
 	}
-	if ex, ok := cmd.(typedcommand.SupportsSingleWordExpansion); ok {
+	if ex, ok := cmd.(instructions.SupportsSingleWordExpansion); ok {
 		ex.Expand(func(word string) (string, error) {
 			return d.shlex.ProcessWord(word, envs)
 		})
 	}
 
 	switch c := cmd.(type) {
-	case *typedcommand.FromCommand:
+	case *instructions.FromCommand:
 		return d.dispatchFrom(c)
-	case *typedcommand.EnvCommand:
+	case *instructions.EnvCommand:
 		return d.dispatchEnv(c)
-	case *typedcommand.MaintainerCommand:
+	case *instructions.MaintainerCommand:
 		return d.dispatchMaintainer(c)
-	case *typedcommand.LabelCommand:
+	case *instructions.LabelCommand:
 		return d.dispatchLabel(c)
-	case *typedcommand.AddCommand:
+	case *instructions.AddCommand:
 		return d.dispatchAdd(c)
-	case *typedcommand.CopyCommand:
+	case *instructions.CopyCommand:
 		return d.dispatchCopy(c)
-	case *typedcommand.OnbuildCommand:
+	case *instructions.OnbuildCommand:
 		return d.dispatchOnbuild(c)
-	case *typedcommand.WorkdirCommand:
+	case *instructions.WorkdirCommand:
 		return d.dispatchWorkdir(c)
-	case *typedcommand.RunCommand:
+	case *instructions.RunCommand:
 		return d.dispatchRun(c)
-	case *typedcommand.CmdCommand:
+	case *instructions.CmdCommand:
 		return d.dispatchCmd(c)
-	case *typedcommand.HealthCheckCommand:
+	case *instructions.HealthCheckCommand:
 		return d.dispatchHealthcheck(c)
-	case *typedcommand.EntrypointCommand:
+	case *instructions.EntrypointCommand:
 		return d.dispatchEntrypoint(c)
-	case *typedcommand.ExposeCommand:
+	case *instructions.ExposeCommand:
 		return d.dispatchExpose(c)
-	case *typedcommand.UserCommand:
+	case *instructions.UserCommand:
 		return d.dispatchUser(c)
-	case *typedcommand.VolumeCommand:
+	case *instructions.VolumeCommand:
 		return d.dispatchVolume(c)
-	case *typedcommand.StopSignalCommand:
+	case *instructions.StopSignalCommand:
 		return d.dispatchStopSignal(c)
-	case *typedcommand.ArgCommand:
+	case *instructions.ArgCommand:
 		if d.state.hasDispatchedFrom {
 			return d.dispatchInStageArg(c)
 		} else {
 			return d.dispatchMetaArg(c)
 		}
-	case *typedcommand.ShellCommand:
+	case *instructions.ShellCommand:
 		return d.dispatchShell(c)
-	case *typedcommand.ResumeBuildCommand:
+	case *instructions.ResumeBuildCommand:
 		return d.dispatchResumeBuild(c)
 	}
 	return errors.Errorf("unsupported command type: %v", reflect.TypeOf(cmd))

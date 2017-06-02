@@ -1,4 +1,4 @@
-package typedcommand
+package instructions
 
 import (
 	"fmt"

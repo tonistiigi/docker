@@ -12,8 +12,8 @@ import (
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder"
+	"github.com/docker/docker/builder/dockerfile/instructions"
 	"github.com/docker/docker/builder/dockerfile/parser"
-	"github.com/docker/docker/builder/dockerfile/typedcommand"
 	"github.com/docker/docker/builder/remotecontext"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/stringid"
@@ -147,7 +147,7 @@ func (b *Builder) build(source builder.Source, dockerfile *parser.Result) (*buil
 
 	addNodesForLabelOption(dockerfile.AST, b.options.Labels)
 
-	stages, metaArgs, err := typedcommand.Parse(dockerfile.AST, b.options.Target, buildsFailed)
+	stages, metaArgs, err := instructions.Parse(dockerfile.AST, b.options.Target, buildsFailed)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +176,7 @@ func emitImageID(aux *streamformatter.AuxFormatter, state *dispatchState) error 
 	}
 	return aux.Emit(types.BuildResult{ID: state.imageID})
 }
-func (b *Builder) dispatchDockerfileWithCancellation(parseResult typedcommand.BuildableStages, metaArgs []typedcommand.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
+func (b *Builder) dispatchDockerfileWithCancellation(parseResult instructions.BuildableStages, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
 	var dispatcher *dispatcher
 	// metaargs dispatcher
 	dispatcher = newDispatcher(b, escapeToken, source)
@@ -199,7 +199,7 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult typedcommand.Bu
 				// Not cancelled yet, keep going...
 			}
 			sourceCode := "..."
-			if src, ok := cmd.(typedcommand.WithSourceCode); ok {
+			if src, ok := cmd.(instructions.WithSourceCode); ok {
 				sourceCode = src.SourceCode()
 			}
 			if len(parseResult) > 1 {
@@ -271,22 +271,22 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	// dispatchState.runConfig = config
 	// return dispatchFromDockerfile(b, dockerfile, dispatchState)
 
-	stage := typedcommand.BuildableStage{
+	stage := instructions.BuildableStage{
 		Name: "0",
-		Commands: []interface{}{&typedcommand.ResumeBuildCommand{
+		Commands: []interface{}{&instructions.ResumeBuildCommand{
 			BaseConfig: config,
 		}},
 	}
 
 	for _, n := range dockerfile.AST.Children {
-		cmd, err := typedcommand.ParseCommand(n, buildsFailed)
+		cmd, err := instructions.ParseCommand(n, buildsFailed)
 		if err != nil {
 			return nil, err
 		}
 		stage.AddCommand(cmd)
 	}
 
-	parseState := typedcommand.BuildableStages{
+	parseState := instructions.BuildableStages{
 		stage,
 	}
 	b.buildArgs.ResetAllowed()
