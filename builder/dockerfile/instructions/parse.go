@@ -17,6 +17,7 @@ import (
 )
 
 type parseRequest struct {
+	command    string
 	args       []string
 	attributes map[string]bool
 	flags      *BFlags
@@ -34,6 +35,7 @@ func nodeArgs(node *parser.Node) []string {
 
 func newParseRequestFromNode(node *parser.Node) parseRequest {
 	return parseRequest{
+		command:    node.Value,
 		args:       nodeArgs(node),
 		attributes: node.Attributes,
 		original:   node.Original,
@@ -141,8 +143,8 @@ func parseEnv(req parseRequest) (*EnvCommand, error) {
 		envs = append(envs, KeyValuePair{Key: name, Value: value})
 	}
 	return &EnvCommand{
-		Env:               envs,
-		CommandSourceCode: CommandSourceCode{req.original},
+		Env:         envs,
+		BaseCommand: newBaseCommand(req),
 	}, nil
 }
 
@@ -155,8 +157,8 @@ func parseMaintainer(req parseRequest) (*MaintainerCommand, error) {
 		return nil, err
 	}
 	return &MaintainerCommand{
-		Maintainer:        req.args[0],
-		CommandSourceCode: CommandSourceCode{req.original},
+		Maintainer:  req.args[0],
+		BaseCommand: newBaseCommand(req),
 	}, nil
 }
 
@@ -187,8 +189,8 @@ func parseLabel(req parseRequest) (*LabelCommand, error) {
 		j++
 	}
 	return &LabelCommand{
-		Labels:            labels,
-		CommandSourceCode: CommandSourceCode{req.original},
+		Labels:      labels,
+		BaseCommand: newBaseCommand(req),
 	}, nil
 }
 
@@ -202,9 +204,9 @@ func parseAdd(req parseRequest) (*AddCommand, error) {
 	}
 
 	return &AddCommand{
-		Srcs:              req.args[:len(req.args)-1],
-		Dest:              req.args[len(req.args)-1],
-		CommandSourceCode: CommandSourceCode{req.original},
+		Srcs:        req.args[:len(req.args)-1],
+		Dest:        req.args[len(req.args)-1],
+		BaseCommand: newBaseCommand(req),
 	}, nil
 }
 
@@ -218,10 +220,10 @@ func parseCopy(req parseRequest) (*CopyCommand, error) {
 		return nil, err
 	}
 	return &CopyCommand{
-		Srcs:              req.args[:len(req.args)-1],
-		Dest:              req.args[len(req.args)-1],
-		From:              flFrom.Value,
-		CommandSourceCode: CommandSourceCode{req.original},
+		Srcs:        req.args[:len(req.args)-1],
+		Dest:        req.args[len(req.args)-1],
+		From:        flFrom.Value,
+		BaseCommand: newBaseCommand(req),
 	}, nil
 }
 
@@ -237,9 +239,9 @@ func parseFrom(req parseRequest) (*FromCommand, error) {
 	}
 
 	return &FromCommand{
-		BaseName:          req.args[0],
-		StageName:         stageName,
-		CommandSourceCode: CommandSourceCode{req.original},
+		BaseName:    req.args[0],
+		StageName:   stageName,
+		BaseCommand: newBaseCommand(req),
 	}, nil
 
 	//TODO
@@ -280,8 +282,8 @@ func parseOnBuild(req parseRequest) (*OnbuildCommand, error) {
 
 	original := regexp.MustCompile(`(?i)^\s*ONBUILD\s*`).ReplaceAllString(req.original, "")
 	return &OnbuildCommand{
-		Expression:        original,
-		CommandSourceCode: CommandSourceCode{req.original},
+		Expression:  original,
+		BaseCommand: newBaseCommand(req),
 	}, nil
 
 }
@@ -296,8 +298,8 @@ func parseWorkdir(req parseRequest) (*WorkdirCommand, error) {
 		return nil, err
 	}
 	return &WorkdirCommand{
-		Path:              req.args[0],
-		CommandSourceCode: CommandSourceCode{req.original},
+		Path:        req.args[0],
+		BaseCommand: newBaseCommand(req),
 	}, nil
 
 }
@@ -315,9 +317,9 @@ func parseRun(req parseRequest) (*RunCommand, error) {
 	cmdFromArgs := strslice.StrSlice(args)
 
 	return &RunCommand{
-		Expression:        cmdFromArgs,
-		PrependShell:      prependShell,
-		CommandSourceCode: CommandSourceCode{req.original},
+		Expression:   cmdFromArgs,
+		PrependShell: prependShell,
+		BaseCommand:  newBaseCommand(req),
 	}, nil
 
 }
@@ -333,9 +335,9 @@ func parseCmd(req parseRequest) (*CmdCommand, error) {
 	}
 
 	return &CmdCommand{
-		Cmd:               strslice.StrSlice(cmdSlice),
-		PrependShell:      prependShell,
-		CommandSourceCode: CommandSourceCode{req.original},
+		Cmd:          strslice.StrSlice(cmdSlice),
+		PrependShell: prependShell,
+		BaseCommand:  newBaseCommand(req),
 	}, nil
 
 }
@@ -361,7 +363,7 @@ func parseHealthcheck(req parseRequest) (*HealthCheckCommand, error) {
 		return nil, errAtLeastOneArgument("HEALTHCHECK")
 	}
 	cmd := &HealthCheckCommand{
-		CommandSourceCode: CommandSourceCode{req.original},
+		BaseCommand: newBaseCommand(req),
 	}
 
 	typ := strings.ToUpper(req.args[0])
@@ -445,7 +447,7 @@ func parseEntrypoint(req parseRequest) (*EntrypointCommand, error) {
 	}
 
 	cmd := &EntrypointCommand{
-		CommandSourceCode: CommandSourceCode{req.original},
+		BaseCommand: newBaseCommand(req),
 	}
 
 	parsed := handleJSONArgs(req.args, req.attributes)
@@ -487,8 +489,8 @@ func parseExpose(req parseRequest) (*ExposeCommand, error) {
 	}
 	sort.Strings(portList)
 	return &ExposeCommand{
-		Ports:             portList,
-		CommandSourceCode: CommandSourceCode{req.original},
+		Ports:       portList,
+		BaseCommand: newBaseCommand(req),
 	}, nil
 }
 
@@ -501,8 +503,8 @@ func parseUser(req parseRequest) (*UserCommand, error) {
 		return nil, err
 	}
 	return &UserCommand{
-		User:              req.args[0],
-		CommandSourceCode: CommandSourceCode{req.original},
+		User:        req.args[0],
+		BaseCommand: newBaseCommand(req),
 	}, nil
 }
 
@@ -516,7 +518,7 @@ func parseVolume(req parseRequest) (*VolumeCommand, error) {
 	}
 
 	cmd := &VolumeCommand{
-		CommandSourceCode: CommandSourceCode{req.original},
+		BaseCommand: newBaseCommand(req),
 	}
 
 	for _, v := range req.args {
@@ -537,8 +539,8 @@ func parseStopSignal(req parseRequest) (*StopSignalCommand, error) {
 	sig := req.args[0]
 
 	cmd := &StopSignalCommand{
-		Signal:            sig,
-		CommandSourceCode: CommandSourceCode{req.original},
+		Signal:      sig,
+		BaseCommand: newBaseCommand(req),
 	}
 	return cmd, nil
 
@@ -581,9 +583,9 @@ func parseArg(req parseRequest) (*ArgCommand, error) {
 	}
 
 	return &ArgCommand{
-		Name:              name,
-		Value:             value,
-		CommandSourceCode: CommandSourceCode{req.original},
+		Name:        name,
+		Value:       value,
+		BaseCommand: newBaseCommand(req),
 	}, nil
 }
 
@@ -600,8 +602,8 @@ func parseShell(req parseRequest) (*ShellCommand, error) {
 		// SHELL ["powershell", "-command"]
 
 		return &ShellCommand{
-			Shell:             strslice.StrSlice(shellSlice),
-			CommandSourceCode: CommandSourceCode{req.original},
+			Shell:       strslice.StrSlice(shellSlice),
+			BaseCommand: newBaseCommand(req),
 		}, nil
 	default:
 		// SHELL powershell -command - not JSON

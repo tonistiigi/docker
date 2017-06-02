@@ -184,6 +184,12 @@ func emitImageID(aux *streamformatter.AuxFormatter, state *dispatchState) error 
 }
 func (b *Builder) dispatchDockerfileWithCancellation(parseResult instructions.BuildableStages, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
 	var dispatcher *dispatcher
+
+	totalCommands := len(metaArgs)
+	for _, stage := range parseResult {
+		totalCommands += len(stage.Commands)
+	}
+
 	// metaargs dispatcher
 	dispatcher = newDispatcher(b, escapeToken, source)
 	for _, meta := range metaArgs {
@@ -204,15 +210,8 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult instructions.Bu
 			default:
 				// Not cancelled yet, keep going...
 			}
-			sourceCode := "..."
-			if src, ok := cmd.(instructions.WithSourceCode); ok {
-				sourceCode = src.SourceCode()
-			}
-			if len(parseResult) > 1 {
-				fmt.Fprintf(b.Stdout, "Stage %v: %v / %v %v", stage.Name, i+1, len(stage.Commands), sourceCode)
-			} else {
-				fmt.Fprintf(b.Stdout, "%v / %v %v", i+1, len(stage.Commands), sourceCode)
-			}
+
+			fmt.Fprintf(b.Stdout, "%v / %v %v", i+1, totalCommands, cmd)
 			fmt.Fprintln(b.Stdout)
 
 			if err := dispatcher.dispatch(cmd); err != nil {

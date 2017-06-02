@@ -18,12 +18,20 @@ func (kvp *KeyValuePair) String() string {
 
 type KeyValuePairs []KeyValuePair
 
-type CommandSourceCode struct {
-	Code string
+type BaseCommand struct {
+	code string
+	name string
 }
 
-func (c *CommandSourceCode) SourceCode() string {
-	return c.Code
+func (c *BaseCommand) String() string {
+	return c.code
+}
+func (c *BaseCommand) Name() string {
+	return c.name
+}
+
+func newBaseCommand(req parseRequest) BaseCommand {
+	return BaseCommand{code: req.original, name: req.command}
 }
 
 // SingleWordExpander is a provider for variable expansion where 1 word => 1 output
@@ -72,14 +80,8 @@ func expandSliceInPlace(values []string, expander SingleWordExpander) error {
 	return nil
 }
 
-// WithSourceCode is a marker indicating that a given command
-// Has been parsed from source code (wich can be displayed in builder output)
-type WithSourceCode interface {
-	SourceCode() string
-}
-
 type EnvCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Env KeyValuePairs // kvp slice instead of map to preserve ordering
 }
 
@@ -88,12 +90,12 @@ func (c *EnvCommand) Expand(expander SingleWordExpander) error {
 }
 
 type MaintainerCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Maintainer string
 }
 
 type LabelCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Labels KeyValuePairs // kvp slice instead of map to preserve ordering
 }
 
@@ -102,7 +104,7 @@ func (c *LabelCommand) Expand(expander SingleWordExpander) error {
 }
 
 type AddCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Srcs []string
 	Dest string
 }
@@ -117,7 +119,7 @@ func (c *AddCommand) Expand(expander SingleWordExpander) error {
 }
 
 type CopyCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Srcs []string
 	Dest string
 	From string
@@ -138,13 +140,13 @@ func (c *CopyCommand) Expand(expander SingleWordExpander) error {
 }
 
 type FromCommand struct {
-	CommandSourceCode
+	BaseCommand
 	BaseName  string
 	StageName string
 }
 
 type OnbuildCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Expression string
 }
 
@@ -158,7 +160,7 @@ func (c *OnbuildCommand) Expand(expander SingleWordExpander) error {
 }
 
 type WorkdirCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Path string
 }
 
@@ -172,30 +174,30 @@ func (c *WorkdirCommand) Expand(expander SingleWordExpander) error {
 }
 
 type RunCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Expression   strslice.StrSlice
 	PrependShell bool
 }
 
 type CmdCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Cmd          strslice.StrSlice
 	PrependShell bool
 }
 
 type HealthCheckCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Health *container.HealthConfig
 }
 
 type EntrypointCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Cmd          strslice.StrSlice
 	PrependShell bool
 }
 
 type ExposeCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Ports []string
 }
 
@@ -213,7 +215,7 @@ func (c *ExposeCommand) Expand(expander MultiWordExpander) error {
 }
 
 type UserCommand struct {
-	CommandSourceCode
+	BaseCommand
 	User string
 }
 
@@ -227,7 +229,7 @@ func (c *UserCommand) Expand(expander SingleWordExpander) error {
 }
 
 type VolumeCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Volumes []string
 }
 
@@ -236,7 +238,7 @@ func (c *VolumeCommand) Expand(expander SingleWordExpander) error {
 }
 
 type StopSignalCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Signal string
 }
 
@@ -250,7 +252,7 @@ func (c *StopSignalCommand) Expand(expander SingleWordExpander) error {
 }
 
 type ArgCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Name  string
 	Value *string
 }
@@ -272,7 +274,7 @@ func (c *ArgCommand) Expand(expander SingleWordExpander) error {
 }
 
 type ShellCommand struct {
-	CommandSourceCode
+	BaseCommand
 	Shell strslice.StrSlice
 }
 
