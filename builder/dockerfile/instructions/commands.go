@@ -264,23 +264,21 @@ func (s *BuildableStage) AddCommand(cmd interface{}) {
 	s.Commands = append(s.Commands, cmd)
 }
 
-type BuildableStages []BuildableStage
-
-func (s BuildableStages) IsCurrentStage(name string) bool {
+func IsCurrentStage(s []BuildableStage, name string) bool {
 	if len(s) == 0 {
 		return false
 	}
 	return s[len(s)-1].Name == name
 }
 
-func (s BuildableStages) CurrentStage() (*BuildableStage, error) {
+func CurrentStage(s []BuildableStage) (*BuildableStage, error) {
 	if len(s) == 0 {
 		return nil, errors.New("No build stage in current context")
 	}
 	return &s[len(s)-1], nil
 }
 
-func (s BuildableStages) HasStage(name string) (bool, int) {
+func HasStage(s []BuildableStage, name string) (bool, int) {
 	for i, stage := range s {
 		if stage.Name == name {
 			return true, i

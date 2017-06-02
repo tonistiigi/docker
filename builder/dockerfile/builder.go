@@ -155,7 +155,7 @@ func (b *Builder) build(source builder.Source, dockerfile *parser.Result) (*buil
 		return nil, err
 	}
 	if b.options.Target != "" {
-		found, targetIx := stages.HasStage(b.options.Target)
+		found, targetIx := instructions.HasStage(stages, b.options.Target)
 		if !found {
 			buildsFailed.WithValues(metricsBuildTargetNotReachableError).Inc()
 			return nil, errors.Errorf("failed to reach build target %s in Dockerfile", b.options.Target)
@@ -189,7 +189,7 @@ func convertMapToEnvs(m map[string]string) []string {
 	}
 	return result
 }
-func (b *Builder) dispatchDockerfileWithCancellation(parseResult instructions.BuildableStages, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
+func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.BuildableStage, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
 	var stageBuilder *stageBuilder
 
 	totalCommands := len(metaArgs)
@@ -310,7 +310,7 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 		stage.AddCommand(cmd)
 	}
 
-	parseState := instructions.BuildableStages{
+	parseState := []instructions.BuildableStage{
 		stage,
 	}
 	b.buildArgs.ResetAllowed()
