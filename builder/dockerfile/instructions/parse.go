@@ -85,11 +85,8 @@ func ParseCommand(node *parser.Node) (interface{}, error) {
 	return nil, fmt.Errorf("unknown instruction: %s", strings.ToUpper(node.Value))
 }
 
-func Parse(ast *parser.Node, targetStage string) (stages BuildableStages, metaArgs []ArgCommand, err error) {
+func Parse(ast *parser.Node) (stages BuildableStages, metaArgs []ArgCommand, err error) {
 	for _, n := range ast.Children {
-		if n.Value == command.From && stages.IsCurrentStage(targetStage) {
-			break
-		}
 		cmd, err := ParseCommand(n)
 		if err != nil {
 			return nil, nil, err

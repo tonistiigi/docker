@@ -147,17 +147,20 @@ func (b *Builder) build(source builder.Source, dockerfile *parser.Result) (*buil
 
 	addNodesForLabelOption(dockerfile.AST, b.options.Labels)
 
-	stages, metaArgs, err := instructions.Parse(dockerfile.AST, b.options.Target)
+	stages, metaArgs, err := instructions.Parse(dockerfile.AST)
 	if err != nil {
 		if strings.Index(err.Error(), "unknown instruction:") == 0 {
 			buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
 		}
 		return nil, err
 	}
-
-	if b.options.Target != "" && !stages.IsCurrentStage(b.options.Target) {
-		buildsFailed.WithValues(metricsBuildTargetNotReachableError).Inc()
-		return nil, errors.Errorf("failed to reach build target %s in Dockerfile", b.options.Target)
+	if b.options.Target != "" {
+		found, targetIx := stages.HasStage(b.options.Target)
+		if !found {
+			buildsFailed.WithValues(metricsBuildTargetNotReachableError).Inc()
+			return nil, errors.Errorf("failed to reach build target %s in Dockerfile", b.options.Target)
+		}
+		stages = stages[:targetIx+1]
 	}
 
 	b.buildArgs.WarnOnUnusedBuildArgs(b.Stderr)

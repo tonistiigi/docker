@@ -306,11 +306,11 @@ func (s BuildableStages) CurrentStage() (*BuildableStage, error) {
 	return &s[len(s)-1], nil
 }
 
-func (s BuildableStages) HasStage(name string) bool {
-	for _, stage := range s {
+func (s BuildableStages) HasStage(name string) (bool, int) {
+	for i, stage := range s {
 		if stage.Name == name {
-			return true
+			return true, i
 		}
 	}
-	return false
+	return false, -1
 }
