@@ -91,14 +91,14 @@ func Parse(ast *parser.Node) (stages BuildableStages, metaArgs []ArgCommand, err
 		if err != nil {
 			return nil, nil, err
 		}
-		switch c := cmd.(type) {
-		case *ArgCommand:
-			if len(stages) == 0 {
-				metaArgs = append(metaArgs, *c)
-			} else {
-				stage, _ := stages.CurrentStage()
-				stage.AddCommand(cmd)
+		if len(stages) == 0 {
+			// meta arg case
+			if a, isArg := cmd.(*ArgCommand); isArg {
+				metaArgs = append(metaArgs, *a)
+				continue
 			}
+		}
+		switch c := cmd.(type) {
 		case *FromCommand:
 			if c.StageName == "" {
 				c.StageName = strconv.Itoa(len(stages))
