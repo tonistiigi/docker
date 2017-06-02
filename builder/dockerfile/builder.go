@@ -12,7 +12,7 @@ import (
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder"
-	"github.com/docker/docker/builder/dockerfile/command"
+	"github.com/docker/docker/builder/dockerfile/instructions"
 	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/builder/remotecontext"
 	"github.com/docker/docker/pkg/streamformatter"
@@ -147,23 +147,28 @@ func (b *Builder) build(source builder.Source, dockerfile *parser.Result) (*buil
 
 	addNodesForLabelOption(dockerfile.AST, b.options.Labels)
 
-	if err := checkDispatchDockerfile(dockerfile.AST); err != nil {
-		buildsFailed.WithValues(metricsDockerfileSyntaxError).Inc()
-		return nil, err
-	}
-
-	dispatchState, err := b.dispatchDockerfileWithCancellation(dockerfile, source)
+	stages, metaArgs, err := instructions.Parse(dockerfile.AST)
 	if err != nil {
+		if strings.Index(err.Error(), "unknown instruction:") == 0 {
+			buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
+		}
 		return nil, err
 	}
-
-	if b.options.Target != "" && !dispatchState.isCurrentStage(b.options.Target) {
-		buildsFailed.WithValues(metricsBuildTargetNotReachableError).Inc()
-		return nil, errors.Errorf("failed to reach build target %s in Dockerfile", b.options.Target)
+	if b.options.Target != "" {
+		found, targetIx := instructions.HasStage(stages, b.options.Target)
+		if !found {
+			buildsFailed.WithValues(metricsBuildTargetNotReachableError).Inc()
+			return nil, errors.Errorf("failed to reach build target %s in Dockerfile", b.options.Target)
+		}
+		stages = stages[:targetIx+1]
 	}
 
 	b.buildArgs.WarnOnUnusedBuildArgs(b.Stderr)
 
+	dispatchState, err := b.dispatchDockerfileWithCancellation(stages, metaArgs, dockerfile.EscapeToken, source)
+	if err != nil {
+		return nil, err
+	}
 	if dispatchState.imageID == "" {
 		buildsFailed.WithValues(metricsDockerfileEmptyError).Inc()
 		return nil, errors.New("No image was generated. Is your Dockerfile empty?")
@@ -177,62 +182,69 @@ func emitImageID(aux *streamformatter.AuxFormatter, state *dispatchState) error 
 	}
 	return aux.Emit(types.BuildResult{ID: state.imageID})
 }
+func convertMapToEnvs(m map[string]string) []string {
+	result := []string{}
+	for k, v := range m {
+		result = append(result, k+"="+v)
+	}
+	return result
+}
+func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.BuildableStage, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
+	var stageBuilder *stageBuilder
 
-func (b *Builder) dispatchDockerfileWithCancellation(dockerfile *parser.Result, source builder.Source) (*dispatchState, error) {
-	shlex := NewShellLex(dockerfile.EscapeToken)
-	state := newDispatchState()
-	total := len(dockerfile.AST.Children)
-	var err error
-	for i, n := range dockerfile.AST.Children {
-		select {
-		case <-b.clientCtx.Done():
-			logrus.Debug("Builder: build cancelled!")
-			fmt.Fprint(b.Stdout, "Build cancelled")
-			buildsFailed.WithValues(metricsBuildCanceled).Inc()
-			return nil, errors.New("Build cancelled")
-		default:
-			// Not cancelled yet, keep going...
-		}
-
-		// If this is a FROM and we have a previous image then
-		// emit an aux message for that image since it is the
-		// end of the previous stage
-		if n.Value == command.From {
-			if err := emitImageID(b.Aux, state); err != nil {
-				return nil, err
-			}
-		}
-
-		if n.Value == command.From && state.isCurrentStage(b.options.Target) {
-			break
-		}
-
-		opts := dispatchOptions{
-			state:   state,
-			stepMsg: formatStep(i, total),
-			node:    n,
-			shlex:   shlex,
-			source:  source,
-		}
-		if state, err = b.dispatch(opts); err != nil {
-			if b.options.ForceRemove {
-				b.clearTmp()
-			}
+	totalCommands := len(metaArgs)
+	currentCommandIndex := 0
+	for _, stage := range parseResult {
+		totalCommands += len(stage.Commands)
+	}
+	for _, meta := range metaArgs {
+		shlex := NewShellLex(escapeToken)
+		envs := convertMapToEnvs(b.buildArgs.GetAllAllowed())
+		if err := meta.Expand(func(word string) (string, error) {
+			return shlex.ProcessWord(word, envs)
+		}); err != nil {
 			return nil, err
 		}
+		b.buildArgs.AddArg(meta.Name, meta.Value)
+		b.buildArgs.AddMetaArg(meta.Name, meta.Value)
 
-		fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(state.imageID))
-		if b.options.Remove {
-			b.clearTmp()
+		fmt.Fprintf(b.Stdout, "%v / %v %v", currentCommandIndex, totalCommands, &meta)
+		currentCommandIndex++
+		fmt.Fprintln(b.Stdout)
+	}
+
+	for _, stage := range parseResult {
+		stageBuilder = newStageBuilder(b, escapeToken, source)
+		for _, cmd := range stage.Commands {
+			select {
+			case <-b.clientCtx.Done():
+				logrus.Debug("Builder: build cancelled!")
+				fmt.Fprint(b.Stdout, "Build cancelled")
+				buildsFailed.WithValues(metricsBuildCanceled).Inc()
+				return nil, errors.New("Build cancelled")
+			default:
+				// Not cancelled yet, keep going...
+			}
+
+			fmt.Fprintf(b.Stdout, "%v / %v %v", currentCommandIndex, totalCommands, cmd)
+			currentCommandIndex++
+			fmt.Fprintln(b.Stdout)
+
+			if err := stageBuilder.dispatch(cmd); err != nil {
+				return nil, err
+			}
+
+			stageBuilder.updateRunConfig()
+			fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(stageBuilder.state.imageID))
+			if b.options.Remove {
+				b.clearTmp()
+			}
+		}
+		if err := emitImageID(b.Aux, stageBuilder.state); err != nil {
+			return nil, err
 		}
 	}
-
-	// Emit a final aux message for the final image
-	if err := emitImageID(b.Aux, state); err != nil {
-		return nil, err
-	}
-
-	return state, nil
+	return stageBuilder.state, nil
 }
 
 func addNodesForLabelOption(dockerfile *parser.Node, labels map[string]string) {
@@ -276,38 +288,36 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	b.Stderr = ioutil.Discard
 	b.disableCommit = true
 
-	if err := checkDispatchDockerfile(dockerfile.AST); err != nil {
-		return nil, err
+	// dispatchState := newDispatchState()
+	// dispatchState.runConfig = config
+	// return dispatchFromDockerfile(b, dockerfile, dispatchState)
+
+	stage := instructions.BuildableStage{
+		Name: "0",
+		Commands: []interface{}{&instructions.ResumeBuildCommand{
+			BaseConfig: config,
+		}},
 	}
-	dispatchState := newDispatchState()
-	dispatchState.runConfig = config
-	return dispatchFromDockerfile(b, dockerfile, dispatchState)
-}
 
-func checkDispatchDockerfile(dockerfile *parser.Node) error {
-	for _, n := range dockerfile.Children {
-		if err := checkDispatch(n); err != nil {
-			return errors.Wrapf(err, "Dockerfile parse error line %d", n.StartLine)
-		}
-	}
-	return nil
-}
-
-func dispatchFromDockerfile(b *Builder, result *parser.Result, dispatchState *dispatchState) (*container.Config, error) {
-	shlex := NewShellLex(result.EscapeToken)
-	ast := result.AST
-	total := len(ast.Children)
-
-	for i, n := range ast.Children {
-		opts := dispatchOptions{
-			state:   dispatchState,
-			stepMsg: formatStep(i, total),
-			node:    n,
-			shlex:   shlex,
-		}
-		if _, err := b.dispatch(opts); err != nil {
+	for _, n := range dockerfile.AST.Children {
+		cmd, err := instructions.ParseCommand(n)
+		if err != nil {
+			if strings.Index(err.Error(), "unknown instruction:") == 0 {
+				buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
+			}
 			return nil, err
 		}
+		stage.AddCommand(cmd)
 	}
-	return dispatchState.runConfig, nil
+
+	parseState := []instructions.BuildableStage{
+		stage,
+	}
+	b.buildArgs.ResetAllowed()
+	res, err := b.dispatchDockerfileWithCancellation(parseState, nil, dockerfile.EscapeToken, nil)
+
+	if err != nil {
+		return nil, err
+	}
+	return res.runConfig, nil
 }
