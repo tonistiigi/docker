@@ -190,7 +190,7 @@ func convertMapToEnvs(m map[string]string) []string {
 	return result
 }
 func (b *Builder) dispatchDockerfileWithCancellation(parseResult instructions.BuildableStages, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
-	var dispatcher *dispatcher
+	var stageBuilder *stageBuilder
 
 	totalCommands := len(metaArgs)
 	currentCommandIndex := 0
@@ -214,7 +214,7 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult instructions.Bu
 	}
 
 	for _, stage := range parseResult {
-		dispatcher = newDispatcher(b, escapeToken, source)
+		stageBuilder = newStageBuilder(b, escapeToken, source)
 		for _, cmd := range stage.Commands {
 			select {
 			case <-b.clientCtx.Done():
@@ -230,21 +230,21 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult instructions.Bu
 			currentCommandIndex++
 			fmt.Fprintln(b.Stdout)
 
-			if err := dispatcher.dispatch(cmd); err != nil {
+			if err := stageBuilder.dispatch(cmd); err != nil {
 				return nil, err
 			}
 
-			dispatcher.updateRunConfig()
-			fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(dispatcher.state.imageID))
+			stageBuilder.updateRunConfig()
+			fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(stageBuilder.state.imageID))
 			if b.options.Remove {
 				b.clearTmp()
 			}
 		}
-		if err := emitImageID(b.Aux, dispatcher.state); err != nil {
+		if err := emitImageID(b.Aux, stageBuilder.state); err != nil {
 			return nil, err
 		}
 	}
-	return dispatcher.state, nil
+	return stageBuilder.state, nil
 }
 
 func addNodesForLabelOption(dockerfile *parser.Node, labels map[string]string) {

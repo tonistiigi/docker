@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/builder/dockerfile/instructions"
+	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/builder/remotecontext"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/reexec"
@@ -177,7 +177,7 @@ func executeTestCase(t *testing.T, testCase dispatchTestCase) {
 	}
 
 	n := result.AST.Children[0]
-	_, err = instructions.ParseCommand(n, buildsFailed)
+	_, err = instructions.ParseCommand(n)
 
 	if err != nil {
 		if !strings.Contains(err.Error(), testCase.expectedError) {

@@ -39,7 +39,7 @@ func formatStep(stepN int, stepTotal int) string {
 	return fmt.Sprintf("%d/%d", stepN+1, stepTotal)
 }
 
-func (d *dispatcher) dispatch(cmd interface{}) error {
+func (d *stageBuilder) dispatch(cmd interface{}) error {
 	if err := platformSupports(cmd); err != nil {
 		buildsFailed.WithValues(metricsCommandNotSupportedError).Inc()
 		return err
@@ -107,7 +107,7 @@ type dispatchState struct {
 	hasDispatchedFrom bool
 }
 
-type dispatcher struct {
+type stageBuilder struct {
 	state   *dispatchState
 	shlex   *ShellLex
 	builder *Builder
@@ -118,15 +118,15 @@ func newDispatchState() *dispatchState {
 	return &dispatchState{runConfig: &container.Config{}}
 }
 
-func newDispatcher(builder *Builder, escapeToken rune, source builder.Source) *dispatcher {
-	return &dispatcher{
+func newStageBuilder(builder *Builder, escapeToken rune, source builder.Source) *stageBuilder {
+	return &stageBuilder{
 		state:   newDispatchState(),
 		shlex:   NewShellLex(escapeToken),
 		builder: builder,
 		source:  source,
 	}
 }
-func (s *dispatcher) updateRunConfig() {
+func (s *stageBuilder) updateRunConfig() {
 	s.state.runConfig.Image = s.state.imageID
 }
 

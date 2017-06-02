@@ -47,7 +47,7 @@ func (c *baseCommand) writeDispatchMessage() {
 // Sets the environment variable foo to bar, also makes interpolation
 // in the dockerfile available from the next statement on via ${foo}.
 //
-func (d *dispatcher) dispatchEnv(c *instructions.EnvCommand) error {
+func (d *stageBuilder) dispatchEnv(c *instructions.EnvCommand) error {
 	runConfig := d.state.runConfig
 	commitMessage := bytes.NewBufferString("ENV")
 	for _, e := range c.Env {
@@ -75,7 +75,7 @@ func (d *dispatcher) dispatchEnv(c *instructions.EnvCommand) error {
 // MAINTAINER some text <maybe@an.email.address>
 //
 // Sets the maintainer metadata.
-func (d *dispatcher) dispatchMaintainer(c *instructions.MaintainerCommand) error {
+func (d *stageBuilder) dispatchMaintainer(c *instructions.MaintainerCommand) error {
 
 	d.state.maintainer = c.Maintainer
 	return d.builder.commit(d.state, "MAINTAINER "+c.Maintainer)
@@ -85,7 +85,7 @@ func (d *dispatcher) dispatchMaintainer(c *instructions.MaintainerCommand) error
 //
 // Sets the Label variable foo to bar,
 //
-func (d *dispatcher) dispatchLabel(c *instructions.LabelCommand) error {
+func (d *stageBuilder) dispatchLabel(c *instructions.LabelCommand) error {
 	if d.state.runConfig.Labels == nil {
 		d.state.runConfig.Labels = make(map[string]string)
 	}
@@ -102,7 +102,7 @@ func (d *dispatcher) dispatchLabel(c *instructions.LabelCommand) error {
 // Add the file 'foo' to '/path'. Tarball and Remote URL (git, http) handling
 // exist here. If you do not wish to have this automatic handling, use COPY.
 //
-func (d *dispatcher) dispatchAdd(c *instructions.AddCommand) error {
+func (d *stageBuilder) dispatchAdd(c *instructions.AddCommand) error {
 	downloader := newRemoteSourceDownloader(d.builder.Output, d.builder.Stdout)
 	copier := newCopier(d.source, d.builder.pathCache, downloader, nil)
 	defer copier.Cleanup()
@@ -120,7 +120,7 @@ func (d *dispatcher) dispatchAdd(c *instructions.AddCommand) error {
 //
 // Same as 'ADD' but without the tar and remote url handling.
 //
-func (d *dispatcher) dispatchCopy(c *instructions.CopyCommand) error {
+func (d *stageBuilder) dispatchCopy(c *instructions.CopyCommand) error {
 	var im *imageMount
 	var err error
 	if c.From != "" {
@@ -157,7 +157,7 @@ func (b *Builder) getImageMount(imageRefOrID string) (*imageMount, error) {
 
 // FROM imagename[:tag | @digest] [AS build-stage-name]
 //
-func (d *dispatcher) dispatchFrom(cmd *instructions.FromCommand) error {
+func (d *stageBuilder) dispatchFrom(cmd *instructions.FromCommand) error {
 	d.builder.resetImageCache()
 	image, err := d.builder.getFromImage(d.shlex, cmd.BaseName)
 	if err != nil {
@@ -285,7 +285,7 @@ func (b *Builder) getFromImage(shlex *ShellLex, name string) (builder.Image, err
 // special cases. search for 'OnBuild' in internals.go for additional special
 // cases.
 //
-func (d *dispatcher) dispatchOnbuild(c *instructions.OnbuildCommand) error {
+func (d *stageBuilder) dispatchOnbuild(c *instructions.OnbuildCommand) error {
 
 	d.state.runConfig.OnBuild = append(d.state.runConfig.OnBuild, c.Expression)
 	return d.builder.commit(d.state, "ONBUILD "+c.Expression)
@@ -295,7 +295,7 @@ func (d *dispatcher) dispatchOnbuild(c *instructions.OnbuildCommand) error {
 //
 // Set the working directory for future RUN/CMD/etc statements.
 //
-func (d *dispatcher) dispatchWorkdir(c *instructions.WorkdirCommand) error {
+func (d *stageBuilder) dispatchWorkdir(c *instructions.WorkdirCommand) error {
 	runConfig := d.state.runConfig
 	var err error
 	runConfig.WorkingDir, err = normaliseWorkdir(runConfig.WorkingDir, c.Path)
@@ -345,7 +345,7 @@ func (d *dispatcher) dispatchWorkdir(c *instructions.WorkdirCommand) error {
 // RUN echo hi          # cmd /S /C echo hi   (Windows)
 // RUN [ "echo", "hi" ] # echo hi
 //
-func (d *dispatcher) dispatchRun(c *instructions.RunCommand) error {
+func (d *stageBuilder) dispatchRun(c *instructions.RunCommand) error {
 
 	stateRunConfig := d.state.runConfig
 	cmdFromArgs := c.Expression
@@ -417,7 +417,7 @@ func prependEnvOnCmd(buildArgs *buildArgs, buildArgVars []string, cmd strslice.S
 // Set the default command to run in the container (which may be empty).
 // Argument handling is the same as RUN.
 //
-func (d *dispatcher) dispatchCmd(c *instructions.CmdCommand) error {
+func (d *stageBuilder) dispatchCmd(c *instructions.CmdCommand) error {
 	runConfig := d.state.runConfig
 	cmd := c.Cmd
 	if c.PrependShell {
@@ -443,7 +443,7 @@ func (d *dispatcher) dispatchCmd(c *instructions.CmdCommand) error {
 // Set the default healthcheck command to run in the container (which may be empty).
 // Argument handling is the same as RUN.
 //
-func (d *dispatcher) dispatchHealthcheck(c *instructions.HealthCheckCommand) error {
+func (d *stageBuilder) dispatchHealthcheck(c *instructions.HealthCheckCommand) error {
 	runConfig := d.state.runConfig
 	if runConfig.Healthcheck != nil {
 		oldCmd := runConfig.Healthcheck.Test
@@ -463,7 +463,7 @@ func (d *dispatcher) dispatchHealthcheck(c *instructions.HealthCheckCommand) err
 // Handles command processing similar to CMD and RUN, only req.runConfig.Entrypoint
 // is initialized at newBuilder time instead of through argument parsing.
 //
-func (d *dispatcher) dispatchEntrypoint(c *instructions.EntrypointCommand) error {
+func (d *stageBuilder) dispatchEntrypoint(c *instructions.EntrypointCommand) error {
 	runConfig := d.state.runConfig
 	cmd := c.Cmd
 	if cmd != nil {
@@ -484,7 +484,7 @@ func (d *dispatcher) dispatchEntrypoint(c *instructions.EntrypointCommand) error
 // Expose ports for links and port mappings. This all ends up in
 // req.runConfig.ExposedPorts for runconfig.
 //
-func (d *dispatcher) dispatchExpose(c *instructions.ExposeCommand, envs []string) error {
+func (d *stageBuilder) dispatchExpose(c *instructions.ExposeCommand, envs []string) error {
 	// custom multi word expansion
 	ports := []string{}
 	for _, p := range c.Ports {
@@ -511,7 +511,7 @@ func (d *dispatcher) dispatchExpose(c *instructions.ExposeCommand, envs []string
 // Set the user to 'foo' for future commands and when running the
 // ENTRYPOINT/CMD at container run time.
 //
-func (d *dispatcher) dispatchUser(c *instructions.UserCommand) error {
+func (d *stageBuilder) dispatchUser(c *instructions.UserCommand) error {
 	d.state.runConfig.User = c.User
 	return d.builder.commit(d.state, fmt.Sprintf("USER %v", c.User))
 }
@@ -520,7 +520,7 @@ func (d *dispatcher) dispatchUser(c *instructions.UserCommand) error {
 //
 // Expose the volume /foo for use. Will also accept the JSON array form.
 //
-func (d *dispatcher) dispatchVolume(c *instructions.VolumeCommand) error {
+func (d *stageBuilder) dispatchVolume(c *instructions.VolumeCommand) error {
 	if d.state.runConfig.Volumes == nil {
 		d.state.runConfig.Volumes = map[string]struct{}{}
 	}
@@ -533,7 +533,7 @@ func (d *dispatcher) dispatchVolume(c *instructions.VolumeCommand) error {
 // STOPSIGNAL signal
 //
 // Set the signal that will be used to kill the container.
-func (d *dispatcher) dispatchStopSignal(c *instructions.StopSignalCommand) error {
+func (d *stageBuilder) dispatchStopSignal(c *instructions.StopSignalCommand) error {
 
 	_, err := signal.ParseSignal(c.Signal)
 	if err != nil {
@@ -548,7 +548,7 @@ func (d *dispatcher) dispatchStopSignal(c *instructions.StopSignalCommand) error
 // Adds the variable foo to the trusted list of variables that can be passed
 // to builder using the --build-arg flag for expansion/substitution or passing to 'run'.
 // Dockerfile author may optionally set a default value of this variable.
-func (d *dispatcher) dispatchArg(c *instructions.ArgCommand) error {
+func (d *stageBuilder) dispatchArg(c *instructions.ArgCommand) error {
 
 	commitStr := "ARG " + c.Name
 	if c.Value != nil {
@@ -562,12 +562,12 @@ func (d *dispatcher) dispatchArg(c *instructions.ArgCommand) error {
 // SHELL powershell -command
 //
 // Set the non-default shell to use.
-func (d *dispatcher) dispatchShell(c *instructions.ShellCommand) error {
+func (d *stageBuilder) dispatchShell(c *instructions.ShellCommand) error {
 	d.state.runConfig.Shell = c.Shell
 	return d.builder.commit(d.state, fmt.Sprintf("SHELL %v", d.state.runConfig.Shell))
 }
 
-func (d *dispatcher) dispatchResumeBuild(c *instructions.ResumeBuildCommand) error {
+func (d *stageBuilder) dispatchResumeBuild(c *instructions.ResumeBuildCommand) error {
 	d.state.runConfig = c.BaseConfig
 	d.state.imageID = c.BaseConfig.Image
 	return nil
