@@ -46,11 +46,7 @@ func (d *dispatcher) dispatch(cmd interface{}) error {
 	}
 	runConfigEnv := d.state.runConfig.Env
 	envs := append(runConfigEnv, d.builder.buildArgs.FilterAllowed(runConfigEnv)...)
-	if ex, ok := cmd.(instructions.SupportsMultiWordExpansion); ok {
-		ex.Expand(func(word string) ([]string, error) {
-			return d.shlex.ProcessWords(word, envs)
-		})
-	}
+
 	if ex, ok := cmd.(instructions.SupportsSingleWordExpansion); ok {
 		ex.Expand(func(word string) (string, error) {
 			return d.shlex.ProcessWord(word, envs)
@@ -83,7 +79,7 @@ func (d *dispatcher) dispatch(cmd interface{}) error {
 	case *instructions.EntrypointCommand:
 		return d.dispatchEntrypoint(c)
 	case *instructions.ExposeCommand:
-		return d.dispatchExpose(c)
+		return d.dispatchExpose(c, envs)
 	case *instructions.UserCommand:
 		return d.dispatchUser(c)
 	case *instructions.VolumeCommand:

@@ -37,14 +37,8 @@ func newBaseCommand(req parseRequest) BaseCommand {
 // SingleWordExpander is a provider for variable expansion where 1 word => 1 output
 type SingleWordExpander func(word string) (string, error)
 
-// MultiWordExpander is a provider for variable expansion where 1 word => n output
-type MultiWordExpander func(word string) ([]string, error)
-
 type SupportsSingleWordExpansion interface {
 	Expand(expander SingleWordExpander) error
-}
-type SupportsMultiWordExpansion interface {
-	Expand(expander MultiWordExpander) error
 }
 
 func expandKvp(kvp KeyValuePair, expander SingleWordExpander) (KeyValuePair, error) {
@@ -164,15 +158,6 @@ type WorkdirCommand struct {
 	Path string
 }
 
-func (c *WorkdirCommand) Expand(expander SingleWordExpander) error {
-	p, err := expander(c.Path)
-	if err != nil {
-		return err
-	}
-	c.Path = p
-	return nil
-}
-
 type RunCommand struct {
 	BaseCommand
 	Expression   strslice.StrSlice
@@ -199,19 +184,6 @@ type EntrypointCommand struct {
 type ExposeCommand struct {
 	BaseCommand
 	Ports []string
-}
-
-func (c *ExposeCommand) Expand(expander MultiWordExpander) error {
-	result := []string{}
-	for _, v := range c.Ports {
-		ps, err := expander(v)
-		if err != nil {
-			return err
-		}
-		result = append(result, ps...)
-	}
-	c.Ports = result
-	return nil
 }
 
 type UserCommand struct {

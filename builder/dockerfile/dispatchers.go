@@ -484,7 +484,18 @@ func (d *dispatcher) dispatchEntrypoint(c *instructions.EntrypointCommand) error
 // Expose ports for links and port mappings. This all ends up in
 // req.runConfig.ExposedPorts for runconfig.
 //
-func (d *dispatcher) dispatchExpose(c *instructions.ExposeCommand) error {
+func (d *dispatcher) dispatchExpose(c *instructions.ExposeCommand, envs []string) error {
+	// custom multi word expansion
+	ports := []string{}
+	for _, p := range c.Ports {
+		ps, err := d.shlex.ProcessWords(p, envs)
+		if err != nil {
+			return err
+		}
+		ports = append(ports, ps...)
+	}
+	c.Ports = ports
+
 	if d.state.runConfig.ExposedPorts == nil {
 		d.state.runConfig.ExposedPorts = make(nat.PortSet)
 	}
