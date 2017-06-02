@@ -147,8 +147,11 @@ func (b *Builder) build(source builder.Source, dockerfile *parser.Result) (*buil
 
 	addNodesForLabelOption(dockerfile.AST, b.options.Labels)
 
-	stages, metaArgs, err := instructions.Parse(dockerfile.AST, b.options.Target, buildsFailed)
+	stages, metaArgs, err := instructions.Parse(dockerfile.AST, b.options.Target)
 	if err != nil {
+		if strings.Index(err.Error(), "unknown instruction:") == 0 {
+			buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
+		}
 		return nil, err
 	}
 
@@ -279,8 +282,11 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	}
 
 	for _, n := range dockerfile.AST.Children {
-		cmd, err := instructions.ParseCommand(n, buildsFailed)
+		cmd, err := instructions.ParseCommand(n)
 		if err != nil {
+			if strings.Index(err.Error(), "unknown instruction:") == 0 {
+				buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
+			}
 			return nil, err
 		}
 		stage.AddCommand(cmd)

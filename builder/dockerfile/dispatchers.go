@@ -20,8 +20,8 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/builder"
-	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/builder/dockerfile/instructions"
+	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/pkg/signal"
 	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
@@ -181,8 +181,11 @@ func (d *dispatcher) dispatchFrom(cmd *instructions.FromCommand) error {
 			if len(ast.AST.Children) != 1 {
 				return errors.New("onbuild trigger should be a single expression")
 			}
-			cmd, err := instructions.ParseCommand(ast.AST.Children[0], buildsFailed)
+			cmd, err := instructions.ParseCommand(ast.AST.Children[0])
 			if err != nil {
+				if strings.Index(err.Error(), "unknown instruction:") == 0 {
+					buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
+				}
 				return err
 			}
 			err = d.dispatch(cmd)

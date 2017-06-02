@@ -13,12 +13,7 @@ import (
 	"github.com/docker/docker/builder/dockerfile/command"
 	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/go-connections/nat"
-	metrics "github.com/docker/go-metrics"
 	"github.com/pkg/errors"
-)
-
-const (
-	metricsUnknownInstructionError = "unknown_instruction_error"
 )
 
 type parseRequest struct {
@@ -46,56 +41,56 @@ func newParseRequestFromNode(node *parser.Node) parseRequest {
 	}
 }
 
-func ParseCommand(node *parser.Node, buildsFailed metrics.LabeledCounter) (interface{}, error) {
+func ParseCommand(node *parser.Node) (interface{}, error) {
+	req := newParseRequestFromNode(node)
 	switch node.Value {
 	case command.Env:
-		return parseEnv(newParseRequestFromNode(node))
+		return parseEnv(req)
 	case command.Maintainer:
-		return parseMaintainer(newParseRequestFromNode(node))
+		return parseMaintainer(req)
 	case command.Label:
-		return parseLabel(newParseRequestFromNode(node))
+		return parseLabel(req)
 	case command.Add:
-		return parseAdd(newParseRequestFromNode(node))
+		return parseAdd(req)
 	case command.Copy:
-		return parseCopy(newParseRequestFromNode(node))
+		return parseCopy(req)
 	case command.From:
-		return parseFrom(newParseRequestFromNode(node))
+		return parseFrom(req)
 	case command.Onbuild:
-		return parseOnbuild(newParseRequestFromNode(node))
+		return parseOnbuild(req)
 	case command.Workdir:
-		return parseWorkdir(newParseRequestFromNode(node))
+		return parseWorkdir(req)
 	case command.Run:
-		return parseRun(newParseRequestFromNode(node))
+		return parseRun(req)
 	case command.Cmd:
-		return parseCmd(newParseRequestFromNode(node))
+		return parseCmd(req)
 	case command.Healthcheck:
-		return parseHealthcheck(newParseRequestFromNode(node))
+		return parseHealthcheck(req)
 	case command.Entrypoint:
-		return parseEntrypoint(newParseRequestFromNode(node))
+		return parseEntrypoint(req)
 	case command.Expose:
-		return parseExpose(newParseRequestFromNode(node))
+		return parseExpose(req)
 	case command.User:
-		return parseUser(newParseRequestFromNode(node))
+		return parseUser(req)
 	case command.Volume:
-		return parseVolume(newParseRequestFromNode(node))
+		return parseVolume(req)
 	case command.StopSignal:
-		return parseStopSignal(newParseRequestFromNode(node))
+		return parseStopSignal(req)
 	case command.Arg:
-		return parseArg(newParseRequestFromNode(node))
+		return parseArg(req)
 	case command.Shell:
-		return parseShell(newParseRequestFromNode(node))
+		return parseShell(req)
 	}
 
-	buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
 	return nil, fmt.Errorf("unknown instruction: %s", strings.ToUpper(node.Value))
 }
 
-func Parse(ast *parser.Node, targetStage string, buildsFailed metrics.LabeledCounter) (stages BuildableStages, metaArgs []ArgCommand, err error) {
+func Parse(ast *parser.Node, targetStage string) (stages BuildableStages, metaArgs []ArgCommand, err error) {
 	for _, n := range ast.Children {
 		if n.Value == command.From && stages.IsCurrentStage(targetStage) {
 			break
 		}
-		cmd, err := ParseCommand(n, buildsFailed)
+		cmd, err := ParseCommand(n)
 		if err != nil {
 			return nil, nil, err
 		}
