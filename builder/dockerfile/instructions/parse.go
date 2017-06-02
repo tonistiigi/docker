@@ -57,7 +57,7 @@ func ParseCommand(node *parser.Node) (interface{}, error) {
 	case command.From:
 		return parseFrom(req)
 	case command.Onbuild:
-		return parseOnbuild(req)
+		return parseOnBuild(req)
 	case command.Workdir:
 		return parseWorkdir(req)
 	case command.Run:
@@ -262,7 +262,7 @@ func parseBuildStageName(args []string) (string, error) {
 	return stageName, nil
 }
 
-func parseOnbuild(req parseRequest) (*OnbuildCommand, error) {
+func parseOnBuild(req parseRequest) (*OnbuildCommand, error) {
 	if len(req.args) == 0 {
 		return nil, errAtLeastOneArgument("ONBUILD")
 	}
@@ -610,21 +610,21 @@ func parseShell(req parseRequest) (*ShellCommand, error) {
 }
 
 func errAtLeastOneArgument(command string) error {
-	return fmt.Errorf("%s requires at least one argument", command)
+	return errors.Errorf("%s requires at least one argument", command)
 }
 
 func errExactlyOneArgument(command string) error {
-	return fmt.Errorf("%s requires exactly one argument", command)
+	return errors.Errorf("%s requires exactly one argument", command)
 }
 
 func errAtLeastTwoArguments(command string) error {
-	return fmt.Errorf("%s requires at least two arguments", command)
+	return errors.Errorf("%s requires at least two arguments", command)
 }
 
 func errBlankCommandNames(command string) error {
-	return fmt.Errorf("%s names can not be blank", command)
+	return errors.Errorf("%s names can not be blank", command)
 }
 
 func errTooManyArguments(command string) error {
-	return fmt.Errorf("Bad input to %s, too many arguments", command)
+	return errors.Errorf("Bad input to %s, too many arguments", command)
 }
