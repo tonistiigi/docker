@@ -28,8 +28,8 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder"
-	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/builder/dockerfile/instructions"
+	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig/opts"
 	"github.com/pkg/errors"
@@ -161,6 +161,8 @@ func (s *dispatchState) beginStage(stageName string, image builder.Image) {
 	}
 	s.baseImage = image
 	s.setDefaultPath()
+	s.runConfig.OpenStdin = false
+	s.runConfig.StdinOnce = false
 }
 
 // Add the default PATH to runConfig.ENV if one exists for the platform and there

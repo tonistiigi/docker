@@ -168,8 +168,7 @@ func (d *dispatcher) dispatchFrom(cmd *instructions.FromCommand) error {
 	}
 	state := d.state
 	state.beginStage(cmd.StageName, image)
-	state.runConfig.OpenStdin = false
-	state.runConfig.StdinOnce = false
+
 	if state.runConfig.OnBuild != nil {
 		triggers := state.runConfig.OnBuild
 		state.runConfig.OnBuild = nil
