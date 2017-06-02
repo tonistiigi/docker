@@ -182,25 +182,40 @@ func emitImageID(aux *streamformatter.AuxFormatter, state *dispatchState) error 
 	}
 	return aux.Emit(types.BuildResult{ID: state.imageID})
 }
+func convertMapToEnvs(m map[string]string) []string {
+	result := []string{}
+	for k, v := range m {
+		result = append(result, k+"="+v)
+	}
+	return result
+}
 func (b *Builder) dispatchDockerfileWithCancellation(parseResult instructions.BuildableStages, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
 	var dispatcher *dispatcher
 
 	totalCommands := len(metaArgs)
+	currentCommandIndex := 0
 	for _, stage := range parseResult {
 		totalCommands += len(stage.Commands)
 	}
-
-	// metaargs dispatcher
-	dispatcher = newDispatcher(b, escapeToken, source)
 	for _, meta := range metaArgs {
-		if err := dispatcher.dispatch(&meta); err != nil {
+		shlex := NewShellLex(escapeToken)
+		envs := convertMapToEnvs(b.buildArgs.GetAllAllowed())
+		if err := meta.Expand(func(word string) (string, error) {
+			return shlex.ProcessWord(word, envs)
+		}); err != nil {
 			return nil, err
 		}
+		b.buildArgs.AddArg(meta.Name, meta.Value)
+		b.buildArgs.AddMetaArg(meta.Name, meta.Value)
+
+		fmt.Fprintf(b.Stdout, "%v / %v %v", currentCommandIndex, totalCommands, &meta)
+		currentCommandIndex++
+		fmt.Fprintln(b.Stdout)
 	}
 
 	for _, stage := range parseResult {
 		dispatcher = newDispatcher(b, escapeToken, source)
-		for i, cmd := range stage.Commands {
+		for _, cmd := range stage.Commands {
 			select {
 			case <-b.clientCtx.Done():
 				logrus.Debug("Builder: build cancelled!")
@@ -211,7 +226,8 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult instructions.Bu
 				// Not cancelled yet, keep going...
 			}
 
-			fmt.Fprintf(b.Stdout, "%v / %v %v", i+1, totalCommands, cmd)
+			fmt.Fprintf(b.Stdout, "%v / %v %v", currentCommandIndex, totalCommands, cmd)
+			currentCommandIndex++
 			fmt.Fprintln(b.Stdout)
 
 			if err := dispatcher.dispatch(cmd); err != nil {

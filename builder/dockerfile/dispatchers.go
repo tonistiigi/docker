@@ -548,7 +548,7 @@ func (d *dispatcher) dispatchStopSignal(c *instructions.StopSignalCommand) error
 // Adds the variable foo to the trusted list of variables that can be passed
 // to builder using the --build-arg flag for expansion/substitution or passing to 'run'.
 // Dockerfile author may optionally set a default value of this variable.
-func (d *dispatcher) dispatchInStageArg(c *instructions.ArgCommand) error {
+func (d *dispatcher) dispatchArg(c *instructions.ArgCommand) error {
 
 	commitStr := "ARG " + c.Name
 	if c.Value != nil {
@@ -557,13 +557,6 @@ func (d *dispatcher) dispatchInStageArg(c *instructions.ArgCommand) error {
 
 	d.builder.buildArgs.AddArg(c.Name, c.Value)
 	return d.builder.commit(d.state, commitStr)
-}
-
-func (d *dispatcher) dispatchMetaArg(c *instructions.ArgCommand) error {
-
-	d.builder.buildArgs.AddArg(c.Name, c.Value)
-	d.builder.buildArgs.AddMetaArg(c.Name, c.Value)
-	return nil
 }
 
 // SHELL powershell -command

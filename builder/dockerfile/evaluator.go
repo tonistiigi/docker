@@ -87,11 +87,7 @@ func (d *dispatcher) dispatch(cmd interface{}) error {
 	case *instructions.StopSignalCommand:
 		return d.dispatchStopSignal(c)
 	case *instructions.ArgCommand:
-		if d.state.hasDispatchedFrom {
-			return d.dispatchInStageArg(c)
-		} else {
-			return d.dispatchMetaArg(c)
-		}
+		return d.dispatchArg(c)
 	case *instructions.ShellCommand:
 		return d.dispatchShell(c)
 	case *instructions.ResumeBuildCommand:
