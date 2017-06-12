@@ -40,13 +40,13 @@ func formatStep(stepN int, stepTotal int) string {
 	return fmt.Sprintf("%d/%d", stepN+1, stepTotal)
 }
 
-func (d *stageBuilder) dispatch(cmd interface{}) error {
+func dispatch(d *stageBuild, cmd interface{}) error {
 	if err := platformSupports(cmd); err != nil {
 		buildsFailed.WithValues(metricsCommandNotSupportedError).Inc()
 		return validationError{err}
 	}
 	runConfigEnv := d.state.runConfig.Env
-	envs := append(runConfigEnv, d.builder.buildArgs.FilterAllowed(runConfigEnv)...)
+	envs := append(runConfigEnv, d.state.buildArgs.FilterAllowed(runConfigEnv)...)
 
 	if ex, ok := cmd.(instructions.SupportsSingleWordExpansion); ok {
 		err := ex.Expand(func(word string) (string, error) {
@@ -63,79 +63,81 @@ func (d *stageBuilder) dispatch(cmd interface{}) error {
 
 	switch c := cmd.(type) {
 	case *instructions.FromCommand:
-		return d.dispatchFrom(c)
+		return dispatchFrom(d, c)
 	case *instructions.EnvCommand:
-		return d.dispatchEnv(c)
+		return dispatchEnv(d, c)
 	case *instructions.MaintainerCommand:
-		return d.dispatchMaintainer(c)
+		return dispatchMaintainer(d, c)
 	case *instructions.LabelCommand:
-		return d.dispatchLabel(c)
+		return dispatchLabel(d, c)
 	case *instructions.AddCommand:
-		return d.dispatchAdd(c)
+		return dispatchAdd(d, c)
 	case *instructions.CopyCommand:
-		return d.dispatchCopy(c)
+		return dispatchCopy(d, c)
 	case *instructions.OnbuildCommand:
-		return d.dispatchOnbuild(c)
+		return dispatchOnbuild(d, c)
 	case *instructions.WorkdirCommand:
-		return d.dispatchWorkdir(c)
+		return dispatchWorkdir(d, c)
 	case *instructions.RunCommand:
-		return d.dispatchRun(c)
+		return dispatchRun(d, c)
 	case *instructions.CmdCommand:
-		return d.dispatchCmd(c)
+		return dispatchCmd(d, c)
 	case *instructions.HealthCheckCommand:
-		return d.dispatchHealthcheck(c)
+		return dispatchHealthcheck(d, c)
 	case *instructions.EntrypointCommand:
-		return d.dispatchEntrypoint(c)
+		return dispatchEntrypoint(d, c)
 	case *instructions.ExposeCommand:
-		return d.dispatchExpose(c, envs)
+		return dispatchExpose(d, c, envs)
 	case *instructions.UserCommand:
-		return d.dispatchUser(c)
+		return dispatchUser(d, c)
 	case *instructions.VolumeCommand:
-		return d.dispatchVolume(c)
+		return dispatchVolume(d, c)
 	case *instructions.StopSignalCommand:
-		return d.dispatchStopSignal(c)
+		return dispatchStopSignal(d, c)
 	case *instructions.ArgCommand:
-		return d.dispatchArg(c)
+		return dispatchArg(d, c)
 	case *instructions.ShellCommand:
-		return d.dispatchShell(c)
+		return dispatchShell(d, c)
 	case *instructions.ResumeBuildCommand:
-		return d.dispatchResumeBuild(c)
+		return dispatchResumeBuild(d, c)
 	}
 	return validationError{errors.Errorf("unsupported command type: %v", reflect.TypeOf(cmd))}
 }
 
 // dispatchState is a data object which is modified by dispatchers
 type dispatchState struct {
-	runConfig         *container.Config
-	maintainer        string
-	cmdSet            bool
-	imageID           string
-	baseImage         builder.Image
-	stageName         string
-	hasDispatchedFrom bool
+	runConfig  *container.Config
+	maintainer string
+	cmdSet     bool
+	imageID    string
+	baseImage  builder.Image
+	stageName  string
+	buildArgs  *buildArgs
 }
 
-type stageBuilder struct {
+type stageBuild struct {
 	state   *dispatchState
 	shlex   *ShellLex
 	builder *Builder
 	source  builder.Source
 }
 
-func newDispatchState() *dispatchState {
-	return &dispatchState{runConfig: &container.Config{}}
+func newDispatchState(baseArgs *buildArgs) *dispatchState {
+	args := baseArgs.Clone()
+	args.ResetAllowed()
+	return &dispatchState{runConfig: &container.Config{}, buildArgs: args}
 }
 
-func newStageBuilder(builder *Builder, escapeToken rune, source builder.Source) *stageBuilder {
-	return &stageBuilder{
-		state:   newDispatchState(),
+func newStageBuild(builder *Builder, escapeToken rune, source builder.Source, buildArgs *buildArgs) *stageBuild {
+	return &stageBuild{
+		state:   newDispatchState(buildArgs),
 		shlex:   NewShellLex(escapeToken),
 		builder: builder,
 		source:  source,
 	}
 }
-func (d *stageBuilder) updateRunConfig() {
-	d.state.runConfig.Image = d.state.imageID
+func (s *dispatchState) updateRunConfig() {
+	s.runConfig.Image = s.imageID
 }
 
 // hasFromImage returns true if the builder has processed a `FROM <image>` line

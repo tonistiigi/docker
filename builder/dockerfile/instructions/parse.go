@@ -154,32 +154,38 @@ func Parse(ast *parser.Node) (stages []BuildableStage, metaArgs []ArgCommand, er
 	return stages, metaArgs, nil
 }
 
-func parseEnv(req parseRequest) (*EnvCommand, error) {
-	// this one has side effect on parsing. So it is evaluated early
-	if len(req.args) == 0 {
-		return nil, errAtLeastOneArgument("ENV")
+func parseKvps(args []string, cmdName string) (KeyValuePairs, error) {
+	if len(args) == 0 {
+		return nil, errAtLeastOneArgument(cmdName)
 	}
-
-	if len(req.args)%2 != 0 {
+	if len(args)%2 != 0 {
 		// should never get here, but just in case
-		return nil, errTooManyArguments("ENV")
+		return nil, errTooManyArguments(cmdName)
 	}
+	var res KeyValuePairs
+	for j := 0; j < len(args); j += 2 {
+		if len(args[j]) == 0 {
+			return nil, errBlankCommandNames(cmdName)
+		}
+		name := args[j]
+		value := args[j+1]
+		res = append(res, KeyValuePair{Key: name, Value: value})
+	}
+	return res, nil
+}
+
+func parseEnv(req parseRequest) (*EnvCommand, error) {
 
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}
-	var envs KeyValuePairs
-	for j := 0; j < len(req.args); j += 2 {
-		if len(req.args[j]) == 0 {
-			return nil, errBlankCommandNames("ENV")
-		}
-		name := req.args[j]
-		value := req.args[j+1]
-		envs = append(envs, KeyValuePair{Key: name, Value: value})
+	envs, err := parseKvps(req.args, "ENV")
+	if err != nil {
+		return nil, err
 	}
 	return &EnvCommand{
-		Env:         envs,
-		BaseCommand: newBaseCommand(req),
+		Env:             envs,
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
 }
 
@@ -192,40 +198,30 @@ func parseMaintainer(req parseRequest) (*MaintainerCommand, error) {
 		return nil, err
 	}
 	return &MaintainerCommand{
-		Maintainer:  req.args[0],
-		BaseCommand: newBaseCommand(req),
+		Maintainer:      req.args[0],
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
 }
 
 func parseLabel(req parseRequest) (*LabelCommand, error) {
-	if len(req.args) == 0 {
-		return nil, errAtLeastOneArgument("LABEL")
-	}
-	if len(req.args)%2 != 0 {
-		// should never get here, but just in case
-		return nil, errTooManyArguments("LABEL")
-	}
 
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}
 
-	labels := KeyValuePairs{}
-
-	for j := 0; j < len(req.args); j += 2 {
-		name := req.args[j]
-		if name == "" {
-			return nil, errBlankCommandNames("LABEL")
-		}
-
-		value := req.args[j+1]
-
-		labels = append(labels, KeyValuePair{Key: name, Value: value})
+	labels, err := parseKvps(req.args, "LABEL")
+	if err != nil {
+		return nil, err
 	}
+
 	return &LabelCommand{
-		Labels:      labels,
-		BaseCommand: newBaseCommand(req),
+		Labels:          labels,
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
+}
+
+func splitSrcsAndDest(args []string) ([]string, string) {
+	return args[:len(args)-1], args[len(args)-1]
 }
 
 func parseAdd(req parseRequest) (*AddCommand, error) {
@@ -236,11 +232,11 @@ func parseAdd(req parseRequest) (*AddCommand, error) {
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}
-
+	srcs, dest := splitSrcsAndDest(req.args)
 	return &AddCommand{
-		Srcs:        req.args[:len(req.args)-1],
-		Dest:        req.args[len(req.args)-1],
-		BaseCommand: newBaseCommand(req),
+		Srcs:            srcs,
+		Dest:            dest,
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
 }
 
@@ -253,16 +249,16 @@ func parseCopy(req parseRequest) (*CopyCommand, error) {
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}
+	srcs, dest := splitSrcsAndDest(req.args)
 	return &CopyCommand{
-		Srcs:        req.args[:len(req.args)-1],
-		Dest:        req.args[len(req.args)-1],
-		From:        flFrom.Value,
-		BaseCommand: newBaseCommand(req),
+		Srcs:            srcs,
+		Dest:            dest,
+		From:            flFrom.Value,
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
 }
 
 func parseFrom(req parseRequest) (*FromCommand, error) {
-	// HELP HERE <- do we need to validate stageName at dispatch time (do we authorize env / buildArgs in here?)
 	stageName, err := parseBuildStageName(req.args)
 	if err != nil {
 		return nil, err
@@ -273,13 +269,10 @@ func parseFrom(req parseRequest) (*FromCommand, error) {
 	}
 
 	return &FromCommand{
-		BaseName:    req.args[0],
-		StageName:   stageName,
-		BaseCommand: newBaseCommand(req),
+		BaseName:        req.args[0],
+		StageName:       stageName,
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
-
-	//TODO
-	//req.buildArgs.ResetAllowed()
 
 }
 
@@ -316,8 +309,8 @@ func parseOnBuild(req parseRequest) (*OnbuildCommand, error) {
 
 	original := regexp.MustCompile(`(?i)^\s*ONBUILD\s*`).ReplaceAllString(req.original, "")
 	return &OnbuildCommand{
-		Expression:  original,
-		BaseCommand: newBaseCommand(req),
+		Expression:      original,
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
 
 }
@@ -332,10 +325,21 @@ func parseWorkdir(req parseRequest) (*WorkdirCommand, error) {
 		return nil, err
 	}
 	return &WorkdirCommand{
-		Path:        req.args[0],
-		BaseCommand: newBaseCommand(req),
+		Path:            req.args[0],
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
 
+}
+
+func parseShellDependentCommand(req parseRequest) (cmd strslice.StrSlice, prependShell bool) {
+	args := handleJSONArgs(req.args, req.attributes)
+	if !req.attributes["json"] {
+		prependShell = true
+	}
+	if len(args) > 0 {
+		cmd = strslice.StrSlice(args)
+	}
+	return
 }
 
 func parseRun(req parseRequest) (*RunCommand, error) {
@@ -343,17 +347,11 @@ func parseRun(req parseRequest) (*RunCommand, error) {
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}
-	prependShell := false
-	args := handleJSONArgs(req.args, req.attributes)
-	if !req.attributes["json"] {
-		prependShell = true
-	}
-	cmdFromArgs := strslice.StrSlice(args)
-
+	cmd, prependShell := parseShellDependentCommand(req)
 	return &RunCommand{
-		Expression:   cmdFromArgs,
-		PrependShell: prependShell,
-		BaseCommand:  newBaseCommand(req),
+		Expression:      cmd,
+		PrependShell:    prependShell,
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
 
 }
@@ -362,18 +360,31 @@ func parseCmd(req parseRequest) (*CmdCommand, error) {
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}
-	prependShell := false
-	cmdSlice := handleJSONArgs(req.args, req.attributes)
-	if !req.attributes["json"] {
-		prependShell = true
-	}
-
+	cmd, prependShell := parseShellDependentCommand(req)
 	return &CmdCommand{
-		Cmd:          strslice.StrSlice(cmdSlice),
-		PrependShell: prependShell,
-		BaseCommand:  newBaseCommand(req),
+		Cmd:             cmd,
+		PrependShell:    prependShell,
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
 
+}
+
+func parseEntrypoint(req parseRequest) (*EntrypointCommand, error) {
+	if err := req.flags.Parse(); err != nil {
+		return nil, err
+	}
+
+	cmd := &EntrypointCommand{
+		WithNameAndCode: newWithNameAndCode(req),
+	}
+
+	c, prependShell := parseShellDependentCommand(req)
+	if c != nil {
+		cmd.Cmd = c
+		cmd.PrependShell = prependShell
+	}
+
+	return cmd, nil
 }
 
 // parseOptInterval(flag) is the duration of flag.Value, or 0 if
@@ -397,7 +408,7 @@ func parseHealthcheck(req parseRequest) (*HealthCheckCommand, error) {
 		return nil, errAtLeastOneArgument("HEALTHCHECK")
 	}
 	cmd := &HealthCheckCommand{
-		BaseCommand: newBaseCommand(req),
+		WithNameAndCode: newWithNameAndCode(req),
 	}
 
 	typ := strings.ToUpper(req.args[0])
@@ -475,27 +486,6 @@ func parseHealthcheck(req parseRequest) (*HealthCheckCommand, error) {
 	return cmd, nil
 }
 
-func parseEntrypoint(req parseRequest) (*EntrypointCommand, error) {
-	if err := req.flags.Parse(); err != nil {
-		return nil, err
-	}
-
-	cmd := &EntrypointCommand{
-		BaseCommand: newBaseCommand(req),
-	}
-
-	parsed := handleJSONArgs(req.args, req.attributes)
-
-	if len(parsed) != 0 {
-		cmd.Cmd = strslice.StrSlice(parsed)
-		if !req.attributes["json"] {
-			cmd.PrependShell = true
-		}
-	}
-
-	return cmd, nil
-}
-
 func parseExpose(req parseRequest) (*ExposeCommand, error) {
 	portsTab := req.args
 
@@ -509,8 +499,8 @@ func parseExpose(req parseRequest) (*ExposeCommand, error) {
 
 	sort.Strings(portsTab)
 	return &ExposeCommand{
-		Ports:       portsTab,
-		BaseCommand: newBaseCommand(req),
+		Ports:           portsTab,
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
 }
 
@@ -523,8 +513,8 @@ func parseUser(req parseRequest) (*UserCommand, error) {
 		return nil, err
 	}
 	return &UserCommand{
-		User:        req.args[0],
-		BaseCommand: newBaseCommand(req),
+		User:            req.args[0],
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
 }
 
@@ -538,7 +528,7 @@ func parseVolume(req parseRequest) (*VolumeCommand, error) {
 	}
 
 	cmd := &VolumeCommand{
-		BaseCommand: newBaseCommand(req),
+		WithNameAndCode: newWithNameAndCode(req),
 	}
 
 	for _, v := range req.args {
@@ -559,8 +549,8 @@ func parseStopSignal(req parseRequest) (*StopSignalCommand, error) {
 	sig := req.args[0]
 
 	cmd := &StopSignalCommand{
-		Signal:      sig,
-		BaseCommand: newBaseCommand(req),
+		Signal:          sig,
+		WithNameAndCode: newWithNameAndCode(req),
 	}
 	return cmd, nil
 
@@ -572,9 +562,8 @@ func parseArg(req parseRequest) (*ArgCommand, error) {
 	}
 
 	var (
-		name       string
-		newValue   string
-		hasDefault bool
+		name     string
+		newValue *string
 	)
 
 	arg := req.args[0]
@@ -590,22 +579,15 @@ func parseArg(req parseRequest) (*ArgCommand, error) {
 		}
 
 		name = parts[0]
-		newValue = parts[1]
-		hasDefault = true
+		newValue = &parts[1]
 	} else {
 		name = arg
-		hasDefault = false
-	}
-
-	var value *string
-	if hasDefault {
-		value = &newValue
 	}
 
 	return &ArgCommand{
-		Name:        name,
-		Value:       value,
-		BaseCommand: newBaseCommand(req),
+		Name:            name,
+		Value:           newValue,
+		WithNameAndCode: newWithNameAndCode(req),
 	}, nil
 }
 
@@ -622,8 +604,8 @@ func parseShell(req parseRequest) (*ShellCommand, error) {
 		// SHELL ["powershell", "-command"]
 
 		return &ShellCommand{
-			Shell:       strslice.StrSlice(shellSlice),
-			BaseCommand: newBaseCommand(req),
+			Shell:           strslice.StrSlice(shellSlice),
+			WithNameAndCode: newWithNameAndCode(req),
 		}, nil
 	default:
 		// SHELL powershell -command - not JSON
