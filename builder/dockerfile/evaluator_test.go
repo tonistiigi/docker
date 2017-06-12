@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/builder/remotecontext"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/reexec"
+	"github.com/docker/docker/pkg/testutil"
 )
 
 type dispatchTestCase struct {
@@ -179,19 +180,15 @@ func executeTestCase(t *testing.T, testCase dispatchTestCase) {
 	cmd, err := instructions.ParseCommand(n)
 
 	if err != nil {
-		if !strings.Contains(err.Error(), testCase.expectedError) {
-			t.Fatalf("Wrong error message. Should be \"%s\". Got \"%s\"", testCase.expectedError, err.Error())
-		}
+		testutil.ErrorContains(t, err, testCase.expectedError)
 		return
 	}
 
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '`', context)
-	err = sb.dispatch(cmd)
+	sb := newStageBuild(b, '`', context, newBuildArgs(make(map[string]*string)))
+	err = dispatch(sb, cmd)
 	if err != nil {
-		if !strings.Contains(err.Error(), testCase.expectedError) {
-			t.Fatalf("Wrong error message. Should be \"%s\". Got \"%s\"", testCase.expectedError, err.Error())
-		}
+		testutil.ErrorContains(t, err, testCase.expectedError)
 		return
 	}
 	if err == nil {

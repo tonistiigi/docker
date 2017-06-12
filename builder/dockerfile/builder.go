@@ -184,7 +184,6 @@ type Builder struct {
 	archiver         *archive.Archiver
 	buildStages      *buildStages
 	disableCommit    bool
-	buildArgs        *buildArgs
 	imageSources     *imageSources
 	pathCache        pathCache
 	containerManager *containerManager
@@ -224,7 +223,6 @@ func newBuilder(clientCtx context.Context, options builderOptions) *Builder {
 		Output:           options.ProgressWriter.Output,
 		docker:           options.Backend,
 		archiver:         options.Archiver,
-		buildArgs:        newBuildArgs(config.BuildArgs),
 		buildStages:      newBuildStages(),
 		imageSources:     newImageSources(clientCtx, options),
 		pathCache:        options.PathCache,
@@ -260,8 +258,6 @@ func (b *Builder) build(source builder.Source, dockerfile *parser.Result) (*buil
 	}
 
 	dockerfile.PrintWarnings(b.Stderr)
-	b.buildArgs.WarnOnUnusedBuildArgs(b.Stderr)
-
 	dispatchState, err := b.dispatchDockerfileWithCancellation(stages, metaArgs, dockerfile.EscapeToken, source)
 	if err != nil {
 		return nil, err
@@ -286,20 +282,20 @@ func convertMapToEnvs(m map[string]string) []string {
 	}
 	return result
 }
-func (b *Builder) processMetaArg(meta instructions.ArgCommand, shlex *ShellLex) error {
-	envs := convertMapToEnvs(b.buildArgs.GetAllAllowed())
+func processMetaArg(meta instructions.ArgCommand, shlex *ShellLex, args *buildArgs) error {
+	envs := convertMapToEnvs(args.GetAllAllowed())
 	if err := meta.Expand(func(word string) (string, error) {
 		return shlex.ProcessWord(word, envs)
 	}); err != nil {
 		return err
 	}
-	b.buildArgs.AddArg(meta.Name, meta.Value)
-	b.buildArgs.AddMetaArg(meta.Name, meta.Value)
+	args.AddArg(meta.Name, meta.Value)
+	args.AddMetaArg(meta.Name, meta.Value)
 	return nil
 }
 func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.BuildableStage, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
-	var stageBuilder *stageBuilder
-
+	var stageBuild *stageBuild
+	buildArgs := newBuildArgs(b.options.BuildArgs)
 	totalCommands := len(metaArgs)
 	currentCommandIndex := 1
 	for _, stage := range parseResult {
@@ -312,14 +308,14 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 		currentCommandIndex++
 		fmt.Fprintln(b.Stdout)
 
-		err := b.processMetaArg(meta, shlex)
+		err := processMetaArg(meta, shlex, buildArgs)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	for _, stage := range parseResult {
-		stageBuilder = newStageBuilder(b, escapeToken, source)
+		stageBuild = newStageBuild(b, escapeToken, source, buildArgs)
 		for _, cmd := range stage.Commands {
 			select {
 			case <-b.clientCtx.Done():
@@ -335,22 +331,24 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 			currentCommandIndex++
 			fmt.Fprintln(b.Stdout)
 
-			if err := stageBuilder.dispatch(cmd); err != nil {
+			if err := dispatch(stageBuild, cmd); err != nil {
 				return nil, err
 			}
 
-			stageBuilder.updateRunConfig()
-			fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(stageBuilder.state.imageID))
+			stageBuild.state.updateRunConfig()
+			fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(stageBuild.state.imageID))
 
 		}
-		if err := emitImageID(b.Aux, stageBuilder.state); err != nil {
+		if err := emitImageID(b.Aux, stageBuild.state); err != nil {
 			return nil, err
 		}
+		buildArgs.MergeReferencedArgs(stageBuild.state.buildArgs)
 	}
 	if b.options.Remove {
 		b.containerManager.RemoveAll(b.Stdout)
 	}
-	return stageBuilder.state, nil
+	buildArgs.WarnOnUnusedBuildArgs(b.Stdout)
+	return stageBuild.state, nil
 }
 
 func addNodesForLabelOption(dockerfile *parser.Node, labels map[string]string) {
@@ -428,7 +426,6 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	parseState := []instructions.BuildableStage{
 		stage,
 	}
-	b.buildArgs.ResetAllowed()
 	res, err := b.dispatchDockerfileWithCancellation(parseState, nil, dockerfile.EscapeToken, nil)
 
 	if err != nil {

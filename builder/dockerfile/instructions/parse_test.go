@@ -21,9 +21,7 @@ func TestCommandsExactlyOneArgument(t *testing.T) {
 
 	for _, command := range commands {
 		ast, err := parser.Parse(strings.NewReader(command))
-		if err != nil {
-			t.Fatalf("Parsing error: %v", err.Error())
-		}
+		require.NoError(t, err)
 		_, err = ParseCommand(ast.AST.Children[0])
 		assert.EqualError(t, err, errExactlyOneArgument(command).Error())
 	}
@@ -41,9 +39,7 @@ func TestCommandsAtLeastOneArgument(t *testing.T) {
 
 	for _, command := range commands {
 		ast, err := parser.Parse(strings.NewReader(command))
-		if err != nil {
-			t.Fatalf("Parsing error: %v", err.Error())
-		}
+		require.NoError(t, err)
 		_, err = ParseCommand(ast.AST.Children[0])
 		assert.EqualError(t, err, errAtLeastOneArgument(command).Error())
 	}
@@ -57,9 +53,7 @@ func TestCommandsAtLeastTwoArgument(t *testing.T) {
 
 	for _, command := range commands {
 		ast, err := parser.Parse(strings.NewReader(command + " arg1"))
-		if err != nil {
-			t.Fatalf("Parsing error: %v", err.Error())
-		}
+		require.NoError(t, err)
 		_, err = ParseCommand(ast.AST.Children[0])
 		assert.EqualError(t, err, errAtLeastTwoArguments(command).Error())
 	}

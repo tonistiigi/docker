@@ -24,7 +24,6 @@ func newBuilderWithMockBackend() *Builder {
 	b := &Builder{
 		options:       &types.ImageBuildOptions{},
 		docker:        mockBackend,
-		buildArgs:     newBuildArgs(make(map[string]*string)),
 		Stdout:        new(bytes.Buffer),
 		clientCtx:     ctx,
 		disableCommit: true,
@@ -41,14 +40,14 @@ func newBuilderWithMockBackend() *Builder {
 
 func TestEnv2Variables(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '\\', nil)
+	sb := newStageBuild(b, '\\', nil, newBuildArgs(make(map[string]*string)))
 	envCommand := &instructions.EnvCommand{
 		Env: instructions.KeyValuePairs{
 			instructions.KeyValuePair{Key: "var1", Value: "val1"},
 			instructions.KeyValuePair{Key: "var2", Value: "val2"},
 		},
 	}
-	err := sb.dispatch(envCommand)
+	err := dispatch(sb, envCommand)
 	require.NoError(t, err)
 
 	expected := []string{
@@ -60,14 +59,14 @@ func TestEnv2Variables(t *testing.T) {
 
 func TestEnvValueWithExistingRunConfigEnv(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '\\', nil)
+	sb := newStageBuild(b, '\\', nil, newBuildArgs(make(map[string]*string)))
 	sb.state.runConfig.Env = []string{"var1=old", "var2=fromenv"}
 	envCommand := &instructions.EnvCommand{
 		Env: instructions.KeyValuePairs{
 			instructions.KeyValuePair{Key: "var1", Value: "val1"},
 		},
 	}
-	err := sb.dispatch(envCommand)
+	err := dispatch(sb, envCommand)
 	require.NoError(t, err)
 	expected := []string{
 		"var1=val1",
@@ -79,9 +78,9 @@ func TestEnvValueWithExistingRunConfigEnv(t *testing.T) {
 func TestMaintainer(t *testing.T) {
 	maintainerEntry := "Some Maintainer <maintainer@example.com>"
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '\\', nil)
+	sb := newStageBuild(b, '\\', nil, newBuildArgs(make(map[string]*string)))
 	cmd := &instructions.MaintainerCommand{Maintainer: maintainerEntry}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 	assert.Equal(t, maintainerEntry, sb.state.maintainer)
 }
@@ -91,13 +90,13 @@ func TestLabel(t *testing.T) {
 	labelValue := "value"
 
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '\\', nil)
+	sb := newStageBuild(b, '\\', nil, newBuildArgs(make(map[string]*string)))
 	cmd := &instructions.LabelCommand{
 		Labels: instructions.KeyValuePairs{
 			instructions.KeyValuePair{Key: labelName, Value: labelValue},
 		},
 	}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 
 	require.Contains(t, sb.state.runConfig.Labels, labelName)
@@ -106,11 +105,11 @@ func TestLabel(t *testing.T) {
 
 func TestFromScratch(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '\\', nil)
+	sb := newStageBuild(b, '\\', nil, newBuildArgs(make(map[string]*string)))
 	cmd := &instructions.FromCommand{
 		BaseName: "scratch",
 	}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 
 	if runtime.GOOS == "windows" && !system.LCOWSupported() {
 		assert.EqualError(t, err, "Windows does not support FROM scratch")
@@ -137,7 +136,7 @@ func TestFromWithArg(t *testing.T) {
 	}
 	b := newBuilderWithMockBackend()
 	b.docker.(*MockBackend).getImageFunc = getImage
-	sb := newStageBuilder(b, '\\', nil)
+	args := newBuildArgs(make(map[string]*string))
 
 	val := "sometag"
 	metaArg := instructions.ArgCommand{
@@ -147,15 +146,17 @@ func TestFromWithArg(t *testing.T) {
 	cmd := &instructions.FromCommand{
 		BaseName: "alpine:${THETAG}",
 	}
-	err := b.processMetaArg(metaArg, NewShellLex('\\'))
+	err := processMetaArg(metaArg, NewShellLex('\\'), args)
+
+	sb := newStageBuild(b, '\\', nil, args)
 	require.NoError(t, err)
-	err = sb.dispatch(cmd)
+	err = dispatch(sb, cmd)
 	require.NoError(t, err)
 
 	assert.Equal(t, expected, sb.state.imageID)
 	assert.Equal(t, expected, sb.state.baseImage.ImageID())
-	assert.Len(t, b.buildArgs.GetAllAllowed(), 0)
-	assert.Len(t, b.buildArgs.GetAllMeta(), 1)
+	assert.Len(t, sb.state.buildArgs.GetAllAllowed(), 0)
+	assert.Len(t, sb.state.buildArgs.GetAllMeta(), 1)
 }
 
 func TestFromWithUndefinedArg(t *testing.T) {
@@ -167,14 +168,14 @@ func TestFromWithUndefinedArg(t *testing.T) {
 	}
 	b := newBuilderWithMockBackend()
 	b.docker.(*MockBackend).getImageFunc = getImage
-	sb := newStageBuilder(b, '\\', nil)
+	sb := newStageBuild(b, '\\', nil, newBuildArgs(make(map[string]*string)))
 
 	b.options.BuildArgs = map[string]*string{"THETAG": &tag}
 
 	cmd := &instructions.FromCommand{
 		BaseName: "alpine${THETAG}",
 	}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 	assert.Equal(t, expected, sb.state.imageID)
 }
@@ -183,30 +184,30 @@ func TestFromMultiStageWithNamedStage(t *testing.T) {
 	b := newBuilderWithMockBackend()
 	firstFrom := &instructions.FromCommand{BaseName: "someimg", StageName: "base"}
 	secondFrom := &instructions.FromCommand{BaseName: "base"}
-	firstSB := newStageBuilder(b, '\\', nil)
-	secondSB := newStageBuilder(b, '\\', nil)
-	err := firstSB.dispatch(firstFrom)
+	firstSB := newStageBuild(b, '\\', nil, newBuildArgs(make(map[string]*string)))
+	secondSB := newStageBuild(b, '\\', nil, newBuildArgs(make(map[string]*string)))
+	err := dispatch(firstSB, firstFrom)
 	require.NoError(t, err)
 	assert.True(t, firstSB.state.hasFromImage())
-	err = secondSB.dispatch(secondFrom)
+	err = dispatch(secondSB, secondFrom)
 	require.NoError(t, err)
 	assert.True(t, secondSB.state.hasFromImage())
 }
 
 func TestOnbuild(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '\\', nil)
+	sb := newStageBuild(b, '\\', nil, newBuildArgs(make(map[string]*string)))
 	cmd := &instructions.OnbuildCommand{
 		Expression: "ADD . /app/src",
 	}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 	assert.Equal(t, "ADD . /app/src", sb.state.runConfig.OnBuild[0])
 }
 
 func TestWorkdir(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '`', nil)
+	sb := newStageBuild(b, '`', nil, newBuildArgs(make(map[string]*string)))
 	workingDir := "/app"
 	if runtime.GOOS == "windows" {
 		workingDir = "C:\\app"
@@ -215,21 +216,21 @@ func TestWorkdir(t *testing.T) {
 		Path: workingDir,
 	}
 
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 	assert.Equal(t, workingDir, sb.state.runConfig.WorkingDir)
 }
 
 func TestCmd(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '`', nil)
+	sb := newStageBuild(b, '`', nil, newBuildArgs(make(map[string]*string)))
 	command := "./executable"
 
 	cmd := &instructions.CmdCommand{
 		Cmd:          strslice.StrSlice{command},
 		PrependShell: true,
 	}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 
 	var expectedCommand strslice.StrSlice
@@ -245,13 +246,13 @@ func TestCmd(t *testing.T) {
 
 func TestHealthcheckNone(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '`', nil)
+	sb := newStageBuild(b, '`', nil, newBuildArgs(make(map[string]*string)))
 	cmd := &instructions.HealthCheckCommand{
 		Health: &container.HealthConfig{
 			Test: []string{"NONE"},
 		},
 	}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 
 	require.NotNil(t, sb.state.runConfig.Healthcheck)
@@ -261,14 +262,14 @@ func TestHealthcheckNone(t *testing.T) {
 func TestHealthcheckCmd(t *testing.T) {
 
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '`', nil)
+	sb := newStageBuild(b, '`', nil, newBuildArgs(make(map[string]*string)))
 	expectedTest := []string{"CMD-SHELL", "curl -f http://localhost/ || exit 1"}
 	cmd := &instructions.HealthCheckCommand{
 		Health: &container.HealthConfig{
 			Test: expectedTest,
 		},
 	}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 
 	require.NotNil(t, sb.state.runConfig.Healthcheck)
@@ -277,11 +278,11 @@ func TestHealthcheckCmd(t *testing.T) {
 
 func TestEntrypoint(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '`', nil)
+	sb := newStageBuild(b, '`', nil, newBuildArgs(make(map[string]*string)))
 	entrypointCmd := "/usr/sbin/nginx"
 
 	cmd := &instructions.EntrypointCommand{Cmd: strslice.StrSlice{entrypointCmd}, PrependShell: true}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 	require.NotNil(t, sb.state.runConfig.Entrypoint)
 
@@ -296,13 +297,13 @@ func TestEntrypoint(t *testing.T) {
 
 func TestExpose(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '`', nil)
+	sb := newStageBuild(b, '`', nil, newBuildArgs(make(map[string]*string)))
 
 	exposedPort := "80"
 	cmd := &instructions.ExposeCommand{
 		Ports: []string{exposedPort},
 	}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 
 	require.NotNil(t, sb.state.runConfig.ExposedPorts)
@@ -315,26 +316,26 @@ func TestExpose(t *testing.T) {
 
 func TestUser(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '`', nil)
+	sb := newStageBuild(b, '`', nil, newBuildArgs(make(map[string]*string)))
 
 	cmd := &instructions.UserCommand{
 		User: "test",
 	}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 	assert.Equal(t, "test", sb.state.runConfig.User)
 }
 
 func TestVolume(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '`', nil)
+	sb := newStageBuild(b, '`', nil, newBuildArgs(make(map[string]*string)))
 
 	exposedVolume := "/foo"
 
 	cmd := &instructions.VolumeCommand{
 		Volumes: []string{exposedVolume},
 	}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 	require.NotNil(t, sb.state.runConfig.Volumes)
 	assert.Len(t, sb.state.runConfig.Volumes, 1)
@@ -347,39 +348,39 @@ func TestStopSignal(t *testing.T) {
 		return
 	}
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '`', nil)
+	sb := newStageBuild(b, '`', nil, newBuildArgs(make(map[string]*string)))
 	signal := "SIGKILL"
 
 	cmd := &instructions.StopSignalCommand{
 		Signal: signal,
 	}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 	assert.Equal(t, signal, sb.state.runConfig.StopSignal)
 }
 
 func TestArg(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '`', nil)
+	sb := newStageBuild(b, '`', nil, newBuildArgs(make(map[string]*string)))
 
 	argName := "foo"
 	argVal := "bar"
 	cmd := &instructions.ArgCommand{Name: argName, Value: &argVal}
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 
 	expected := map[string]string{argName: argVal}
-	assert.Equal(t, expected, b.buildArgs.GetAllAllowed())
+	assert.Equal(t, expected, sb.state.buildArgs.GetAllAllowed())
 }
 
 func TestShell(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newStageBuilder(b, '`', nil)
+	sb := newStageBuild(b, '`', nil, newBuildArgs(make(map[string]*string)))
 
 	shellCmd := "powershell"
 	cmd := &instructions.ShellCommand{Shell: strslice.StrSlice{shellCmd}}
 
-	err := sb.dispatch(cmd)
+	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 
 	expectedShell := strslice.StrSlice([]string{shellCmd})
@@ -400,9 +401,10 @@ func TestPrependEnvOnCmd(t *testing.T) {
 
 func TestRunWithBuildArgs(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	b.buildArgs.argsFromOptions["HTTP_PROXY"] = strPtr("FOO")
+	args := newBuildArgs(make(map[string]*string))
+	args.argsFromOptions["HTTP_PROXY"] = strPtr("FOO")
 	b.disableCommit = false
-	sb := newStageBuilder(b, '`', nil)
+	sb := newStageBuild(b, '`', nil, args)
 
 	runConfig := &container.Config{}
 	origCmd := strslice.StrSlice([]string{"cmd", "in", "from", "image"})
@@ -445,11 +447,11 @@ func TestRunWithBuildArgs(t *testing.T) {
 		return "", nil
 	}
 	from := &instructions.FromCommand{BaseName: "abcdef"}
-	err := sb.dispatch(from)
+	err := dispatch(sb, from)
 	require.NoError(t, err)
-	b.buildArgs.AddArg("one", strPtr("two"))
+	sb.state.buildArgs.AddArg("one", strPtr("two"))
 	run := &instructions.RunCommand{Expression: strslice.StrSlice{"echo foo"}, PrependShell: true}
-	require.NoError(t, sb.dispatch(run))
+	require.NoError(t, dispatch(sb, run))
 
 	// Check that runConfig.Cmd has not been modified by run
 	assert.Equal(t, origCmd, sb.state.runConfig.Cmd)
