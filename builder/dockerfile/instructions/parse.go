@@ -338,9 +338,9 @@ func parseShellDependentCommand(req parseRequest) (cmd strslice.StrSlice, prepen
 	if !req.attributes["json"] {
 		prependShell = true
 	}
-	if len(args) > 0 {
-		cmd = strslice.StrSlice(args)
-	}
+
+	cmd = strslice.StrSlice(args)
+
 	return
 }
 
@@ -381,7 +381,7 @@ func parseEntrypoint(req parseRequest) (*EntrypointCommand, error) {
 	}
 
 	c, prependShell := parseShellDependentCommand(req)
-	if c != nil {
+	if len(c) > 0 { // entrypoint has a special handling for empty cmd (removes defined entrypoint)
 		cmd.Cmd = c
 		cmd.PrependShell = prependShell
 	}
