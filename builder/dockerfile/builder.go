@@ -294,7 +294,7 @@ func processMetaArg(meta instructions.ArgCommand, shlex *ShellLex, args *buildAr
 	return nil
 }
 func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.BuildableStage, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
-	var stageBuild *stageBuild
+	var dispatchRequest *dispatchRequest
 	buildArgs := newBuildArgs(b.options.BuildArgs)
 	totalCommands := len(metaArgs)
 	currentCommandIndex := 1
@@ -315,7 +315,7 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 	}
 
 	for _, stage := range parseResult {
-		stageBuild = newStageBuild(b, escapeToken, source, buildArgs)
+		dispatchRequest = newDispatchRequest(b, escapeToken, source, buildArgs)
 		for _, cmd := range stage.Commands {
 			select {
 			case <-b.clientCtx.Done():
@@ -331,24 +331,24 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 			currentCommandIndex++
 			fmt.Fprintln(b.Stdout)
 
-			if err := dispatch(stageBuild, cmd); err != nil {
+			if err := dispatch(dispatchRequest, cmd); err != nil {
 				return nil, err
 			}
 
-			stageBuild.state.updateRunConfig()
-			fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(stageBuild.state.imageID))
+			dispatchRequest.state.updateRunConfig()
+			fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(dispatchRequest.state.imageID))
 
 		}
-		if err := emitImageID(b.Aux, stageBuild.state); err != nil {
+		if err := emitImageID(b.Aux, dispatchRequest.state); err != nil {
 			return nil, err
 		}
-		buildArgs.MergeReferencedArgs(stageBuild.state.buildArgs)
+		buildArgs.MergeReferencedArgs(dispatchRequest.state.buildArgs)
 	}
 	if b.options.Remove {
 		b.containerManager.RemoveAll(b.Stdout)
 	}
 	buildArgs.WarnOnUnusedBuildArgs(b.Stdout)
-	return stageBuild.state, nil
+	return dispatchRequest.state, nil
 }
 
 func addNodesForLabelOption(dockerfile *parser.Node, labels map[string]string) {
@@ -415,9 +415,6 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	for _, n := range dockerfile.AST.Children {
 		cmd, err := instructions.ParseCommand(n)
 		if err != nil {
-			if instructions.IsUnknownInstruction(err) {
-				buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
-			}
 			return nil, validationError{err}
 		}
 		stage.AddCommand(cmd)
