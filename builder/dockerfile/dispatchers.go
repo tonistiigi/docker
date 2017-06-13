@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/docker/docker/api"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/instructions"
@@ -33,7 +34,7 @@ import (
 // Sets the environment variable foo to bar, also makes interpolation
 // in the dockerfile available from the next statement on via ${foo}.
 //
-func dispatchEnv(d *stageBuild, c *instructions.EnvCommand) error {
+func dispatchEnv(d *dispatchRequest, c *instructions.EnvCommand) error {
 	runConfig := d.state.runConfig
 	commitMessage := bytes.NewBufferString("ENV")
 	for _, e := range c.Env {
@@ -61,7 +62,7 @@ func dispatchEnv(d *stageBuild, c *instructions.EnvCommand) error {
 // MAINTAINER some text <maybe@an.email.address>
 //
 // Sets the maintainer metadata.
-func dispatchMaintainer(d *stageBuild, c *instructions.MaintainerCommand) error {
+func dispatchMaintainer(d *dispatchRequest, c *instructions.MaintainerCommand) error {
 
 	d.state.maintainer = c.Maintainer
 	return d.builder.commit(d.state, "MAINTAINER "+c.Maintainer)
@@ -71,7 +72,7 @@ func dispatchMaintainer(d *stageBuild, c *instructions.MaintainerCommand) error 
 //
 // Sets the Label variable foo to bar,
 //
-func dispatchLabel(d *stageBuild, c *instructions.LabelCommand) error {
+func dispatchLabel(d *dispatchRequest, c *instructions.LabelCommand) error {
 	if d.state.runConfig.Labels == nil {
 		d.state.runConfig.Labels = make(map[string]string)
 	}
@@ -88,12 +89,12 @@ func dispatchLabel(d *stageBuild, c *instructions.LabelCommand) error {
 // Add the file 'foo' to '/path'. Tarball and Remote URL (git, http) handling
 // exist here. If you do not wish to have this automatic handling, use COPY.
 //
-func dispatchAdd(d *stageBuild, c *instructions.AddCommand) error {
+func dispatchAdd(d *dispatchRequest, c *instructions.AddCommand) error {
 	downloader := newRemoteSourceDownloader(d.builder.Output, d.builder.Stdout)
 	copier := newCopier(d.source, d.builder.pathCache, downloader, nil)
 	defer copier.Cleanup()
 
-	copyInstruction, err := copier.createCopyInstruction(append(c.Srcs, c.Dest), "ADD")
+	copyInstruction, err := copier.createCopyInstruction(c.SourcesAndDest, "ADD")
 	if err != nil {
 		return err
 	}
@@ -107,7 +108,7 @@ func dispatchAdd(d *stageBuild, c *instructions.AddCommand) error {
 //
 // Same as 'ADD' but without the tar and remote url handling.
 //
-func dispatchCopy(d *stageBuild, c *instructions.CopyCommand) error {
+func dispatchCopy(d *dispatchRequest, c *instructions.CopyCommand) error {
 	var im *imageMount
 	var err error
 	if c.From != "" {
@@ -118,7 +119,7 @@ func dispatchCopy(d *stageBuild, c *instructions.CopyCommand) error {
 	}
 	copier := newCopier(d.source, d.builder.pathCache, errOnSourceDownload, im)
 	defer copier.Cleanup()
-	copyInstruction, err := copier.createCopyInstruction(append(c.Srcs, c.Dest), "COPY")
+	copyInstruction, err := copier.createCopyInstruction(c.SourcesAndDest, "COPY")
 	if err != nil {
 		return err
 	}
@@ -147,7 +148,7 @@ func (b *Builder) getImageMount(imageRefOrID string) (*imageMount, error) {
 
 // FROM imagename[:tag | @digest] [AS build-stage-name]
 //
-func dispatchFrom(d *stageBuild, cmd *instructions.FromCommand) error {
+func dispatchFrom(d *dispatchRequest, cmd *instructions.FromCommand) error {
 	d.builder.imageProber.Reset()
 	image, err := d.getFromImage(d.shlex, cmd.BaseName)
 	if err != nil {
@@ -158,18 +159,15 @@ func dispatchFrom(d *stageBuild, cmd *instructions.FromCommand) error {
 	}
 	state := d.state
 	state.beginStage(cmd.StageName, image)
-	if state.runConfig.OnBuild != nil && len(state.runConfig.OnBuild) > 0 {
+	if len(state.runConfig.OnBuild) > 0 {
 		triggers := state.runConfig.OnBuild
 		state.runConfig.OnBuild = nil
-		err = dispatchTriggeredOnBuild(d, triggers)
-		if err != nil {
-			return err
-		}
+		return dispatchTriggeredOnBuild(d, triggers)
 	}
 	return nil
 }
 
-func dispatchTriggeredOnBuild(d *stageBuild, triggers []string) error {
+func dispatchTriggeredOnBuild(d *dispatchRequest, triggers []string) error {
 	fmt.Fprintf(d.builder.Stdout, "# Executing %d build trigger", len(triggers))
 	if len(triggers) > 1 {
 		fmt.Fprint(d.builder.Stdout, "s")
@@ -204,7 +202,7 @@ func dispatchTriggeredOnBuild(d *stageBuild, triggers []string) error {
 // buildStage.
 var scratchImage builder.Image = &image.Image{}
 
-func (d *stageBuild) getExpandedImageName(shlex *ShellLex, name string) (string, error) {
+func (d *dispatchRequest) getExpandedImageName(shlex *ShellLex, name string) (string, error) {
 	substitutionArgs := []string{}
 	for key, value := range d.state.buildArgs.GetAllMeta() {
 		substitutionArgs = append(substitutionArgs, key+"="+value)
@@ -238,7 +236,7 @@ func (b *Builder) getImageOrStage(name string) (builder.Image, error) {
 	}
 	return imageMount.Image(), nil
 }
-func (d *stageBuild) getFromImage(shlex *ShellLex, name string) (builder.Image, error) {
+func (d *dispatchRequest) getFromImage(shlex *ShellLex, name string) (builder.Image, error) {
 	name, err := d.getExpandedImageName(shlex, name)
 	if err != nil {
 		return nil, err
@@ -246,7 +244,7 @@ func (d *stageBuild) getFromImage(shlex *ShellLex, name string) (builder.Image, 
 	return d.builder.getImageOrStage(name)
 }
 
-func dispatchOnbuild(d *stageBuild, c *instructions.OnbuildCommand) error {
+func dispatchOnbuild(d *dispatchRequest, c *instructions.OnbuildCommand) error {
 
 	d.state.runConfig.OnBuild = append(d.state.runConfig.OnBuild, c.Expression)
 	return d.builder.commit(d.state, "ONBUILD "+c.Expression)
@@ -256,7 +254,7 @@ func dispatchOnbuild(d *stageBuild, c *instructions.OnbuildCommand) error {
 //
 // Set the working directory for future RUN/CMD/etc statements.
 //
-func dispatchWorkdir(d *stageBuild, c *instructions.WorkdirCommand) error {
+func dispatchWorkdir(d *dispatchRequest, c *instructions.WorkdirCommand) error {
 	runConfig := d.state.runConfig
 	var err error
 	runConfig.WorkingDir, err = normalizeWorkdir(d.builder.platform, runConfig.WorkingDir, c.Path)
@@ -287,6 +285,14 @@ func dispatchWorkdir(d *stageBuild, c *instructions.WorkdirCommand) error {
 	return d.builder.commitContainer(d.state, containerID, runConfigWithCommentCmd)
 }
 
+func resolveCmdLine(cmd instructions.ShellDependantCmdLine, runConfig *container.Config, platform string) []string {
+	result := cmd.CmdLine
+	if cmd.PrependShell && result != nil {
+		result = append(getShell(runConfig, platform), result...)
+	}
+	return result
+}
+
 // RUN some command yo
 //
 // run a command and commit the image. Args are automatically prepended with
@@ -297,13 +303,10 @@ func dispatchWorkdir(d *stageBuild, c *instructions.WorkdirCommand) error {
 // RUN echo hi          # cmd /S /C echo hi   (Windows)
 // RUN [ "echo", "hi" ] # echo hi
 //
-func dispatchRun(d *stageBuild, c *instructions.RunCommand) error {
+func dispatchRun(d *dispatchRequest, c *instructions.RunCommand) error {
 
 	stateRunConfig := d.state.runConfig
-	cmdFromArgs := c.Expression
-	if c.PrependShell {
-		cmdFromArgs = append(getShell(stateRunConfig, d.builder.platform), cmdFromArgs...)
-	}
+	cmdFromArgs := resolveCmdLine(c.ShellDependantCmdLine, stateRunConfig, d.builder.platform)
 	buildArgs := d.state.buildArgs.FilterAllowed(stateRunConfig.Env)
 
 	saveCmd := cmdFromArgs
@@ -378,12 +381,9 @@ func prependEnvOnCmd(buildArgs *buildArgs, buildArgVars []string, cmd strslice.S
 // Set the default command to run in the container (which may be empty).
 // Argument handling is the same as RUN.
 //
-func dispatchCmd(d *stageBuild, c *instructions.CmdCommand) error {
+func dispatchCmd(d *dispatchRequest, c *instructions.CmdCommand) error {
 	runConfig := d.state.runConfig
-	cmd := c.Cmd
-	if c.PrependShell {
-		cmd = append(getShell(runConfig, d.builder.platform), cmd...)
-	}
+	cmd := resolveCmdLine(c.ShellDependantCmdLine, runConfig, d.builder.platform)
 	runConfig.Cmd = cmd
 	// set config as already being escaped, this prevents double escaping on windows
 	runConfig.ArgsEscaped = true
@@ -392,7 +392,7 @@ func dispatchCmd(d *stageBuild, c *instructions.CmdCommand) error {
 		return err
 	}
 
-	if len(c.Cmd) != 0 {
+	if len(c.ShellDependantCmdLine.CmdLine) != 0 {
 		d.state.cmdSet = true
 	}
 
@@ -404,7 +404,7 @@ func dispatchCmd(d *stageBuild, c *instructions.CmdCommand) error {
 // Set the default healthcheck command to run in the container (which may be empty).
 // Argument handling is the same as RUN.
 //
-func dispatchHealthcheck(d *stageBuild, c *instructions.HealthCheckCommand) error {
+func dispatchHealthcheck(d *dispatchRequest, c *instructions.HealthCheckCommand) error {
 	runConfig := d.state.runConfig
 	if runConfig.Healthcheck != nil {
 		oldCmd := runConfig.Healthcheck.Test
@@ -424,14 +424,9 @@ func dispatchHealthcheck(d *stageBuild, c *instructions.HealthCheckCommand) erro
 // Handles command processing similar to CMD and RUN, only req.runConfig.Entrypoint
 // is initialized at newBuilder time instead of through argument parsing.
 //
-func dispatchEntrypoint(d *stageBuild, c *instructions.EntrypointCommand) error {
+func dispatchEntrypoint(d *dispatchRequest, c *instructions.EntrypointCommand) error {
 	runConfig := d.state.runConfig
-	cmd := c.Cmd
-	if cmd != nil {
-		if c.PrependShell {
-			cmd = append(getShell(runConfig, d.builder.platform), cmd...)
-		}
-	}
+	cmd := resolveCmdLine(c.ShellDependantCmdLine, runConfig, d.builder.platform)
 	runConfig.Entrypoint = cmd
 	if !d.state.cmdSet {
 		runConfig.Cmd = nil
@@ -445,7 +440,7 @@ func dispatchEntrypoint(d *stageBuild, c *instructions.EntrypointCommand) error 
 // Expose ports for links and port mappings. This all ends up in
 // req.runConfig.ExposedPorts for runconfig.
 //
-func dispatchExpose(d *stageBuild, c *instructions.ExposeCommand, envs []string) error {
+func dispatchExpose(d *dispatchRequest, c *instructions.ExposeCommand, envs []string) error {
 	// custom multi word expansion
 	// expose $FOO with FOO="80 443" is expanded as EXPOSE [80,443]. This is the only command supporting word to words expansion
 	// so the word processing has been de-generalized
@@ -479,7 +474,7 @@ func dispatchExpose(d *stageBuild, c *instructions.ExposeCommand, envs []string)
 // Set the user to 'foo' for future commands and when running the
 // ENTRYPOINT/CMD at container run time.
 //
-func dispatchUser(d *stageBuild, c *instructions.UserCommand) error {
+func dispatchUser(d *dispatchRequest, c *instructions.UserCommand) error {
 	d.state.runConfig.User = c.User
 	return d.builder.commit(d.state, fmt.Sprintf("USER %v", c.User))
 }
@@ -488,7 +483,7 @@ func dispatchUser(d *stageBuild, c *instructions.UserCommand) error {
 //
 // Expose the volume /foo for use. Will also accept the JSON array form.
 //
-func dispatchVolume(d *stageBuild, c *instructions.VolumeCommand) error {
+func dispatchVolume(d *dispatchRequest, c *instructions.VolumeCommand) error {
 	if d.state.runConfig.Volumes == nil {
 		d.state.runConfig.Volumes = map[string]struct{}{}
 	}
@@ -504,7 +499,7 @@ func dispatchVolume(d *stageBuild, c *instructions.VolumeCommand) error {
 // STOPSIGNAL signal
 //
 // Set the signal that will be used to kill the container.
-func dispatchStopSignal(d *stageBuild, c *instructions.StopSignalCommand) error {
+func dispatchStopSignal(d *dispatchRequest, c *instructions.StopSignalCommand) error {
 
 	_, err := signal.ParseSignal(c.Signal)
 	if err != nil {
@@ -519,7 +514,7 @@ func dispatchStopSignal(d *stageBuild, c *instructions.StopSignalCommand) error 
 // Adds the variable foo to the trusted list of variables that can be passed
 // to builder using the --build-arg flag for expansion/substitution or passing to 'run'.
 // Dockerfile author may optionally set a default value of this variable.
-func dispatchArg(d *stageBuild, c *instructions.ArgCommand) error {
+func dispatchArg(d *dispatchRequest, c *instructions.ArgCommand) error {
 
 	commitStr := "ARG " + c.Name
 	if c.Value != nil {
@@ -533,12 +528,12 @@ func dispatchArg(d *stageBuild, c *instructions.ArgCommand) error {
 // SHELL powershell -command
 //
 // Set the non-default shell to use.
-func dispatchShell(d *stageBuild, c *instructions.ShellCommand) error {
+func dispatchShell(d *dispatchRequest, c *instructions.ShellCommand) error {
 	d.state.runConfig.Shell = c.Shell
 	return d.builder.commit(d.state, fmt.Sprintf("SHELL %v", d.state.runConfig.Shell))
 }
 
-func dispatchResumeBuild(d *stageBuild, c *instructions.ResumeBuildCommand) error {
+func dispatchResumeBuild(d *dispatchRequest, c *instructions.ResumeBuildCommand) error {
 	d.state.runConfig = c.BaseConfig
 	d.state.imageID = c.BaseConfig.Image
 	return nil

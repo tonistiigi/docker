@@ -1,20 +1,19 @@
 package dockerfile
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/docker/docker/builder/dockerfile/instructions"
-	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/builder/remotecontext"
+	"github.com/docker/docker/internal/testutil"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/reexec"
-	"github.com/docker/docker/pkg/testutil"
 )
 
 type dispatchTestCase struct {
-	name, dockerfile, expectedError string
-	files                           map[string]string
+	name, expectedError string
+	cmd                 interface{}
+	files               map[string]string
 }
 
 func init() {
@@ -22,107 +21,72 @@ func init() {
 }
 
 func initDispatchTestCases() []dispatchTestCase {
-	dispatchTestCases := []dispatchTestCase{{
-		name: "copyEmptyWhitespace",
-		dockerfile: `COPY	
-		quux \
-      bar`,
-		expectedError: "COPY requires at least two arguments",
-	},
+	dispatchTestCases := []dispatchTestCase{
 		{
-			name:          "ONBUILD forbidden FROM",
-			dockerfile:    "ONBUILD FROM scratch",
-			expectedError: "FROM isn't allowed as an ONBUILD trigger",
-			files:         nil,
-		},
-		{
-			name:          "ONBUILD forbidden MAINTAINER",
-			dockerfile:    "ONBUILD MAINTAINER docker.io",
-			expectedError: "MAINTAINER isn't allowed as an ONBUILD trigger",
-			files:         nil,
-		},
-		{
-			name:          "ARG two arguments",
-			dockerfile:    "ARG foo bar",
-			expectedError: "ARG requires exactly one argument",
-			files:         nil,
-		},
-		{
-			name:          "MAINTAINER unknown flag",
-			dockerfile:    "MAINTAINER --boo joe@example.com",
-			expectedError: "Unknown flag: boo",
-			files:         nil,
-		},
-		{
-			name:          "ADD multiple files to file",
-			dockerfile:    "ADD file1.txt file2.txt test",
+			name: "ADD multiple files to file",
+			cmd: &instructions.AddCommand{SourcesAndDest: instructions.SourcesAndDest{
+				"file1.txt",
+				"file2.txt",
+				"test",
+			}},
 			expectedError: "When using ADD with more than one source file, the destination must be a directory and end with a /",
 			files:         map[string]string{"file1.txt": "test1", "file2.txt": "test2"},
-		}, // this is validated at dispatch time (not at parse time)
+		},
 		{
-			name:          "JSON ADD multiple files to file",
-			dockerfile:    `ADD ["file1.txt", "file2.txt", "test"]`,
+			name: "Wildcard ADD multiple files to file",
+			cmd: &instructions.AddCommand{SourcesAndDest: instructions.SourcesAndDest{
+				"file*.txt",
+				"test",
+			}},
 			expectedError: "When using ADD with more than one source file, the destination must be a directory and end with a /",
 			files:         map[string]string{"file1.txt": "test1", "file2.txt": "test2"},
-		}, // this is validated at dispatch time (not at parse time)
+		},
 		{
-			name:          "Wildcard ADD multiple files to file",
-			dockerfile:    "ADD file*.txt test",
-			expectedError: "When using ADD with more than one source file, the destination must be a directory and end with a /",
-			files:         map[string]string{"file1.txt": "test1", "file2.txt": "test2"},
-		}, // this is validated at dispatch time (not at parse time)
-		{
-			name:          "Wildcard JSON ADD multiple files to file",
-			dockerfile:    `ADD ["file*.txt", "test"]`,
-			expectedError: "When using ADD with more than one source file, the destination must be a directory and end with a /",
-			files:         map[string]string{"file1.txt": "test1", "file2.txt": "test2"},
-		}, // this is validated at dispatch time (not at parse time)
-		{
-			name:          "COPY multiple files to file",
-			dockerfile:    "COPY file1.txt file2.txt test",
+			name: "COPY multiple files to file",
+			cmd: &instructions.CopyCommand{SourcesAndDest: instructions.SourcesAndDest{
+				"file1.txt",
+				"file2.txt",
+				"test",
+			}},
 			expectedError: "When using COPY with more than one source file, the destination must be a directory and end with a /",
 			files:         map[string]string{"file1.txt": "test1", "file2.txt": "test2"},
 		},
 		{
-			name:          "JSON COPY multiple files to file",
-			dockerfile:    `COPY ["file1.txt", "file2.txt", "test"]`,
-			expectedError: "When using COPY with more than one source file, the destination must be a directory and end with a /",
-			files:         map[string]string{"file1.txt": "test1", "file2.txt": "test2"},
-		},
-		{
-			name:          "ADD multiple files to file with whitespace",
-			dockerfile:    `ADD [ "test file1.txt", "test file2.txt", "test" ]`,
+			name: "ADD multiple files to file with whitespace",
+			cmd: &instructions.AddCommand{SourcesAndDest: instructions.SourcesAndDest{
+				"test file1.txt",
+				"test file2.txt",
+				"test",
+			}},
 			expectedError: "When using ADD with more than one source file, the destination must be a directory and end with a /",
 			files:         map[string]string{"test file1.txt": "test1", "test file2.txt": "test2"},
 		},
 		{
-			name:          "COPY multiple files to file with whitespace",
-			dockerfile:    `COPY [ "test file1.txt", "test file2.txt", "test" ]`,
+			name: "COPY multiple files to file with whitespace",
+			cmd: &instructions.CopyCommand{SourcesAndDest: instructions.SourcesAndDest{
+				"test file1.txt",
+				"test file2.txt",
+				"test",
+			}},
 			expectedError: "When using COPY with more than one source file, the destination must be a directory and end with a /",
 			files:         map[string]string{"test file1.txt": "test1", "test file2.txt": "test2"},
 		},
 		{
-			name:          "COPY wildcard no files",
-			dockerfile:    `COPY file*.txt /tmp/`,
+			name: "COPY wildcard no files",
+			cmd: &instructions.CopyCommand{SourcesAndDest: instructions.SourcesAndDest{
+				"file*.txt",
+				"/tmp/",
+			}},
 			expectedError: "COPY failed: no source files were specified",
 			files:         nil,
 		},
 		{
-			name:          "COPY url",
-			dockerfile:    `COPY https://index.docker.io/robots.txt /`,
+			name: "COPY url",
+			cmd: &instructions.CopyCommand{SourcesAndDest: instructions.SourcesAndDest{
+				"https://index.docker.io/robots.txt",
+				"/",
+			}},
 			expectedError: "source can't be a URL for COPY",
-			files:         nil,
-		},
-		{
-			name:          "Chaining ONBUILD",
-			dockerfile:    `ONBUILD ONBUILD RUN touch foobar`,
-			expectedError: "Chaining ONBUILD via `ONBUILD ONBUILD` isn't allowed",
-			files:         nil,
-		},
-		{
-			name:          "Invalid instruction",
-			dockerfile:    `foo bar`,
-			expectedError: "unknown instruction: FOO",
 			files:         nil,
 		}}
 
@@ -169,24 +133,9 @@ func executeTestCase(t *testing.T, testCase dispatchTestCase) {
 		}
 	}()
 
-	r := strings.NewReader(testCase.dockerfile)
-	result, err := parser.Parse(r)
-
-	if err != nil {
-		t.Fatalf("Error when parsing Dockerfile: %s", err)
-	}
-
-	n := result.AST.Children[0]
-	cmd, err := instructions.ParseCommand(n)
-
-	if err != nil {
-		testutil.ErrorContains(t, err, testCase.expectedError)
-		return
-	}
-
 	b := newBuilderWithMockBackend()
-	sb := newStageBuild(b, '`', context, newBuildArgs(make(map[string]*string)))
-	err = dispatch(sb, cmd)
+	sb := newDispatchRequest(b, '`', context, newBuildArgs(make(map[string]*string)))
+	err = dispatch(sb, testCase.cmd)
 	if err != nil {
 		testutil.ErrorContains(t, err, testCase.expectedError)
 		return

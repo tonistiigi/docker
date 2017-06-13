@@ -106,25 +106,6 @@ func TestCommandsBlankNames(t *testing.T) {
 	}
 }
 
-func TestOnbuildIllegalTriggers(t *testing.T) {
-	triggers := []struct{ command, expectedError string }{
-		{"ONBUILD", "Chaining ONBUILD via `ONBUILD ONBUILD` isn't allowed"},
-		{"MAINTAINER", "MAINTAINER isn't allowed as an ONBUILD trigger"},
-		{"FROM", "FROM isn't allowed as an ONBUILD trigger"}}
-
-	for _, trigger := range triggers {
-		node := &parser.Node{
-			Original: "ONBUILD " + trigger.command,
-			Value:    "onbuild",
-			Next: &parser.Node{
-				Value: trigger.command,
-			},
-		}
-		_, err := ParseCommand(node)
-		assert.EqualError(t, err, trigger.expectedError)
-	}
-}
-
 func TestHealthCheckCmd(t *testing.T) {
 	node := &parser.Node{
 		Value: command.Healthcheck,
@@ -158,4 +139,66 @@ func TestParseOptInterval(t *testing.T) {
 	flInterval.Value = "1ms"
 	_, err = parseOptInterval(flInterval)
 	require.NoError(t, err)
+}
+
+func TestErrorCases(t *testing.T) {
+	cases := []struct {
+		name          string
+		dockerfile    string
+		expectedError string
+	}{
+		{
+			name: "copyEmptyWhitespace",
+			dockerfile: `COPY	
+		quux \
+      bar`,
+			expectedError: "COPY requires at least two arguments",
+		},
+		{
+			name:          "ONBUILD forbidden FROM",
+			dockerfile:    "ONBUILD FROM scratch",
+			expectedError: "FROM isn't allowed as an ONBUILD trigger",
+		},
+		{
+			name:          "ONBUILD forbidden MAINTAINER",
+			dockerfile:    "ONBUILD MAINTAINER docker.io",
+			expectedError: "MAINTAINER isn't allowed as an ONBUILD trigger",
+		},
+		{
+			name:          "ARG two arguments",
+			dockerfile:    "ARG foo bar",
+			expectedError: "ARG requires exactly one argument",
+		},
+		{
+			name:          "MAINTAINER unknown flag",
+			dockerfile:    "MAINTAINER --boo joe@example.com",
+			expectedError: "Unknown flag: boo",
+		},
+		{
+			name:          "Chaining ONBUILD",
+			dockerfile:    `ONBUILD ONBUILD RUN touch foobar`,
+			expectedError: "Chaining ONBUILD via `ONBUILD ONBUILD` isn't allowed",
+		},
+		{
+			name:          "Invalid instruction",
+			dockerfile:    `foo bar`,
+			expectedError: "unknown instruction: FOO",
+		},
+	}
+	for _, c := range cases {
+		r := strings.NewReader(c.dockerfile)
+		ast, err := parser.Parse(r)
+
+		if err != nil {
+			t.Fatalf("Error when parsing Dockerfile: %s", err)
+		}
+		n := ast.AST.Children[0]
+		_, err = ParseCommand(n)
+		if err != nil {
+			testutil.ErrorContains(t, err, c.expectedError)
+			return
+		}
+		t.Fatalf("No error when executing test %s", c.name)
+	}
+
 }

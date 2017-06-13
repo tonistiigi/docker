@@ -40,7 +40,7 @@ func formatStep(stepN int, stepTotal int) string {
 	return fmt.Sprintf("%d/%d", stepN+1, stepTotal)
 }
 
-func dispatch(d *stageBuild, cmd interface{}) error {
+func dispatch(d *dispatchRequest, cmd interface{}) error {
 	if err := platformSupports(cmd); err != nil {
 		buildsFailed.WithValues(metricsCommandNotSupportedError).Inc()
 		return validationError{err}
@@ -115,21 +115,21 @@ type dispatchState struct {
 	buildArgs  *buildArgs
 }
 
-type stageBuild struct {
-	state   *dispatchState
-	shlex   *ShellLex
-	builder *Builder
-	source  builder.Source
-}
-
 func newDispatchState(baseArgs *buildArgs) *dispatchState {
 	args := baseArgs.Clone()
 	args.ResetAllowed()
 	return &dispatchState{runConfig: &container.Config{}, buildArgs: args}
 }
 
-func newStageBuild(builder *Builder, escapeToken rune, source builder.Source, buildArgs *buildArgs) *stageBuild {
-	return &stageBuild{
+type dispatchRequest struct {
+	state   *dispatchState
+	shlex   *ShellLex
+	builder *Builder
+	source  builder.Source
+}
+
+func newDispatchRequest(builder *Builder, escapeToken rune, source builder.Source, buildArgs *buildArgs) *dispatchRequest {
+	return &dispatchRequest{
 		state:   newDispatchState(buildArgs),
 		shlex:   NewShellLex(escapeToken),
 		builder: builder,

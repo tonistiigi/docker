@@ -22,23 +22,23 @@ func (kvp *KeyValuePair) String() string {
 // KeyValuePairs is a slice of KeyValuePair
 type KeyValuePairs []KeyValuePair
 
-// WithNameAndCode is the base class for Dockerfile (String() returns its source code)
-type WithNameAndCode struct {
+// withNameAndCode is the base class for Dockerfile (String() returns its source code)
+type withNameAndCode struct {
 	code string
 	name string
 }
 
-func (c *WithNameAndCode) String() string {
+func (c *withNameAndCode) String() string {
 	return c.code
 }
 
 // Name of the command
-func (c *WithNameAndCode) Name() string {
+func (c *withNameAndCode) Name() string {
 	return c.name
 }
 
-func newWithNameAndCode(req parseRequest) WithNameAndCode {
-	return WithNameAndCode{code: strings.TrimSpace(req.original), name: req.command}
+func newWithNameAndCode(req parseRequest) withNameAndCode {
+	return withNameAndCode{code: strings.TrimSpace(req.original), name: req.command}
 }
 
 // SingleWordExpander is a provider for variable expansion where 1 word => 1 output
@@ -84,7 +84,7 @@ func expandSliceInPlace(values []string, expander SingleWordExpander) error {
 
 // EnvCommand : ENV key1 value1 [keyN valueN...]
 type EnvCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	Env KeyValuePairs // kvp slice instead of map to preserve ordering
 }
 
@@ -95,7 +95,7 @@ func (c *EnvCommand) Expand(expander SingleWordExpander) error {
 
 // MaintainerCommand : MAINTAINER maintainer_name
 type MaintainerCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	Maintainer string
 }
 
@@ -104,7 +104,7 @@ type MaintainerCommand struct {
 // Sets the Label variable foo to bar,
 //
 type LabelCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	Labels KeyValuePairs // kvp slice instead of map to preserve ordering
 }
 
@@ -113,26 +113,33 @@ func (c *LabelCommand) Expand(expander SingleWordExpander) error {
 	return expandKvpsInPlace(c.Labels, expander)
 }
 
+// SourcesAndDest represent a list of source files and a destination
+type SourcesAndDest []string
+
+// Sources list the source paths
+func (s SourcesAndDest) Sources() []string {
+	return s[:len(s)-1]
+}
+
+// Dest path of the operation
+func (s SourcesAndDest) Dest() string {
+	return s[len(s)-1]
+}
+
 // AddCommand : ADD foo /path
 //
 // Add the file 'foo' to '/path'. Tarball and Remote URL (git, http) handling
 // exist here. If you do not wish to have this automatic handling, use COPY.
 //
 type AddCommand struct {
-	WithNameAndCode
-	Srcs  []string
-	Dest  string
+	withNameAndCode
+	SourcesAndDest
 	Chown string
 }
 
 // Expand variables
 func (c *AddCommand) Expand(expander SingleWordExpander) error {
-	dst, err := expander(c.Dest)
-	if err != nil {
-		return err
-	}
-	c.Dest = dst
-	return expandSliceInPlace(c.Srcs, expander)
+	return expandSliceInPlace(c.SourcesAndDest, expander)
 }
 
 // CopyCommand : COPY foo /path
@@ -140,34 +147,28 @@ func (c *AddCommand) Expand(expander SingleWordExpander) error {
 // Same as 'ADD' but without the tar and remote url handling.
 //
 type CopyCommand struct {
-	WithNameAndCode
-	Srcs  []string
-	Dest  string
+	withNameAndCode
+	SourcesAndDest
 	From  string
 	Chown string
 }
 
 // Expand variables
 func (c *CopyCommand) Expand(expander SingleWordExpander) error {
-	dst, err := expander(c.Dest)
-	if err != nil {
-		return err
-	}
-	c.Dest = dst
-	return expandSliceInPlace(c.Srcs, expander)
+	return expandSliceInPlace(c.SourcesAndDest, expander)
 }
 
 // FromCommand : FROM imagename[:tag | @digest] [AS build-stage-name]
 //
 type FromCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	BaseName  string
 	StageName string
 }
 
 // OnbuildCommand : ONBUILD <some other command>
 type OnbuildCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	Expression string
 }
 
@@ -176,7 +177,7 @@ type OnbuildCommand struct {
 // Set the working directory for future RUN/CMD/etc statements.
 //
 type WorkdirCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	Path string
 }
 
@@ -190,6 +191,12 @@ func (c *WorkdirCommand) Expand(expander SingleWordExpander) error {
 	return nil
 }
 
+// ShellDependantCmdLine represents a cmdline optionaly prepended with the shell
+type ShellDependantCmdLine struct {
+	CmdLine      strslice.StrSlice
+	PrependShell bool
+}
+
 // RunCommand : RUN some command yo
 //
 // run a command and commit the image. Args are automatically prepended with
@@ -201,9 +208,8 @@ func (c *WorkdirCommand) Expand(expander SingleWordExpander) error {
 // RUN [ "echo", "hi" ] # echo hi
 //
 type RunCommand struct {
-	WithNameAndCode
-	Expression   strslice.StrSlice
-	PrependShell bool
+	withNameAndCode
+	ShellDependantCmdLine
 }
 
 // CmdCommand : CMD foo
@@ -212,9 +218,8 @@ type RunCommand struct {
 // Argument handling is the same as RUN.
 //
 type CmdCommand struct {
-	WithNameAndCode
-	Cmd          strslice.StrSlice
-	PrependShell bool
+	withNameAndCode
+	ShellDependantCmdLine
 }
 
 // HealthCheckCommand : HEALTHCHECK foo
@@ -223,7 +228,7 @@ type CmdCommand struct {
 // Argument handling is the same as RUN.
 //
 type HealthCheckCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	Health *container.HealthConfig
 }
 
@@ -236,9 +241,8 @@ type HealthCheckCommand struct {
 // is initialized at newBuilder time instead of through argument parsing.
 //
 type EntrypointCommand struct {
-	WithNameAndCode
-	Cmd          strslice.StrSlice
-	PrependShell bool
+	withNameAndCode
+	ShellDependantCmdLine
 }
 
 // ExposeCommand : EXPOSE 6667/tcp 7000/tcp
@@ -247,7 +251,7 @@ type EntrypointCommand struct {
 // req.runConfig.ExposedPorts for runconfig.
 //
 type ExposeCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	Ports []string
 }
 
@@ -257,7 +261,7 @@ type ExposeCommand struct {
 // ENTRYPOINT/CMD at container run time.
 //
 type UserCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	User string
 }
 
@@ -276,7 +280,7 @@ func (c *UserCommand) Expand(expander SingleWordExpander) error {
 // Expose the volume /foo for use. Will also accept the JSON array form.
 //
 type VolumeCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	Volumes []string
 }
 
@@ -289,7 +293,7 @@ func (c *VolumeCommand) Expand(expander SingleWordExpander) error {
 //
 // Set the signal that will be used to kill the container.
 type StopSignalCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	Signal string
 }
 
@@ -309,7 +313,7 @@ func (c *StopSignalCommand) Expand(expander SingleWordExpander) error {
 // to builder using the --build-arg flag for expansion/substitution or passing to 'run'.
 // Dockerfile author may optionally set a default value of this variable.
 type ArgCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	Name  string
 	Value *string
 }
@@ -335,7 +339,7 @@ func (c *ArgCommand) Expand(expander SingleWordExpander) error {
 //
 // Set the non-default shell to use.
 type ShellCommand struct {
-	WithNameAndCode
+	withNameAndCode
 	Shell strslice.StrSlice
 }
 
