@@ -111,7 +111,7 @@ func dispatchCopy(d *dispatchRequest, c *instructions.CopyCommand) error {
 	var im *imageMount
 	var err error
 	if c.From != "" {
-		im, err = d.builder.getImageMount(c.From)
+		im, err = d.getImageMount(c.From)
 		if err != nil {
 			return errors.Wrapf(err, "invalid from flag value %s", c.From)
 		}
@@ -126,22 +126,22 @@ func dispatchCopy(d *dispatchRequest, c *instructions.CopyCommand) error {
 	return d.builder.performCopy(d.state, copyInstruction)
 }
 
-func (b *Builder) getImageMount(imageRefOrID string) (*imageMount, error) {
+func (d *dispatchRequest) getImageMount(imageRefOrID string) (*imageMount, error) {
 	if imageRefOrID == "" {
 		// TODO: this could return the source in the default case as well?
 		return nil, nil
 	}
 
 	var localOnly bool
-	stage, err := b.buildStages.get(imageRefOrID)
+	stage, err := d.previousResults.get(imageRefOrID)
 	if err != nil {
 		return nil, err
 	}
 	if stage != nil {
-		imageRefOrID = stage.ImageID()
+		imageRefOrID = stage.Image
 		localOnly = true
 	}
-	return b.imageSources.Get(imageRefOrID, localOnly)
+	return d.builder.imageSources.Get(imageRefOrID, localOnly)
 }
 
 // FROM imagename[:tag | @digest] [AS build-stage-name]
@@ -150,9 +150,6 @@ func initializeStage(d *dispatchRequest, cmd *instructions.BuildableStage) error
 	d.builder.imageProber.Reset()
 	image, err := d.getFromImage(d.shlex, cmd.BaseName)
 	if err != nil {
-		return err
-	}
-	if err := d.builder.buildStages.add(cmd.Name, image); err != nil {
 		return err
 	}
 	state := d.state
@@ -212,23 +209,23 @@ func (d *dispatchRequest) getExpandedImageName(shlex *ShellLex, name string) (st
 	}
 	return name, nil
 }
-func (b *Builder) getImageOrStage(name string) (builder.Image, error) {
+func (d *dispatchRequest) getImageOrStage(name string) (builder.Image, error) {
 	var localOnly bool
-	if im, ok := b.buildStages.getByName(name); ok {
-		name = im.ImageID()
+	if im, ok := d.previousResults.getByName(name); ok {
+		name = im.Image
 		localOnly = true
 	}
 
 	// Windows cannot support a container with no base image unless it is LCOW.
 	if name == api.NoBaseImageSpecifier {
 		if runtime.GOOS == "windows" {
-			if b.platform == "windows" || (b.platform != "windows" && !system.LCOWSupported()) {
+			if d.builder.platform == "windows" || (d.builder.platform != "windows" && !system.LCOWSupported()) {
 				return nil, errors.New("Windows does not support FROM scratch")
 			}
 		}
 		return scratchImage, nil
 	}
-	imageMount, err := b.imageSources.Get(name, localOnly)
+	imageMount, err := d.builder.imageSources.Get(name, localOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +236,7 @@ func (d *dispatchRequest) getFromImage(shlex *ShellLex, name string) (builder.Im
 	if err != nil {
 		return nil, err
 	}
-	return d.builder.getImageOrStage(name)
+	return d.getImageOrStage(name)
 }
 
 func dispatchOnbuild(d *dispatchRequest, c *instructions.OnbuildCommand) error {

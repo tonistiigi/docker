@@ -31,7 +31,6 @@ func newBuilderWithMockBackend() *Builder {
 			Options: &types.ImageBuildOptions{},
 			Backend: mockBackend,
 		}),
-		buildStages:      newBuildStages(),
 		imageProber:      newImageProber(mockBackend, nil, runtime.GOOS, false),
 		containerManager: newContainerManager(mockBackend),
 	}
@@ -40,7 +39,7 @@ func newBuilderWithMockBackend() *Builder {
 
 func TestEnv2Variables(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 	envCommand := &instructions.EnvCommand{
 		Env: instructions.KeyValuePairs{
 			instructions.KeyValuePair{Key: "var1", Value: "val1"},
@@ -59,7 +58,7 @@ func TestEnv2Variables(t *testing.T) {
 
 func TestEnvValueWithExistingRunConfigEnv(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 	sb.state.runConfig.Env = []string{"var1=old", "var2=fromenv"}
 	envCommand := &instructions.EnvCommand{
 		Env: instructions.KeyValuePairs{
@@ -78,7 +77,7 @@ func TestEnvValueWithExistingRunConfigEnv(t *testing.T) {
 func TestMaintainer(t *testing.T) {
 	maintainerEntry := "Some Maintainer <maintainer@example.com>"
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 	cmd := &instructions.MaintainerCommand{Maintainer: maintainerEntry}
 	err := dispatch(sb, cmd)
 	require.NoError(t, err)
@@ -90,7 +89,7 @@ func TestLabel(t *testing.T) {
 	labelValue := "value"
 
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 	cmd := &instructions.LabelCommand{
 		Labels: instructions.KeyValuePairs{
 			instructions.KeyValuePair{Key: labelName, Value: labelValue},
@@ -105,7 +104,7 @@ func TestLabel(t *testing.T) {
 
 func TestFromScratch(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 	cmd := &instructions.BuildableStage{
 		BaseName: "scratch",
 	}
@@ -148,7 +147,7 @@ func TestFromWithArg(t *testing.T) {
 	}
 	err := processMetaArg(metaArg, NewShellLex('\\'), args)
 
-	sb := newDispatchRequest(b, '\\', nil, args)
+	sb := newDispatchRequest(b, '\\', nil, args, newPreviousStagesResults())
 	require.NoError(t, err)
 	err = initializeStage(sb, cmd)
 	require.NoError(t, err)
@@ -168,7 +167,7 @@ func TestFromWithUndefinedArg(t *testing.T) {
 	}
 	b := newBuilderWithMockBackend()
 	b.docker.(*MockBackend).getImageFunc = getImage
-	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 
 	b.options.BuildArgs = map[string]*string{"THETAG": &tag}
 
@@ -184,11 +183,14 @@ func TestFromMultiStageWithNamedStage(t *testing.T) {
 	b := newBuilderWithMockBackend()
 	firstFrom := &instructions.BuildableStage{BaseName: "someimg", Name: "base"}
 	secondFrom := &instructions.BuildableStage{BaseName: "base"}
-	firstSB := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)))
-	secondSB := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)))
+	previousResults := newPreviousStagesResults()
+	firstSB := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)), previousResults)
+	secondSB := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)), previousResults)
 	err := initializeStage(firstSB, firstFrom)
 	require.NoError(t, err)
 	assert.True(t, firstSB.state.hasFromImage())
+	previousResults.indexed["base"] = firstSB.state.runConfig
+	previousResults.flat = append(previousResults.flat, firstSB.state.runConfig)
 	err = initializeStage(secondSB, secondFrom)
 	require.NoError(t, err)
 	assert.True(t, secondSB.state.hasFromImage())
@@ -196,7 +198,7 @@ func TestFromMultiStageWithNamedStage(t *testing.T) {
 
 func TestOnbuild(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 	cmd := &instructions.OnbuildCommand{
 		Expression: "ADD . /app/src",
 	}
@@ -207,7 +209,7 @@ func TestOnbuild(t *testing.T) {
 
 func TestWorkdir(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 	workingDir := "/app"
 	if runtime.GOOS == "windows" {
 		workingDir = "C:\\app"
@@ -223,7 +225,7 @@ func TestWorkdir(t *testing.T) {
 
 func TestCmd(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 	command := "./executable"
 
 	cmd := &instructions.CmdCommand{
@@ -248,7 +250,7 @@ func TestCmd(t *testing.T) {
 
 func TestHealthcheckNone(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 	cmd := &instructions.HealthCheckCommand{
 		Health: &container.HealthConfig{
 			Test: []string{"NONE"},
@@ -264,7 +266,7 @@ func TestHealthcheckNone(t *testing.T) {
 func TestHealthcheckCmd(t *testing.T) {
 
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 	expectedTest := []string{"CMD-SHELL", "curl -f http://localhost/ || exit 1"}
 	cmd := &instructions.HealthCheckCommand{
 		Health: &container.HealthConfig{
@@ -280,7 +282,7 @@ func TestHealthcheckCmd(t *testing.T) {
 
 func TestEntrypoint(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 	entrypointCmd := "/usr/sbin/nginx"
 
 	cmd := &instructions.EntrypointCommand{
@@ -304,7 +306,7 @@ func TestEntrypoint(t *testing.T) {
 
 func TestExpose(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 
 	exposedPort := "80"
 	cmd := &instructions.ExposeCommand{
@@ -323,7 +325,7 @@ func TestExpose(t *testing.T) {
 
 func TestUser(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 
 	cmd := &instructions.UserCommand{
 		User: "test",
@@ -335,7 +337,7 @@ func TestUser(t *testing.T) {
 
 func TestVolume(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 
 	exposedVolume := "/foo"
 
@@ -355,7 +357,7 @@ func TestStopSignal(t *testing.T) {
 		return
 	}
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 	signal := "SIGKILL"
 
 	cmd := &instructions.StopSignalCommand{
@@ -368,7 +370,7 @@ func TestStopSignal(t *testing.T) {
 
 func TestArg(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 
 	argName := "foo"
 	argVal := "bar"
@@ -382,7 +384,7 @@ func TestArg(t *testing.T) {
 
 func TestShell(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)))
+	sb := newDispatchRequest(b, '`', nil, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
 
 	shellCmd := "powershell"
 	cmd := &instructions.ShellCommand{Shell: strslice.StrSlice{shellCmd}}
@@ -411,7 +413,7 @@ func TestRunWithBuildArgs(t *testing.T) {
 	args := newBuildArgs(make(map[string]*string))
 	args.argsFromOptions["HTTP_PROXY"] = strPtr("FOO")
 	b.disableCommit = false
-	sb := newDispatchRequest(b, '`', nil, args)
+	sb := newDispatchRequest(b, '`', nil, args, newPreviousStagesResults())
 
 	runConfig := &container.Config{}
 	origCmd := strslice.StrSlice([]string{"cmd", "in", "from", "image"})

@@ -27,6 +27,8 @@ import (
 
 	"reflect"
 
+	"strconv"
+
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/instructions"
@@ -119,19 +121,61 @@ func newDispatchState(baseArgs *buildArgs) *dispatchState {
 	return &dispatchState{runConfig: &container.Config{}, buildArgs: args}
 }
 
-type dispatchRequest struct {
-	state   *dispatchState
-	shlex   *ShellLex
-	builder *Builder
-	source  builder.Source
+type previousStagesResults struct {
+	flat    []*container.Config
+	indexed map[string]*container.Config
 }
 
-func newDispatchRequest(builder *Builder, escapeToken rune, source builder.Source, buildArgs *buildArgs) *dispatchRequest {
+func newPreviousStagesResults() *previousStagesResults {
+	return &previousStagesResults{
+		indexed: make(map[string]*container.Config),
+	}
+}
+
+func (p *previousStagesResults) getByName(name string) (*container.Config, bool) {
+	c, ok := p.indexed[name]
+	return c, ok
+}
+
+func (s *previousStagesResults) validateIndex(i int) error {
+	if i < 0 || i >= len(s.flat)-1 {
+		if i == len(s.flat)-1 {
+			return errors.New("refers to current build stage")
+		}
+		return errors.New("index out of bounds")
+	}
+	return nil
+}
+
+func (p *previousStagesResults) get(nameOrIndex string) (*container.Config, error) {
+	if c, ok := p.getByName(nameOrIndex); ok {
+		return c, nil
+	}
+	ix, err := strconv.ParseInt(nameOrIndex, 10, 0)
+	if err != nil {
+		return nil, nil
+	}
+	if err := p.validateIndex(int(ix)); err != nil {
+		return nil, err
+	}
+	return p.flat[ix], nil
+}
+
+type dispatchRequest struct {
+	state           *dispatchState
+	shlex           *ShellLex
+	builder         *Builder
+	source          builder.Source
+	previousResults *previousStagesResults
+}
+
+func newDispatchRequest(builder *Builder, escapeToken rune, source builder.Source, buildArgs *buildArgs, previousResults *previousStagesResults) *dispatchRequest {
 	return &dispatchRequest{
-		state:   newDispatchState(buildArgs),
-		shlex:   NewShellLex(escapeToken),
-		builder: builder,
-		source:  source,
+		state:           newDispatchState(buildArgs),
+		shlex:           NewShellLex(escapeToken),
+		builder:         builder,
+		source:          source,
+		previousResults: previousResults,
 	}
 }
 func (s *dispatchState) updateRunConfig() {
