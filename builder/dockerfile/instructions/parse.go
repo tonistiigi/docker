@@ -139,9 +139,8 @@ func Parse(ast *parser.Node) (stages []BuildableStage, metaArgs []ArgCommand, er
 			}
 		}
 		switch c := cmd.(type) {
-		case *FromCommand:
-			stage := BuildableStage{Name: c.StageName, Commands: []interface{}{c}}
-			stages = append(stages, stage)
+		case *BuildableStage:
+			stages = append(stages, *c)
 		default:
 			stage, err := CurrentStage(stages)
 			if err != nil {
@@ -252,7 +251,7 @@ func parseCopy(req parseRequest) (*CopyCommand, error) {
 	}, nil
 }
 
-func parseFrom(req parseRequest) (*FromCommand, error) {
+func parseFrom(req parseRequest) (*BuildableStage, error) {
 	stageName, err := parseBuildStageName(req.args)
 	if err != nil {
 		return nil, err
@@ -261,11 +260,13 @@ func parseFrom(req parseRequest) (*FromCommand, error) {
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}
+	code := strings.TrimSpace(req.original)
 
-	return &FromCommand{
-		BaseName:        req.args[0],
-		StageName:       stageName,
-		withNameAndCode: newWithNameAndCode(req),
+	return &BuildableStage{
+		BaseName:   req.args[0],
+		Name:       stageName,
+		SourceCode: code,
+		Commands:   []interface{}{},
 	}, nil
 
 }

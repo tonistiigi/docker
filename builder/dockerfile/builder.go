@@ -296,7 +296,7 @@ func processMetaArg(meta instructions.ArgCommand, shlex *ShellLex, args *buildAr
 func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.BuildableStage, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
 	var dispatchRequest *dispatchRequest
 	buildArgs := newBuildArgs(b.options.BuildArgs)
-	totalCommands := len(metaArgs)
+	totalCommands := len(metaArgs) + len(parseResult)
 	currentCommandIndex := 1
 	for _, stage := range parseResult {
 		totalCommands += len(stage.Commands)
@@ -316,6 +316,15 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 
 	for _, stage := range parseResult {
 		dispatchRequest = newDispatchRequest(b, escapeToken, source, buildArgs)
+
+		fmt.Fprintf(b.Stdout, stepFormat, currentCommandIndex, totalCommands, stage.SourceCode)
+		currentCommandIndex++
+		fmt.Fprintln(b.Stdout)
+		if err := initializeStage(dispatchRequest, &stage); err != nil {
+			return nil, err
+		}
+		dispatchRequest.state.updateRunConfig()
+		fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(dispatchRequest.state.imageID))
 		for _, cmd := range stage.Commands {
 			select {
 			case <-b.clientCtx.Done():
@@ -405,28 +414,25 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	b.Stderr = ioutil.Discard
 	b.disableCommit = true
 
-	stage := instructions.BuildableStage{
-		Name: "0",
-		Commands: []interface{}{&instructions.ResumeBuildCommand{
-			BaseConfig: config,
-		}},
-	}
-
+	commands := []interface{}{&instructions.ResumeBuildCommand{
+		BaseConfig: config,
+	}}
 	for _, n := range dockerfile.AST.Children {
 		cmd, err := instructions.ParseCommand(n)
 		if err != nil {
 			return nil, validationError{err}
 		}
-		stage.AddCommand(cmd)
+		commands = append(commands, cmd)
 	}
 
-	parseState := []instructions.BuildableStage{
-		stage,
+	dispatchRequest := newDispatchRequest(b, dockerfile.EscapeToken, nil, newBuildArgs(b.options.BuildArgs))
+	for _, cmd := range commands {
+		err := dispatch(dispatchRequest, cmd)
+		if err != nil {
+			return nil, validationError{err}
+		}
+		dispatchRequest.state.updateRunConfig()
 	}
-	res, err := b.dispatchDockerfileWithCancellation(parseState, nil, dockerfile.EscapeToken, nil)
 
-	if err != nil {
-		return nil, validationError{err}
-	}
-	return res.runConfig, nil
+	return dispatchRequest.state.runConfig, nil
 }

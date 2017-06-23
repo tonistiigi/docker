@@ -148,17 +148,17 @@ func (b *Builder) getImageMount(imageRefOrID string) (*imageMount, error) {
 
 // FROM imagename[:tag | @digest] [AS build-stage-name]
 //
-func dispatchFrom(d *dispatchRequest, cmd *instructions.FromCommand) error {
+func initializeStage(d *dispatchRequest, cmd *instructions.BuildableStage) error {
 	d.builder.imageProber.Reset()
 	image, err := d.getFromImage(d.shlex, cmd.BaseName)
 	if err != nil {
 		return err
 	}
-	if err := d.builder.buildStages.add(cmd.StageName, image); err != nil {
+	if err := d.builder.buildStages.add(cmd.Name, image); err != nil {
 		return err
 	}
 	state := d.state
-	state.beginStage(cmd.StageName, image)
+	state.beginStage(cmd.Name, image)
 	if len(state.runConfig.OnBuild) > 0 {
 		triggers := state.runConfig.OnBuild
 		state.runConfig.OnBuild = nil

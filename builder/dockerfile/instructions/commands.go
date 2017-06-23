@@ -158,14 +158,6 @@ func (c *CopyCommand) Expand(expander SingleWordExpander) error {
 	return expandSliceInPlace(c.SourcesAndDest, expander)
 }
 
-// FromCommand : FROM imagename[:tag | @digest] [AS build-stage-name]
-//
-type FromCommand struct {
-	withNameAndCode
-	BaseName  string
-	StageName string
-}
-
 // OnbuildCommand : ONBUILD <some other command>
 type OnbuildCommand struct {
 	withNameAndCode
@@ -350,8 +342,10 @@ type ResumeBuildCommand struct {
 
 // BuildableStage represents a single stage in a multi-stage build
 type BuildableStage struct {
-	Name     string
-	Commands []interface{}
+	Name       string
+	Commands   []interface{}
+	BaseName   string
+	SourceCode string
 }
 
 // AddCommand to the stage
