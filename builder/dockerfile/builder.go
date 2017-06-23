@@ -180,9 +180,8 @@ type Builder struct {
 
 	docker    builder.Backend
 	clientCtx context.Context
-
+	
 	archiver         *archive.Archiver
-	buildStages      *buildStages
 	disableCommit    bool
 	imageSources     *imageSources
 	pathCache        pathCache
@@ -223,7 +222,6 @@ func newBuilder(clientCtx context.Context, options builderOptions) *Builder {
 		Output:           options.ProgressWriter.Output,
 		docker:           options.Backend,
 		archiver:         options.Archiver,
-		buildStages:      newBuildStages(),
 		imageSources:     newImageSources(clientCtx, options),
 		pathCache:        options.PathCache,
 		imageProber:      newImageProber(options.Backend, config.CacheFrom, options.Platform, config.NoCache),
@@ -314,8 +312,10 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 		}
 	}
 
+	stagesResults := newPreviousStagesResults()
+
 	for _, stage := range parseResult {
-		dispatchRequest = newDispatchRequest(b, escapeToken, source, buildArgs)
+		dispatchRequest = newDispatchRequest(b, escapeToken, source, buildArgs, stagesResults)
 
 		fmt.Fprintf(b.Stdout, stepFormat, currentCommandIndex, totalCommands, stage.SourceCode)
 		currentCommandIndex++
@@ -352,6 +352,10 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 			return nil, err
 		}
 		buildArgs.MergeReferencedArgs(dispatchRequest.state.buildArgs)
+		stagesResults.flat = append(stagesResults.flat, dispatchRequest.state.runConfig)
+		if stage.Name != "" {
+			stagesResults.indexed[stage.Name] = dispatchRequest.state.runConfig
+		}
 	}
 	if b.options.Remove {
 		b.containerManager.RemoveAll(b.Stdout)
@@ -425,7 +429,7 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 		commands = append(commands, cmd)
 	}
 
-	dispatchRequest := newDispatchRequest(b, dockerfile.EscapeToken, nil, newBuildArgs(b.options.BuildArgs))
+	dispatchRequest := newDispatchRequest(b, dockerfile.EscapeToken, nil, newBuildArgs(b.options.BuildArgs), newPreviousStagesResults())
 	for _, cmd := range commands {
 		err := dispatch(dispatchRequest, cmd)
 		if err != nil {

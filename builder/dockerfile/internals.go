@@ -65,7 +65,6 @@ func (b *Builder) commitContainer(dispatchState *dispatchState, id string, conta
 	}
 
 	dispatchState.imageID = imageID
-	b.buildStages.update(imageID)
 	return nil
 }
 
@@ -105,7 +104,6 @@ func (b *Builder) exportImage(state *dispatchState, imageMount *imageMount, runC
 
 	state.imageID = exportedImage.ImageID()
 	b.imageSources.Add(newImageMount(exportedImage, newLayer))
-	b.buildStages.update(state.imageID)
 	return nil
 }
 
@@ -349,7 +347,6 @@ func (b *Builder) probeCache(dispatchState *dispatchState, runConfig *container.
 	fmt.Fprint(b.Stdout, " ---> Using cache\n")
 
 	dispatchState.imageID = string(cachedID)
-	b.buildStages.update(dispatchState.imageID)
 	return true, nil
 }
 
