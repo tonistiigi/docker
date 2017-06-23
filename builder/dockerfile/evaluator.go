@@ -62,8 +62,6 @@ func dispatch(d *dispatchRequest, cmd interface{}) error {
 	}
 
 	switch c := cmd.(type) {
-	case *instructions.FromCommand:
-		return dispatchFrom(d, c)
 	case *instructions.EnvCommand:
 		return dispatchEnv(d, c)
 	case *instructions.MaintainerCommand:

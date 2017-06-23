@@ -106,10 +106,10 @@ func TestLabel(t *testing.T) {
 func TestFromScratch(t *testing.T) {
 	b := newBuilderWithMockBackend()
 	sb := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)))
-	cmd := &instructions.FromCommand{
+	cmd := &instructions.BuildableStage{
 		BaseName: "scratch",
 	}
-	err := dispatch(sb, cmd)
+	err := initializeStage(sb, cmd)
 
 	if runtime.GOOS == "windows" && !system.LCOWSupported() {
 		assert.EqualError(t, err, "Windows does not support FROM scratch")
@@ -143,14 +143,14 @@ func TestFromWithArg(t *testing.T) {
 		Name:  "THETAG",
 		Value: &val,
 	}
-	cmd := &instructions.FromCommand{
+	cmd := &instructions.BuildableStage{
 		BaseName: "alpine:${THETAG}",
 	}
 	err := processMetaArg(metaArg, NewShellLex('\\'), args)
 
 	sb := newDispatchRequest(b, '\\', nil, args)
 	require.NoError(t, err)
-	err = dispatch(sb, cmd)
+	err = initializeStage(sb, cmd)
 	require.NoError(t, err)
 
 	assert.Equal(t, expected, sb.state.imageID)
@@ -172,24 +172,24 @@ func TestFromWithUndefinedArg(t *testing.T) {
 
 	b.options.BuildArgs = map[string]*string{"THETAG": &tag}
 
-	cmd := &instructions.FromCommand{
+	cmd := &instructions.BuildableStage{
 		BaseName: "alpine${THETAG}",
 	}
-	err := dispatch(sb, cmd)
+	err := initializeStage(sb, cmd)
 	require.NoError(t, err)
 	assert.Equal(t, expected, sb.state.imageID)
 }
 
 func TestFromMultiStageWithNamedStage(t *testing.T) {
 	b := newBuilderWithMockBackend()
-	firstFrom := &instructions.FromCommand{BaseName: "someimg", StageName: "base"}
-	secondFrom := &instructions.FromCommand{BaseName: "base"}
+	firstFrom := &instructions.BuildableStage{BaseName: "someimg", Name: "base"}
+	secondFrom := &instructions.BuildableStage{BaseName: "base"}
 	firstSB := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)))
 	secondSB := newDispatchRequest(b, '\\', nil, newBuildArgs(make(map[string]*string)))
-	err := dispatch(firstSB, firstFrom)
+	err := initializeStage(firstSB, firstFrom)
 	require.NoError(t, err)
 	assert.True(t, firstSB.state.hasFromImage())
-	err = dispatch(secondSB, secondFrom)
+	err = initializeStage(secondSB, secondFrom)
 	require.NoError(t, err)
 	assert.True(t, secondSB.state.hasFromImage())
 }
@@ -453,8 +453,8 @@ func TestRunWithBuildArgs(t *testing.T) {
 		assert.Equal(t, strslice.StrSlice(nil), cfg.Config.Entrypoint)
 		return "", nil
 	}
-	from := &instructions.FromCommand{BaseName: "abcdef"}
-	err := dispatch(sb, from)
+	from := &instructions.BuildableStage{BaseName: "abcdef"}
+	err := initializeStage(sb, from)
 	require.NoError(t, err)
 	sb.state.buildArgs.AddArg("one", strPtr("two"))
 	run := &instructions.RunCommand{
