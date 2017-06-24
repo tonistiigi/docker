@@ -137,11 +137,11 @@ func (p *previousStagesResults) getByName(name string) (*container.Config, bool)
 	return c, ok
 }
 
-func (s *previousStagesResults) validateIndex(i int) error {
-	if i < 0 || i >= len(s.flat)-1 {
-		if i == len(s.flat)-1 {
-			return errors.New("refers to current build stage")
-		}
+func (p *previousStagesResults) validateIndex(i int) error {
+	if i == len(p.flat) {
+		return errors.New("refers to current build stage")
+	}
+	if i < 0 || i > len(p.flat) {
 		return errors.New("index out of bounds")
 	}
 	return nil
