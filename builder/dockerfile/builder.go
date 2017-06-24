@@ -315,6 +315,9 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 	stagesResults := newPreviousStagesResults()
 
 	for _, stage := range parseResult {
+		if err := stagesResults.checkStageNameAvailable(stage.Name); err != nil {
+			return nil, err
+		}
 		dispatchRequest = newDispatchRequest(b, escapeToken, source, buildArgs, stagesResults)
 
 		fmt.Fprintf(b.Stdout, stepFormat, currentCommandIndex, totalCommands, stage.SourceCode)
@@ -352,9 +355,8 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 			return nil, err
 		}
 		buildArgs.MergeReferencedArgs(dispatchRequest.state.buildArgs)
-		stagesResults.flat = append(stagesResults.flat, dispatchRequest.state.runConfig)
-		if stage.Name != "" {
-			stagesResults.indexed[stage.Name] = dispatchRequest.state.runConfig
+		if err := dispatchRequest.commitStage(); err != nil {
+			return nil, err
 		}
 	}
 	if b.options.Remove {

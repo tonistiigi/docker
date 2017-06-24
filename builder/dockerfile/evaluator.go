@@ -133,7 +133,7 @@ func newPreviousStagesResults() *previousStagesResults {
 }
 
 func (p *previousStagesResults) getByName(name string) (*container.Config, bool) {
-	c, ok := p.indexed[name]
+	c, ok := p.indexed[strings.ToLower(name)]
 	return c, ok
 }
 
@@ -161,6 +161,26 @@ func (p *previousStagesResults) get(nameOrIndex string) (*container.Config, erro
 	return p.flat[ix], nil
 }
 
+func (p *previousStagesResults) checkStageNameAvailable(name string) error {
+	if name != "" {
+		if _, ok := p.getByName(name); ok {
+			return errors.Errorf("%s stage name already used", name)
+		}
+	}
+	return nil
+}
+
+func (p *previousStagesResults) commitStage(name string, config *container.Config) error {
+	if name != "" {
+		if _, ok := p.getByName(name); ok {
+			return errors.Errorf("%s stage name already used", name)
+		}
+		p.indexed[strings.ToLower(name)] = config
+	}
+	p.flat = append(p.flat, config)
+	return nil
+}
+
 type dispatchRequest struct {
 	state           *dispatchState
 	shlex           *ShellLex
@@ -178,6 +198,11 @@ func newDispatchRequest(builder *Builder, escapeToken rune, source builder.Sourc
 		previousResults: previousResults,
 	}
 }
+
+func (d *dispatchRequest) commitStage() error {
+	return d.previousResults.commitStage(d.state.stageName, d.state.runConfig)
+}
+
 func (s *dispatchState) updateRunConfig() {
 	s.runConfig.Image = s.imageID
 }
