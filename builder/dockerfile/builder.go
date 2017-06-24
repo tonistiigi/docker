@@ -180,7 +180,7 @@ type Builder struct {
 
 	docker    builder.Backend
 	clientCtx context.Context
-	
+
 	archiver         *archive.Archiver
 	disableCommit    bool
 	imageSources     *imageSources
