@@ -224,7 +224,7 @@ func (s *dispatchState) beginStage(stageName string, image builder.Image) {
 	s.imageID = image.ImageID()
 
 	if image.RunConfig() != nil {
-		s.runConfig = image.RunConfig()
+		s.runConfig = copyRunConfig(image.RunConfig()) // copy avoids referencing the same instance when 2 stages have the same base
 	} else {
 		s.runConfig = &container.Config{}
 	}
