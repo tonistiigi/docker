@@ -98,8 +98,6 @@ func dispatch(d *dispatchRequest, cmd interface{}) error {
 		return dispatchArg(d, c)
 	case *instructions.ShellCommand:
 		return dispatchShell(d, c)
-	case *instructions.ResumeBuildCommand:
-		return dispatchResumeBuild(d, c)
 	}
 	return validationError{errors.Errorf("unsupported command type: %v", reflect.TypeOf(cmd))}
 }
@@ -121,86 +119,86 @@ func newDispatchState(baseArgs *buildArgs) *dispatchState {
 	return &dispatchState{runConfig: &container.Config{}, buildArgs: args}
 }
 
-type previousStagesResults struct {
+type stagesBuildResults struct {
 	flat    []*container.Config
 	indexed map[string]*container.Config
 }
 
-func newPreviousStagesResults() *previousStagesResults {
-	return &previousStagesResults{
+func newStagesBuildResults() *stagesBuildResults {
+	return &stagesBuildResults{
 		indexed: make(map[string]*container.Config),
 	}
 }
 
-func (p *previousStagesResults) getByName(name string) (*container.Config, bool) {
-	c, ok := p.indexed[strings.ToLower(name)]
+func (r *stagesBuildResults) getByName(name string) (*container.Config, bool) {
+	c, ok := r.indexed[strings.ToLower(name)]
 	return c, ok
 }
 
-func (p *previousStagesResults) validateIndex(i int) error {
-	if i == len(p.flat) {
+func (r *stagesBuildResults) validateIndex(i int) error {
+	if i == len(r.flat) {
 		return errors.New("refers to current build stage")
 	}
-	if i < 0 || i > len(p.flat) {
+	if i < 0 || i > len(r.flat) {
 		return errors.New("index out of bounds")
 	}
 	return nil
 }
 
-func (p *previousStagesResults) get(nameOrIndex string) (*container.Config, error) {
-	if c, ok := p.getByName(nameOrIndex); ok {
+func (r *stagesBuildResults) get(nameOrIndex string) (*container.Config, error) {
+	if c, ok := r.getByName(nameOrIndex); ok {
 		return c, nil
 	}
 	ix, err := strconv.ParseInt(nameOrIndex, 10, 0)
 	if err != nil {
 		return nil, nil
 	}
-	if err := p.validateIndex(int(ix)); err != nil {
+	if err := r.validateIndex(int(ix)); err != nil {
 		return nil, err
 	}
-	return p.flat[ix], nil
+	return r.flat[ix], nil
 }
 
-func (p *previousStagesResults) checkStageNameAvailable(name string) error {
+func (r *stagesBuildResults) checkStageNameAvailable(name string) error {
 	if name != "" {
-		if _, ok := p.getByName(name); ok {
+		if _, ok := r.getByName(name); ok {
 			return errors.Errorf("%s stage name already used", name)
 		}
 	}
 	return nil
 }
 
-func (p *previousStagesResults) commitStage(name string, config *container.Config) error {
+func (r *stagesBuildResults) commitStage(name string, config *container.Config) error {
 	if name != "" {
-		if _, ok := p.getByName(name); ok {
+		if _, ok := r.getByName(name); ok {
 			return errors.Errorf("%s stage name already used", name)
 		}
-		p.indexed[strings.ToLower(name)] = config
+		r.indexed[strings.ToLower(name)] = config
 	}
-	p.flat = append(p.flat, config)
+	r.flat = append(r.flat, config)
 	return nil
 }
 
 type dispatchRequest struct {
-	state           *dispatchState
-	shlex           *ShellLex
-	builder         *Builder
-	source          builder.Source
-	previousResults *previousStagesResults
+	state   *dispatchState
+	shlex   *ShellLex
+	builder *Builder
+	source  builder.Source
+	stages  *stagesBuildResults
 }
 
-func newDispatchRequest(builder *Builder, escapeToken rune, source builder.Source, buildArgs *buildArgs, previousResults *previousStagesResults) *dispatchRequest {
+func newDispatchRequest(builder *Builder, escapeToken rune, source builder.Source, buildArgs *buildArgs, stages *stagesBuildResults) *dispatchRequest {
 	return &dispatchRequest{
-		state:           newDispatchState(buildArgs),
-		shlex:           NewShellLex(escapeToken),
-		builder:         builder,
-		source:          source,
-		previousResults: previousResults,
+		state:   newDispatchState(buildArgs),
+		shlex:   NewShellLex(escapeToken),
+		builder: builder,
+		source:  source,
+		stages:  stages,
 	}
 }
 
 func (d *dispatchRequest) commitStage() error {
-	return d.previousResults.commitStage(d.state.stageName, d.state.runConfig)
+	return d.stages.commitStage(d.state.stageName, d.state.runConfig)
 }
 
 func (s *dispatchState) updateRunConfig() {

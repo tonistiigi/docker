@@ -48,8 +48,8 @@ func newParseRequestFromNode(node *parser.Node) parseRequest {
 	}
 }
 
-// ParseCommand converts an AST to a typed build command
-func ParseCommand(node *parser.Node) (interface{}, error) {
+// ParseStatement converts an AST to a typed statement (either a command or a build stage beginning when encountering a `FROM` statement)
+func ParseStatement(node *parser.Node) (interface{}, error) {
 	req := newParseRequestFromNode(node)
 	switch node.Value {
 	case command.Env:
@@ -125,9 +125,9 @@ func (e *parseError) Error() string {
 }
 
 // Parse a docker file into a collection of buildable stages
-func Parse(ast *parser.Node) (stages []BuildableStage, metaArgs []ArgCommand, err error) {
+func Parse(ast *parser.Node) (stages []Stage, metaArgs []ArgCommand, err error) {
 	for _, n := range ast.Children {
-		cmd, err := ParseCommand(n)
+		cmd, err := ParseStatement(n)
 		if err != nil {
 			return nil, nil, &parseError{inner: err, node: n}
 		}
@@ -139,7 +139,7 @@ func Parse(ast *parser.Node) (stages []BuildableStage, metaArgs []ArgCommand, er
 			}
 		}
 		switch c := cmd.(type) {
-		case *BuildableStage:
+		case *Stage:
 			stages = append(stages, *c)
 		default:
 			stage, err := CurrentStage(stages)
@@ -249,7 +249,7 @@ func parseCopy(req parseRequest) (*CopyCommand, error) {
 	}, nil
 }
 
-func parseFrom(req parseRequest) (*BuildableStage, error) {
+func parseFrom(req parseRequest) (*Stage, error) {
 	stageName, err := parseBuildStageName(req.args)
 	if err != nil {
 		return nil, err
@@ -260,7 +260,7 @@ func parseFrom(req parseRequest) (*BuildableStage, error) {
 	}
 	code := strings.TrimSpace(req.original)
 
-	return &BuildableStage{
+	return &Stage{
 		BaseName:   req.args[0],
 		Name:       stageName,
 		SourceCode: code,

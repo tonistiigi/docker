@@ -333,13 +333,8 @@ type ShellCommand struct {
 	Shell strslice.StrSlice
 }
 
-// ResumeBuildCommand allows to resume a build operation from a given container config
-type ResumeBuildCommand struct {
-	BaseConfig *container.Config
-}
-
-// BuildableStage represents a single stage in a multi-stage build
-type BuildableStage struct {
+// Stage represents a single stage in a multi-stage build
+type Stage struct {
 	Name       string
 	Commands   []interface{}
 	BaseName   string
@@ -347,13 +342,13 @@ type BuildableStage struct {
 }
 
 // AddCommand to the stage
-func (s *BuildableStage) AddCommand(cmd interface{}) {
+func (s *Stage) AddCommand(cmd interface{}) {
 	// todo: validate cmd type
 	s.Commands = append(s.Commands, cmd)
 }
 
 // IsCurrentStage check if the stage name is the current stage
-func IsCurrentStage(s []BuildableStage, name string) bool {
+func IsCurrentStage(s []Stage, name string) bool {
 	if len(s) == 0 {
 		return false
 	}
@@ -361,7 +356,7 @@ func IsCurrentStage(s []BuildableStage, name string) bool {
 }
 
 // CurrentStage return the last stage in a slice
-func CurrentStage(s []BuildableStage) (*BuildableStage, error) {
+func CurrentStage(s []Stage) (*Stage, error) {
 	if len(s) == 0 {
 		return nil, errors.New("No build stage in current context")
 	}
@@ -369,11 +364,11 @@ func CurrentStage(s []BuildableStage) (*BuildableStage, error) {
 }
 
 // HasStage looks for the presence of a given stage name
-func HasStage(s []BuildableStage, name string) (bool, int) {
+func HasStage(s []Stage, name string) (int, bool) {
 	for i, stage := range s {
 		if stage.Name == name {
-			return true, i
+			return i, true
 		}
 	}
-	return false, -1
+	return -1, false
 }
