@@ -135,7 +135,7 @@ func (d *dispatchRequest) getImageMount(imageRefOrID string) (*imageMount, error
 	}
 
 	var localOnly bool
-	stage, err := d.previousResults.get(imageRefOrID)
+	stage, err := d.stages.get(imageRefOrID)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (d *dispatchRequest) getImageMount(imageRefOrID string) (*imageMount, error
 
 // FROM imagename[:tag | @digest] [AS build-stage-name]
 //
-func initializeStage(d *dispatchRequest, cmd *instructions.BuildableStage) error {
+func initializeStage(d *dispatchRequest, cmd *instructions.Stage) error {
 	d.builder.imageProber.Reset()
 	image, err := d.getFromImage(d.shlex, cmd.BaseName)
 	if err != nil {
@@ -179,7 +179,7 @@ func dispatchTriggeredOnBuild(d *dispatchRequest, triggers []string) error {
 		if len(ast.AST.Children) != 1 {
 			return errors.New("onbuild trigger should be a single expression")
 		}
-		cmd, err := instructions.ParseCommand(ast.AST.Children[0])
+		cmd, err := instructions.ParseStatement(ast.AST.Children[0])
 		if err != nil {
 			if instructions.IsUnknownInstruction(err) {
 				buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
@@ -213,7 +213,7 @@ func (d *dispatchRequest) getExpandedImageName(shlex *ShellLex, name string) (st
 }
 func (d *dispatchRequest) getImageOrStage(name string) (builder.Image, error) {
 	var localOnly bool
-	if im, ok := d.previousResults.getByName(name); ok {
+	if im, ok := d.stages.getByName(name); ok {
 		name = im.Image
 		localOnly = true
 	}
@@ -528,10 +528,4 @@ func dispatchArg(d *dispatchRequest, c *instructions.ArgCommand) error {
 func dispatchShell(d *dispatchRequest, c *instructions.ShellCommand) error {
 	d.state.runConfig.Shell = c.Shell
 	return d.builder.commit(d.state, fmt.Sprintf("SHELL %v", d.state.runConfig.Shell))
-}
-
-func dispatchResumeBuild(d *dispatchRequest, c *instructions.ResumeBuildCommand) error {
-	d.state.runConfig = c.BaseConfig
-	d.state.imageID = c.BaseConfig.Image
-	return nil
 }

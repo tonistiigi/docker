@@ -247,7 +247,7 @@ func (b *Builder) build(source builder.Source, dockerfile *parser.Result) (*buil
 		return nil, validationError{err}
 	}
 	if b.options.Target != "" {
-		found, targetIx := instructions.HasStage(stages, b.options.Target)
+		targetIx, found := instructions.HasStage(stages, b.options.Target)
 		if !found {
 			buildsFailed.WithValues(metricsBuildTargetNotReachableError).Inc()
 			return nil, errors.Errorf("failed to reach build target %s in Dockerfile", b.options.Target)
@@ -273,15 +273,10 @@ func emitImageID(aux *streamformatter.AuxFormatter, state *dispatchState) error 
 	}
 	return aux.Emit(types.BuildResult{ID: state.imageID})
 }
-func convertMapToEnvs(m map[string]string) []string {
-	result := []string{}
-	for k, v := range m {
-		result = append(result, k+"="+v)
-	}
-	return result
-}
+
 func processMetaArg(meta instructions.ArgCommand, shlex *ShellLex, args *buildArgs) error {
-	envs := convertMapToEnvs(args.GetAllAllowed())
+	// ShellLex currently only support the concatenated string format
+	envs := convertMapToEnvList(args.GetAllAllowed())
 	if err := meta.Expand(func(word string) (string, error) {
 		return shlex.ProcessWord(word, envs)
 	}); err != nil {
@@ -291,7 +286,7 @@ func processMetaArg(meta instructions.ArgCommand, shlex *ShellLex, args *buildAr
 	args.AddMetaArg(meta.Name, meta.Value)
 	return nil
 }
-func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.BuildableStage, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
+func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.Stage, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
 	var dispatchRequest *dispatchRequest
 	buildArgs := newBuildArgs(b.options.BuildArgs)
 	totalCommands := len(metaArgs) + len(parseResult)
@@ -312,7 +307,7 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 		}
 	}
 
-	stagesResults := newPreviousStagesResults()
+	stagesResults := newStagesBuildResults()
 
 	for _, stage := range parseResult {
 		if err := stagesResults.checkStageNameAvailable(stage.Name); err != nil {
@@ -420,18 +415,18 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	b.Stderr = ioutil.Discard
 	b.disableCommit = true
 
-	commands := []interface{}{&instructions.ResumeBuildCommand{
-		BaseConfig: config,
-	}}
+	commands := []interface{}{}
 	for _, n := range dockerfile.AST.Children {
-		cmd, err := instructions.ParseCommand(n)
+		cmd, err := instructions.ParseStatement(n)
 		if err != nil {
 			return nil, validationError{err}
 		}
 		commands = append(commands, cmd)
 	}
 
-	dispatchRequest := newDispatchRequest(b, dockerfile.EscapeToken, nil, newBuildArgs(b.options.BuildArgs), newPreviousStagesResults())
+	dispatchRequest := newDispatchRequest(b, dockerfile.EscapeToken, nil, newBuildArgs(b.options.BuildArgs), newStagesBuildResults())
+	dispatchRequest.state.runConfig = config
+	dispatchRequest.state.imageID = config.Image
 	for _, cmd := range commands {
 		err := dispatch(dispatchRequest, cmd)
 		if err != nil {
@@ -441,4 +436,12 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	}
 
 	return dispatchRequest.state.runConfig, nil
+}
+
+func convertMapToEnvList(m map[string]string) []string {
+	result := []string{}
+	for k, v := range m {
+		result = append(result, k+"="+v)
+	}
+	return result
 }

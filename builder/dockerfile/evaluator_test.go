@@ -134,7 +134,7 @@ func executeTestCase(t *testing.T, testCase dispatchTestCase) {
 	}()
 
 	b := newBuilderWithMockBackend()
-	sb := newDispatchRequest(b, '`', context, newBuildArgs(make(map[string]*string)), newPreviousStagesResults())
+	sb := newDispatchRequest(b, '`', context, newBuildArgs(make(map[string]*string)), newStagesBuildResults())
 	err = dispatch(sb, testCase.cmd)
 	if err != nil {
 		testutil.ErrorContains(t, err, testCase.expectedError)
