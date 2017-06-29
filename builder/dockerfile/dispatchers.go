@@ -91,7 +91,7 @@ func dispatchLabel(d *dispatchRequest, c *instructions.LabelCommand) error {
 //
 func dispatchAdd(d *dispatchRequest, c *instructions.AddCommand) error {
 	downloader := newRemoteSourceDownloader(d.builder.Output, d.builder.Stdout)
-	copier := newCopier(d.source, d.builder.pathCache, downloader, nil)
+	copier := copierFromDispatchRequest(d, downloader, nil)
 	defer copier.Cleanup()
 
 	copyInstruction, err := copier.createCopyInstruction(c.SourcesAndDest, "ADD")
@@ -117,7 +117,7 @@ func dispatchCopy(d *dispatchRequest, c *instructions.CopyCommand) error {
 			return errors.Wrapf(err, "invalid from flag value %s", c.From)
 		}
 	}
-	copier := newCopier(d.source, d.builder.pathCache, errOnSourceDownload, im)
+	copier := copierFromDispatchRequest(d, errOnSourceDownload, im)
 	defer copier.Cleanup()
 	copyInstruction, err := copier.createCopyInstruction(c.SourcesAndDest, "COPY")
 	if err != nil {

@@ -49,6 +49,11 @@ type SupportsSingleWordExpansion interface {
 	Expand(expander SingleWordExpander) error
 }
 
+// PlatformSpecific adds platform checks to a command
+type PlatformSpecific interface {
+	CheckPlatform(platform string) error
+}
+
 func expandKvp(kvp KeyValuePair, expander SingleWordExpander) (KeyValuePair, error) {
 	key, err := expander(kvp.Key)
 	if err != nil {
@@ -296,6 +301,14 @@ func (c *StopSignalCommand) Expand(expander SingleWordExpander) error {
 		return err
 	}
 	c.Signal = p
+	return nil
+}
+
+// CheckPlatform checks that the command is supported in the target platform
+func (c *StopSignalCommand) CheckPlatform(platform string) error {
+	if platform == "windows" {
+		return errors.New("The daemon on this platform does not support the command stopsignal")
+	}
 	return nil
 }
 
