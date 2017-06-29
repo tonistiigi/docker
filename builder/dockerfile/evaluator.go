@@ -43,9 +43,11 @@ func formatStep(stepN int, stepTotal int) string {
 }
 
 func dispatch(d *dispatchRequest, cmd interface{}) error {
-	if err := platformSupports(cmd); err != nil {
-		buildsFailed.WithValues(metricsCommandNotSupportedError).Inc()
-		return validationError{err}
+	if c, ok := cmd.(instructions.PlatformSpecific); ok {
+		err := c.CheckPlatform(d.builder.platform)
+		if err != nil {
+			return validationError{err}
+		}
 	}
 	runConfigEnv := d.state.runConfig.Env
 	envs := append(runConfigEnv, d.state.buildArgs.FilterAllowed(runConfigEnv)...)
