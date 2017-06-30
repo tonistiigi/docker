@@ -139,7 +139,7 @@ func TestFromWithArg(t *testing.T) {
 
 	val := "sometag"
 	metaArg := instructions.ArgCommand{
-		Name:  "THETAG",
+		Key:   "THETAG",
 		Value: &val,
 	}
 	cmd := &instructions.Stage{
@@ -374,7 +374,7 @@ func TestArg(t *testing.T) {
 
 	argName := "foo"
 	argVal := "bar"
-	cmd := &instructions.ArgCommand{Name: argName, Value: &argVal}
+	cmd := &instructions.ArgCommand{Key: argName, Value: &argVal}
 	err := dispatch(sb, cmd)
 	require.NoError(t, err)
 

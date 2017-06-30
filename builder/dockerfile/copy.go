@@ -70,7 +70,7 @@ type copier struct {
 	tmpPaths    []string
 }
 
-func copierFromDispatchRequest(req *dispatchRequest, download sourceDownloader, imageSource *imageMount) copier {
+func copierFromDispatchRequest(req dispatchRequest, download sourceDownloader, imageSource *imageMount) copier {
 	return copier{
 		source:      req.source,
 		pathCache:   req.builder.pathCache,

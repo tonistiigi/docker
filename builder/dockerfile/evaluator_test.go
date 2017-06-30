@@ -12,7 +12,7 @@ import (
 
 type dispatchTestCase struct {
 	name, expectedError string
-	cmd                 interface{}
+	cmd                 instructions.Command
 	files               map[string]string
 }
 

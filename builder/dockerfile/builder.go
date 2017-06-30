@@ -282,12 +282,19 @@ func processMetaArg(meta instructions.ArgCommand, shlex *ShellLex, args *buildAr
 	}); err != nil {
 		return err
 	}
-	args.AddArg(meta.Name, meta.Value)
-	args.AddMetaArg(meta.Name, meta.Value)
+	args.AddArg(meta.Key, meta.Value)
+	args.AddMetaArg(meta.Key, meta.Value)
 	return nil
 }
+
+func printCommand(out io.Writer, currentCommandIndex int, totalCommands int, cmd interface{}) int {
+	fmt.Fprintf(out, stepFormat, currentCommandIndex, totalCommands, cmd)
+	fmt.Fprintln(out)
+	return currentCommandIndex + 1
+}
+
 func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.Stage, metaArgs []instructions.ArgCommand, escapeToken rune, source builder.Source) (*dispatchState, error) {
-	var dispatchRequest *dispatchRequest
+	dispatchRequest := dispatchRequest{}
 	buildArgs := newBuildArgs(b.options.BuildArgs)
 	totalCommands := len(metaArgs) + len(parseResult)
 	currentCommandIndex := 1
@@ -296,10 +303,7 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 	}
 	shlex := NewShellLex(escapeToken)
 	for _, meta := range metaArgs {
-
-		fmt.Fprintf(b.Stdout, stepFormat, currentCommandIndex, totalCommands, &meta)
-		currentCommandIndex++
-		fmt.Fprintln(b.Stdout)
+		currentCommandIndex = printCommand(b.Stdout, currentCommandIndex, totalCommands, &meta)
 
 		err := processMetaArg(meta, shlex, buildArgs)
 		if err != nil {
@@ -315,9 +319,7 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 		}
 		dispatchRequest = newDispatchRequest(b, escapeToken, source, buildArgs, stagesResults)
 
-		fmt.Fprintf(b.Stdout, stepFormat, currentCommandIndex, totalCommands, stage.SourceCode)
-		currentCommandIndex++
-		fmt.Fprintln(b.Stdout)
+		currentCommandIndex = printCommand(b.Stdout, currentCommandIndex, totalCommands, stage.SourceCode)
 		if err := initializeStage(dispatchRequest, &stage); err != nil {
 			return nil, err
 		}
@@ -334,9 +336,7 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 				// Not cancelled yet, keep going...
 			}
 
-			fmt.Fprintf(b.Stdout, stepFormat, currentCommandIndex, totalCommands, cmd)
-			currentCommandIndex++
-			fmt.Fprintln(b.Stdout)
+			currentCommandIndex = printCommand(b.Stdout, currentCommandIndex, totalCommands, cmd)
 
 			if err := dispatch(dispatchRequest, cmd); err != nil {
 				return nil, err
@@ -350,7 +350,7 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 			return nil, err
 		}
 		buildArgs.MergeReferencedArgs(dispatchRequest.state.buildArgs)
-		if err := dispatchRequest.commitStage(); err != nil {
+		if err := commitStage(dispatchRequest.state, stagesResults); err != nil {
 			return nil, err
 		}
 	}
@@ -415,9 +415,9 @@ func BuildFromConfig(config *container.Config, changes []string) (*container.Con
 	b.Stderr = ioutil.Discard
 	b.disableCommit = true
 
-	commands := []interface{}{}
+	commands := []instructions.Command{}
 	for _, n := range dockerfile.AST.Children {
-		cmd, err := instructions.ParseStatement(n)
+		cmd, err := instructions.ParseCommand(n)
 		if err != nil {
 			return nil, validationError{err}
 		}
