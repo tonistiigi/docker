@@ -48,8 +48,8 @@ func newParseRequestFromNode(node *parser.Node) parseRequest {
 	}
 }
 
-// ParseStatement converts an AST to a typed statement (either a command or a build stage beginning when encountering a `FROM` statement)
-func ParseStatement(node *parser.Node) (interface{}, error) {
+// ParseInstruction converts an AST to a typed instruction (either a command or a build stage beginning when encountering a `FROM` statement)
+func ParseInstruction(node *parser.Node) (interface{}, error) {
 	req := newParseRequestFromNode(node)
 	switch node.Value {
 	case command.Env:
@@ -93,6 +93,18 @@ func ParseStatement(node *parser.Node) (interface{}, error) {
 	return nil, &UnknownInstruction{Instruction: node.Value, Line: node.StartLine}
 }
 
+// ParseCommand converts an AST to a typed Command
+func ParseCommand(node *parser.Node) (Command, error) {
+	s, err := ParseInstruction(node)
+	if err != nil {
+		return nil, err
+	}
+	if c, ok := s.(Command); ok {
+		return c, nil
+	}
+	return nil, errors.Errorf("%T is not a command type", s)
+}
+
 // UnknownInstruction represents an error occuring when a command is unresolvable
 type UnknownInstruction struct {
 	Line        int
@@ -127,7 +139,7 @@ func (e *parseError) Error() string {
 // Parse a docker file into a collection of buildable stages
 func Parse(ast *parser.Node) (stages []Stage, metaArgs []ArgCommand, err error) {
 	for _, n := range ast.Children {
-		cmd, err := ParseStatement(n)
+		cmd, err := ParseInstruction(n)
 		if err != nil {
 			return nil, nil, &parseError{inner: err, node: n}
 		}
@@ -141,12 +153,14 @@ func Parse(ast *parser.Node) (stages []Stage, metaArgs []ArgCommand, err error) 
 		switch c := cmd.(type) {
 		case *Stage:
 			stages = append(stages, *c)
-		default:
+		case Command:
 			stage, err := CurrentStage(stages)
 			if err != nil {
 				return nil, nil, err
 			}
-			stage.AddCommand(cmd)
+			stage.AddCommand(c)
+		default:
+			return nil, nil, errors.Errorf("%T is not a command type", cmd)
 		}
 
 	}
@@ -264,7 +278,7 @@ func parseFrom(req parseRequest) (*Stage, error) {
 		BaseName:   req.args[0],
 		Name:       stageName,
 		SourceCode: code,
-		Commands:   []interface{}{},
+		Commands:   []Command{},
 	}, nil
 
 }
@@ -570,7 +584,7 @@ func parseArg(req parseRequest) (*ArgCommand, error) {
 	}
 
 	return &ArgCommand{
-		Name:            name,
+		Key:             name,
 		Value:           newValue,
 		withNameAndCode: newWithNameAndCode(req),
 	}, nil

@@ -19,10 +19,15 @@ func (kvp *KeyValuePair) String() string {
 	return kvp.Key + "=" + kvp.Value
 }
 
+// Command is implemented by every command present in a dockerfile
+type Command interface {
+	Name() string
+}
+
 // KeyValuePairs is a slice of KeyValuePair
 type KeyValuePairs []KeyValuePair
 
-// withNameAndCode is the base class for Dockerfile (String() returns its source code)
+// withNameAndCode is the base of every command in a Dockerfile (String() returns its source code)
 type withNameAndCode struct {
 	code string
 	name string
@@ -317,17 +322,17 @@ func (c *StopSignalCommand) CheckPlatform(platform string) error {
 // Dockerfile author may optionally set a default value of this variable.
 type ArgCommand struct {
 	withNameAndCode
-	Name  string
+	Key   string
 	Value *string
 }
 
 // Expand variables
 func (c *ArgCommand) Expand(expander SingleWordExpander) error {
-	p, err := expander(c.Name)
+	p, err := expander(c.Key)
 	if err != nil {
 		return err
 	}
-	c.Name = p
+	c.Key = p
 	if c.Value != nil {
 		p, err = expander(*c.Value)
 		if err != nil {
@@ -349,13 +354,13 @@ type ShellCommand struct {
 // Stage represents a single stage in a multi-stage build
 type Stage struct {
 	Name       string
-	Commands   []interface{}
+	Commands   []Command
 	BaseName   string
 	SourceCode string
 }
 
 // AddCommand to the stage
-func (s *Stage) AddCommand(cmd interface{}) {
+func (s *Stage) AddCommand(cmd Command) {
 	// todo: validate cmd type
 	s.Commands = append(s.Commands, cmd)
 }

@@ -22,7 +22,7 @@ func TestCommandsExactlyOneArgument(t *testing.T) {
 	for _, command := range commands {
 		ast, err := parser.Parse(strings.NewReader(command))
 		require.NoError(t, err)
-		_, err = ParseStatement(ast.AST.Children[0])
+		_, err = ParseInstruction(ast.AST.Children[0])
 		assert.EqualError(t, err, errExactlyOneArgument(command).Error())
 	}
 }
@@ -40,7 +40,7 @@ func TestCommandsAtLeastOneArgument(t *testing.T) {
 	for _, command := range commands {
 		ast, err := parser.Parse(strings.NewReader(command))
 		require.NoError(t, err)
-		_, err = ParseStatement(ast.AST.Children[0])
+		_, err = ParseInstruction(ast.AST.Children[0])
 		assert.EqualError(t, err, errAtLeastOneArgument(command).Error())
 	}
 }
@@ -54,7 +54,7 @@ func TestCommandsAtLeastTwoArgument(t *testing.T) {
 	for _, command := range commands {
 		ast, err := parser.Parse(strings.NewReader(command + " arg1"))
 		require.NoError(t, err)
-		_, err = ParseStatement(ast.AST.Children[0])
+		_, err = ParseInstruction(ast.AST.Children[0])
 		assert.EqualError(t, err, errAtLeastTwoArguments(command).Error())
 	}
 }
@@ -79,7 +79,7 @@ func TestCommandsTooManyArguments(t *testing.T) {
 				},
 			},
 		}
-		_, err := ParseStatement(node)
+		_, err := ParseInstruction(node)
 		assert.EqualError(t, err, errTooManyArguments(command).Error())
 	}
 }
@@ -101,7 +101,7 @@ func TestCommandsBlankNames(t *testing.T) {
 				},
 			},
 		}
-		_, err := ParseStatement(node)
+		_, err := ParseInstruction(node)
 		assert.EqualError(t, err, errBlankCommandNames(command).Error())
 	}
 }
@@ -119,7 +119,7 @@ func TestHealthCheckCmd(t *testing.T) {
 			},
 		},
 	}
-	cmd, err := ParseStatement(node)
+	cmd, err := ParseInstruction(node)
 	assert.NoError(t, err)
 	hc, ok := cmd.(*HealthCheckCommand)
 	assert.True(t, ok)
@@ -193,7 +193,7 @@ func TestErrorCases(t *testing.T) {
 			t.Fatalf("Error when parsing Dockerfile: %s", err)
 		}
 		n := ast.AST.Children[0]
-		_, err = ParseStatement(n)
+		_, err = ParseInstruction(n)
 		if err != nil {
 			testutil.ErrorContains(t, err, c.expectedError)
 			return

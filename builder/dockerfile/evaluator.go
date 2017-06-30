@@ -42,7 +42,7 @@ func formatStep(stepN int, stepTotal int) string {
 	return fmt.Sprintf("%d/%d", stepN+1, stepTotal)
 }
 
-func dispatch(d *dispatchRequest, cmd interface{}) error {
+func dispatch(d dispatchRequest, cmd instructions.Command) error {
 	if c, ok := cmd.(instructions.PlatformSpecific); ok {
 		err := c.CheckPlatform(d.builder.platform)
 		if err != nil {
@@ -181,6 +181,10 @@ func (r *stagesBuildResults) commitStage(name string, config *container.Config) 
 	return nil
 }
 
+func commitStage(state *dispatchState, stages *stagesBuildResults) error {
+	return stages.commitStage(state.stageName, state.runConfig)
+}
+
 type dispatchRequest struct {
 	state   *dispatchState
 	shlex   *ShellLex
@@ -189,18 +193,14 @@ type dispatchRequest struct {
 	stages  *stagesBuildResults
 }
 
-func newDispatchRequest(builder *Builder, escapeToken rune, source builder.Source, buildArgs *buildArgs, stages *stagesBuildResults) *dispatchRequest {
-	return &dispatchRequest{
+func newDispatchRequest(builder *Builder, escapeToken rune, source builder.Source, buildArgs *buildArgs, stages *stagesBuildResults) dispatchRequest {
+	return dispatchRequest{
 		state:   newDispatchState(buildArgs),
 		shlex:   NewShellLex(escapeToken),
 		builder: builder,
 		source:  source,
 		stages:  stages,
 	}
-}
-
-func (d *dispatchRequest) commitStage() error {
-	return d.stages.commitStage(d.state.stageName, d.state.runConfig)
 }
 
 func (s *dispatchState) updateRunConfig() {
