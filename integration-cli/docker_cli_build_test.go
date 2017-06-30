@@ -547,64 +547,6 @@ RUN [ $(ls -l /exists/exists_file | awk '{print $3":"$4}') = 'dockerio:dockerio'
 		build.WithFile("test_file4", "test4")))
 }
 
-func (s *DockerSuite) TestBuildCopyCacheOnFileChange(c *check.C) {
-
-	dockerfile := `FROM busybox
-COPY file /file`
-
-	cli.BuildCmd(c, "testcopycacheonfilechange1", build.WithBuildContext(c,
-		build.WithFile("Dockerfile", dockerfile),
-		build.WithFile("file", "foo")))
-	fc1ID := inspectImage(c, "testcopycacheonfilechange1", ".ID")
-
-	cli.BuildCmd(c, "testcopycacheonfilechange2", build.WithBuildContext(c,
-		build.WithFile("Dockerfile", dockerfile),
-		build.WithFile("file", "foo")))
-	fc2ID := inspectImage(c, "testcopycacheonfilechange2", ".ID")
-
-	cli.BuildCmd(c, "testcopycacheonfilechange3", build.WithBuildContext(c,
-		build.WithFile("Dockerfile", dockerfile),
-		build.WithFile("file", "bar")))
-	fc3ID := inspectImage(c, "testcopycacheonfilechange3", ".ID")
-
-	// should have leveraged cache
-	if fc1ID != fc2ID {
-		c.Fatal("didn't use the cache")
-	}
-	if fc1ID == fc3ID {
-		c.Fatal("COPY With different source file should not share same cache")
-	}
-}
-
-func (s *DockerSuite) TestBuildAddCacheOnFileChange(c *check.C) {
-
-	dockerfile := `FROM busybox
-ADD file /file`
-
-	cli.BuildCmd(c, "testcopycacheonfilechange1", build.WithBuildContext(c,
-		build.WithFile("Dockerfile", dockerfile),
-		build.WithFile("file", "foo")))
-	fc1ID := inspectImage(c, "testcopycacheonfilechange1", ".ID")
-
-	cli.BuildCmd(c, "testcopycacheonfilechange2", build.WithBuildContext(c,
-		build.WithFile("Dockerfile", dockerfile),
-		build.WithFile("file", "foo")))
-	fc2ID := inspectImage(c, "testcopycacheonfilechange2", ".ID")
-
-	cli.BuildCmd(c, "testcopycacheonfilechange3", build.WithBuildContext(c,
-		build.WithFile("Dockerfile", dockerfile),
-		build.WithFile("file", "bar")))
-	fc3ID := inspectImage(c, "testcopycacheonfilechange3", ".ID")
-
-	// should have leveraged cache
-	if fc1ID != fc2ID {
-		c.Fatal("didn't use the cache")
-	}
-	if fc1ID == fc3ID {
-		c.Fatal("ADD With different source file should not share same cache")
-	}
-}
-
 // These tests are mainly for user namespaces to verify that new directories
 // are created as the remapped root uid/gid pair
 func (s *DockerSuite) TestBuildUsernamespaceValidateRemappedRoot(c *check.C) {
