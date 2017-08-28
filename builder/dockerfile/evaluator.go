@@ -20,8 +20,6 @@
 package dockerfile
 
 import (
-	"bytes"
-	"fmt"
 	"runtime"
 	"strings"
 
@@ -32,15 +30,10 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/instructions"
-	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig/opts"
 	"github.com/pkg/errors"
 )
-
-func formatStep(stepN int, stepTotal int) string {
-	return fmt.Sprintf("%d/%d", stepN+1, stepTotal)
-}
 
 func dispatch(d dispatchRequest, cmd instructions.Command) error {
 	if c, ok := cmd.(instructions.PlatformSpecific); ok {
@@ -249,20 +242,4 @@ func (s *dispatchState) setDefaultPath() {
 	if _, ok := envMap["PATH"]; !ok {
 		s.runConfig.Env = append(s.runConfig.Env, "PATH="+system.DefaultPathEnv(platform))
 	}
-}
-
-func handleOnBuildNode(ast *parser.Node, msg *bytes.Buffer) (*parser.Node, []string, error) {
-	if ast.Next == nil {
-		return nil, nil, validationError{errors.New("ONBUILD requires at least one argument")}
-	}
-	ast = ast.Next.Children[0]
-	msg.WriteString(" " + ast.Value + formatFlags(ast.Flags))
-	return ast, []string{ast.Value}, nil
-}
-
-func formatFlags(flags []string) string {
-	if len(flags) > 0 {
-		return " " + strings.Join(flags, " ")
-	}
-	return ""
 }

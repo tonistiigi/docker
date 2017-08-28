@@ -458,7 +458,7 @@ COPY file /file`
 		require.NoError(c, err)
 		assert.Equal(c, http.StatusOK, res.StatusCode)
 
-		out, err := testutil.ReadBody(body)
+		out, err := request.ReadBody(body)
 
 		ids := getImageIDsFromBuild(c, out)
 		return ids[len(ids)-1]
@@ -496,7 +496,7 @@ ADD file /file`
 		require.NoError(c, err)
 		assert.Equal(c, http.StatusOK, res.StatusCode)
 
-		out, err := testutil.ReadBody(body)
+		out, err := request.ReadBody(body)
 
 		ids := getImageIDsFromBuild(c, out)
 		return ids[len(ids)-1]
