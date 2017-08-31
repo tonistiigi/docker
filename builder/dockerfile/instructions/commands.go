@@ -128,7 +128,9 @@ type SourcesAndDest []string
 
 // Sources list the source paths
 func (s SourcesAndDest) Sources() []string {
-	return s[:len(s)-1]
+	res := make([]string, len(s)-1)
+	copy(res, s[:len(s)-1])
+	return res
 }
 
 // Dest path of the operation

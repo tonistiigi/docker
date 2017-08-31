@@ -20,12 +20,10 @@
 package dockerfile
 
 import (
-	"runtime"
-	"strings"
-
 	"reflect"
-
+	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder"
