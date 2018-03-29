@@ -17,6 +17,8 @@ func TestMount(t *testing.T) {
 		t.Skip("root required")
 	}
 
+	t.Logf("selinux-enabled=%v", selinux.GetEnabled())
+
 	source, err := ioutil.TempDir("", "mount-test-source-")
 	if err != nil {
 		t.Fatal(err)
