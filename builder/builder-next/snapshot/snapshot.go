@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/containerd/containerd/mount"
@@ -16,6 +15,7 @@ import (
 	"github.com/moby/buildkit/snapshot"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 var keyParent = []byte("parent")
@@ -26,16 +26,26 @@ var keySize = []byte("size")
 type Opt struct {
 	GraphDriver graphdriver.Driver
 	LayerStore  layer.Store
-	// MetadataStore metadata.Store
-	Root string
+	Root        string
+}
+
+type graphIDRegistrar interface {
+	RegisterByGraphID(string, layer.ChainID, layer.DiffID, string, int64) (layer.Layer, error)
+	Release(layer.Layer) ([]layer.Metadata, error)
+	checksumCalculator
+}
+
+type checksumCalculator interface {
+	ChecksumForGraphID(id, parent, oldTarDataPath, newTarDataPath string) (diffID layer.DiffID, size int64, err error)
 }
 
 type snapshotter struct {
 	opt Opt
 
-	refs map[layer.ChainID]layer.Layer
+	refs map[string]layer.Layer
 	db   *bolt.DB
 	mu   sync.Mutex
+	reg  graphIDRegistrar
 }
 
 var _ snapshot.SnapshotterBase = &snapshotter{}
@@ -47,35 +57,34 @@ func NewSnapshotter(opt Opt) (snapshot.SnapshotterBase, error) {
 		return nil, errors.Wrapf(err, "failed to open database file %s", dbPath)
 	}
 
+	reg, ok := opt.LayerStore.(graphIDRegistrar)
+	if !ok {
+		return nil, errors.Errorf("layerstore doesn't support graphID registration")
+	}
+
 	s := &snapshotter{
 		opt:  opt,
 		db:   db,
-		refs: map[layer.ChainID]layer.Layer{},
+		refs: map[string]layer.Layer{},
+		reg:  reg,
 	}
 	return s, nil
 }
 
-type MountFactory interface {
-	Mount() ([]mount.Mount, func() error, error)
-}
-
-type info struct {
-	Kind    snapshots.Kind
-	Parent  string
-	ChainID digest.Digest
-	// Blob    digest.Digest
-}
-
-type Info struct {
-	Kind    snapshots.Kind    // active or committed snapshot
-	Name    string            // name or key of snapshot
-	Parent  string            `json:",omitempty"` // name of parent snapshot
-	Labels  map[string]string `json:",omitempty"` // Labels for snapshot
-	Created time.Time         `json:",omitempty"` // Created time
-	Updated time.Time         `json:",omitempty"` // Last update time
-}
-
 func (s *snapshotter) Prepare(ctx context.Context, key, parent string, opts ...snapshots.Opt) error {
+	origParent := parent
+	if parent != "" {
+		if l, err := s.getLayer(parent); err != nil {
+			return err
+		} else if l != nil {
+			parent, err = getGraphID(l)
+			if err != nil {
+				return err
+			}
+		} else {
+			parent, _ = s.getGraphDriverID(parent)
+		}
+	}
 	if err := s.opt.GraphDriver.Create(key, parent, nil); err != nil {
 		return err
 	}
@@ -85,11 +94,7 @@ func (s *snapshotter) Prepare(ctx context.Context, key, parent string, opts ...s
 			return err
 		}
 
-		if parent != "" {
-			parent, _ = s.getGraphDriverID(parent)
-		}
-
-		if err := b.Put(keyParent, []byte(parent)); err != nil {
+		if err := b.Put(keyParent, []byte(origParent)); err != nil {
 			return err
 		}
 		return nil
@@ -111,20 +116,21 @@ func (s *snapshotter) chainID(key string) (layer.ChainID, bool) {
 }
 
 func (s *snapshotter) getLayer(key string) (layer.Layer, error) {
-	id, ok := s.chainID(key)
-	if !ok {
-		return nil, nil
-	}
 	s.mu.Lock()
-	l, ok := s.refs[id]
+	l, ok := s.refs[key]
 	if !ok {
+		id, ok := s.chainID(key)
+		if !ok {
+			s.mu.Unlock()
+			return nil, nil
+		}
 		var err error
 		l, err = s.opt.LayerStore.Get(id)
 		if err != nil {
 			s.mu.Unlock()
 			return nil, err
 		}
-		s.refs[id] = l
+		s.refs[string(id)] = l
 		if err := s.db.Update(func(tx *bolt.Tx) error {
 			_, err := tx.CreateBucketIfNotExists([]byte(id))
 			return err
@@ -134,6 +140,7 @@ func (s *snapshotter) getLayer(key string) (layer.Layer, error) {
 		}
 	}
 	s.mu.Unlock()
+
 	return l, nil
 }
 
@@ -291,8 +298,8 @@ func (s *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 	}); err != nil {
 		return err
 	}
-
-	return errors.Errorf("commit not implemented")
+	logrus.Debugf("committed %s as %s", name, key)
+	return nil
 }
 
 func (s *snapshotter) View(ctx context.Context, key, parent string, opts ...snapshots.Opt) (snapshot.MountFactory, error) {
@@ -302,6 +309,7 @@ func (s *snapshotter) View(ctx context.Context, key, parent string, opts ...snap
 func (s *snapshotter) Walk(ctx context.Context, fn func(context.Context, snapshots.Info) error) error {
 	allKeys := map[string]struct{}{}
 	commitedIDs := map[string]string{}
+	chainIDs := map[string]layer.ChainID{}
 
 	if err := s.db.View(func(tx *bolt.Tx) error {
 		tx.ForEach(func(name []byte, b *bolt.Bucket) error {
@@ -309,6 +317,11 @@ func (s *snapshotter) Walk(ctx context.Context, fn func(context.Context, snapsho
 			v := b.Get(keyCommitted)
 			if v != nil {
 				commitedIDs[string(v)] = string(name)
+			}
+
+			v = b.Get(keyChainID)
+			if v != nil {
+				chainIDs[string(name)] = layer.ChainID(v)
 			}
 			return nil
 		})
@@ -321,6 +334,19 @@ func (s *snapshotter) Walk(ctx context.Context, fn func(context.Context, snapsho
 		if _, ok := commitedIDs[k]; ok {
 			continue
 		}
+		if chainID, ok := chainIDs[k]; ok {
+			s.mu.Lock()
+			if _, ok := s.refs[k]; !ok {
+				l, err := s.opt.LayerStore.Get(chainID)
+				if err != nil {
+					s.mu.Unlock()
+					return err
+				}
+				s.refs[k] = l
+			}
+			s.mu.Unlock()
+		}
+
 		if _, err := s.getLayer(k); err != nil {
 			s.Remove(ctx, k)
 			continue
