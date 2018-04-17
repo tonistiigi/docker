@@ -206,6 +206,10 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 
 	initRouter(routerOptions)
 
+	if err := dummyBuildKitSetup(routerOptions); err != nil {
+		return err
+	}
+
 	// process cluster change notifications
 	watchCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
