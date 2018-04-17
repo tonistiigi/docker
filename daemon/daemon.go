@@ -926,6 +926,10 @@ func NewDaemon(config *config.Config, registryService registry.Service, containe
 	return d, nil
 }
 
+func (daemon *Daemon) DistributionServices() images.DistributionServices {
+	return daemon.imageService.DistributionServices()
+}
+
 func (daemon *Daemon) waitForStartupDone() {
 	<-daemon.startupDone
 }
