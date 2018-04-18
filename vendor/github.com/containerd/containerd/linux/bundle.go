@@ -1,11 +1,26 @@
 // +build linux
 
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package linux
 
 import (
-	"bytes"
 	"context"
-	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -52,12 +67,7 @@ func newBundle(id, path, workDir string, spec []byte) (b *bundle, err error) {
 	if err := os.Mkdir(filepath.Join(path, "rootfs"), 0711); err != nil {
 		return nil, err
 	}
-	f, err := os.Create(filepath.Join(path, configFilename))
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	_, err = io.Copy(f, bytes.NewReader(spec))
+	err = ioutil.WriteFile(filepath.Join(path, configFilename), spec, 0666)
 	return &bundle{
 		id:      id,
 		path:    path,
@@ -75,24 +85,25 @@ type bundle struct {
 type ShimOpt func(*bundle, string, *runctypes.RuncOptions) (shim.Config, client.Opt)
 
 // ShimRemote is a ShimOpt for connecting and starting a remote shim
-func ShimRemote(shimBinary, daemonAddress, cgroup string, debug bool, exitHandler func()) ShimOpt {
+func ShimRemote(c *Config, daemonAddress, cgroup string, exitHandler func()) ShimOpt {
 	return func(b *bundle, ns string, ropts *runctypes.RuncOptions) (shim.Config, client.Opt) {
-		return b.shimConfig(ns, ropts),
-			client.WithStart(shimBinary, b.shimAddress(ns), daemonAddress, cgroup, debug, exitHandler)
+		config := b.shimConfig(ns, c, ropts)
+		return config,
+			client.WithStart(c.Shim, b.shimAddress(ns), daemonAddress, cgroup, c.ShimDebug, exitHandler)
 	}
 }
 
 // ShimLocal is a ShimOpt for using an in process shim implementation
-func ShimLocal(exchange *exchange.Exchange) ShimOpt {
+func ShimLocal(c *Config, exchange *exchange.Exchange) ShimOpt {
 	return func(b *bundle, ns string, ropts *runctypes.RuncOptions) (shim.Config, client.Opt) {
-		return b.shimConfig(ns, ropts), client.WithLocal(exchange)
+		return b.shimConfig(ns, c, ropts), client.WithLocal(exchange)
 	}
 }
 
 // ShimConnect is a ShimOpt for connecting to an existing remote shim
-func ShimConnect() ShimOpt {
+func ShimConnect(c *Config, onClose func()) ShimOpt {
 	return func(b *bundle, ns string, ropts *runctypes.RuncOptions) (shim.Config, client.Opt) {
-		return b.shimConfig(ns, ropts), client.WithConnect(b.shimAddress(ns))
+		return b.shimConfig(ns, c, ropts), client.WithConnect(b.shimAddress(ns), onClose)
 	}
 }
 
@@ -120,16 +131,18 @@ func (b *bundle) shimAddress(namespace string) string {
 	return filepath.Join(string(filepath.Separator), "containerd-shim", namespace, b.id, "shim.sock")
 }
 
-func (b *bundle) shimConfig(namespace string, runcOptions *runctypes.RuncOptions) shim.Config {
+func (b *bundle) shimConfig(namespace string, c *Config, runcOptions *runctypes.RuncOptions) shim.Config {
 	var (
 		criuPath      string
-		runtimeRoot   string
+		runtimeRoot   = c.RuntimeRoot
 		systemdCgroup bool
 	)
 	if runcOptions != nil {
 		criuPath = runcOptions.CriuPath
 		systemdCgroup = runcOptions.SystemdCgroup
-		runtimeRoot = runcOptions.RuntimeRoot
+		if runcOptions.RuntimeRoot != "" {
+			runtimeRoot = runcOptions.RuntimeRoot
+		}
 	}
 	return shim.Config{
 		Path:          b.path,

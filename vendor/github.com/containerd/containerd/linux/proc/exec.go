@@ -1,5 +1,21 @@
 // +build !windows
 
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package proc
 
 import (
@@ -147,7 +163,10 @@ func (e *execProcess) start(ctx context.Context) (err error) {
 		return e.parent.runtimeError(err, "OCI runtime exec failed")
 	}
 	if e.stdio.Stdin != "" {
-		sc, err := fifo.OpenFifo(ctx, e.stdio.Stdin, syscall.O_WRONLY|syscall.O_NONBLOCK, 0)
+		fifoCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+
+		sc, err := fifo.OpenFifo(fifoCtx, e.stdio.Stdin, syscall.O_WRONLY|syscall.O_NONBLOCK, 0)
 		if err != nil {
 			return errors.Wrapf(err, "failed to open stdin fifo %s", e.stdio.Stdin)
 		}
@@ -164,7 +183,10 @@ func (e *execProcess) start(ctx context.Context) (err error) {
 			return errors.Wrap(err, "failed to start console copy")
 		}
 	} else if !e.stdio.IsNull() {
-		if err := copyPipes(ctx, e.io, e.stdio.Stdin, e.stdio.Stdout, e.stdio.Stderr, &e.wg, &copyWaitGroup); err != nil {
+		fifoCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+
+		if err := copyPipes(fifoCtx, e.io, e.stdio.Stdin, e.stdio.Stdout, e.stdio.Stderr, &e.wg, &copyWaitGroup); err != nil {
 			return errors.Wrap(err, "failed to start io pipe copy")
 		}
 	}
