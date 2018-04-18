@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/content/local"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/builder"
@@ -87,13 +88,15 @@ func (b *Builder) Build(ctx context.Context, opt backend.BuildConfig) (*builder.
 		frontendAttrs["target"] = opt.Options.Target
 	}
 
-	if opt.Options.Dockerfile != "" {
+	if opt.Options.Dockerfile != "" && opt.Options.Dockerfile != "." {
 		frontendAttrs["filename"] = opt.Options.Dockerfile
 	}
 
 	if opt.Options.RemoteContext != "" {
 		frontendAttrs["context"] = opt.Options.RemoteContext
 	}
+
+	logrus.Debugf("frontend: %+v", frontendAttrs)
 
 	for k, v := range opt.Options.BuildArgs {
 		if v == nil {
@@ -181,6 +184,7 @@ func newController(opt Opt, reporter chan containerimageexp.Result) (*control.Co
 	if err != nil {
 		return nil, err
 	}
+	store = &contentStoreNoLabels{store}
 
 	md, err := metadata.NewStore(filepath.Join(root, "metadata.db"))
 	if err != nil {
@@ -378,4 +382,12 @@ func (r *results) wait(ctx context.Context, ref string) (*containerimageexp.Resu
 		}
 		r.cond.Wait()
 	}
+}
+
+type contentStoreNoLabels struct {
+	content.Store
+}
+
+func (c *contentStoreNoLabels) Update(ctx context.Context, info content.Info, fieldpaths ...string) (content.Info, error) {
+	return content.Info{}, nil
 }
