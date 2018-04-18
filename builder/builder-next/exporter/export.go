@@ -23,10 +23,17 @@ type Differ interface {
 	EnsureLayer(ctx context.Context, key string) ([]layer.DiffID, error)
 }
 
+// TODO: this needs to be handled differently (return from solve)
+type Result struct {
+	Ref string
+	ID  image.ID
+}
+
 type Opt struct {
 	ImageStore     image.Store
 	ReferenceStore reference.Store
 	Differ         Differ
+	Reporter       chan Result
 }
 
 type imageExporter struct {
@@ -129,6 +136,10 @@ func (e *imageExporterInstance) Export(ctx context.Context, ref cache.ImmutableR
 			}
 			tagDone(nil)
 		}
+	}
+
+	if e.opt.Reporter != nil {
+		e.opt.Reporter <- Result{ID: id, Ref: string(opt["ref"])}
 	}
 
 	return nil

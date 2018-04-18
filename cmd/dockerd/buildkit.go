@@ -85,7 +85,10 @@ func dummyBuildKitSetup(opts routerOptions) error {
 		return err
 	}
 
-	exec, err := runcexecutor.New(filepath.Join(root, "executor"))
+	exec, err := runcexecutor.New(runcexecutor.Opt{
+		Root:              filepath.Join(root, "executor"),
+		CommandCandidates: []string{"docker-runc", "runc"},
+	})
 	if err != nil {
 		return err
 	}
