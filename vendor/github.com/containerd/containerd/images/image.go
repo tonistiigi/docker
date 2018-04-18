@@ -118,7 +118,7 @@ func (image *Image) Size(ctx context.Context, provider content.Provider, platfor
 		}
 		size += desc.Size
 		return nil, nil
-	}), FilterPlatform(platform, ChildrenHandler(provider))), image.Target)
+	}), FilterPlatforms(ChildrenHandler(provider), platform)), image.Target)
 }
 
 // Manifest resolves a manifest from the image for the given platform.
@@ -131,13 +131,13 @@ func Manifest(ctx context.Context, provider content.Provider, image ocispec.Desc
 	var (
 		matcher platforms.Matcher
 		m       *ocispec.Manifest
-		err     error
 	)
 	if platform != "" {
-		matcher, err = platforms.Parse(platform)
+		p, err := platforms.Parse(platform)
 		if err != nil {
 			return ocispec.Manifest{}, err
 		}
+		matcher = platforms.NewMatcher(p)
 	}
 
 	if err := Walk(ctx, HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
