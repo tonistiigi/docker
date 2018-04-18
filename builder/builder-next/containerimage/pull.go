@@ -213,14 +213,33 @@ func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
 			return nil, nil
 		}),
 	}
+	// var schema1Converter *schema1.Converter
+	// if p.desc.MediaType == images.MediaTypeDockerSchema1Manifest {
+	// 	schema1Converter = schema1.NewConverter(p.is.ContentStore, fetcher)
+	// 	handlers = append(handlers, schema1Converter)
+	// } else {
+	// 	handlers = append(handlers,
+	// 		remotes.FetchHandler(p.is.ContentStore, fetcher),
+	//
+	// 		images.ChildrenHandler(p.is.ContentStore),
+	// 	)
+	// }
+	//
 	var schema1Converter *schema1.Converter
 	if p.desc.MediaType == images.MediaTypeDockerSchema1Manifest {
 		schema1Converter = schema1.NewConverter(p.is.ContentStore, fetcher)
 		handlers = append(handlers, schema1Converter)
 	} else {
+		// Get all the children for a descriptor
+		childrenHandler := images.ChildrenHandler(p.is.ContentStore)
+		// Set any children labels for that content
+		childrenHandler = images.SetChildrenLabels(p.is.ContentStore, childrenHandler)
+		// Filter the childen by the platform
+		childrenHandler = images.FilterPlatforms(childrenHandler, platforms.Default())
+
 		handlers = append(handlers,
 			remotes.FetchHandler(p.is.ContentStore, fetcher),
-			images.ChildrenHandler(p.is.ContentStore, platforms.Default()),
+			childrenHandler,
 		)
 	}
 

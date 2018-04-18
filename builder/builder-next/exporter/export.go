@@ -57,6 +57,8 @@ func (e *imageExporter) Resolve(ctx context.Context, opt map[string]string) (exp
 			i.targetName = ref
 		case exporterImageConfig:
 			i.config = []byte(v)
+		case "ref":
+			i.ref = v
 		default:
 			logrus.Warnf("image exporter: unknown option %s", k)
 		}
@@ -68,6 +70,7 @@ type imageExporterInstance struct {
 	*imageExporter
 	targetName distref.Named
 	config     []byte
+	ref        string
 }
 
 func (e *imageExporterInstance) Name() string {
@@ -139,7 +142,7 @@ func (e *imageExporterInstance) Export(ctx context.Context, ref cache.ImmutableR
 	}
 
 	if e.opt.Reporter != nil {
-		e.opt.Reporter <- Result{ID: id, Ref: string(opt["ref"])}
+		e.opt.Reporter <- Result{ID: id, Ref: e.ref}
 	}
 
 	return nil

@@ -282,7 +282,8 @@ func (s *snapshotter) Remove(ctx context.Context, key string) error {
 		return nil
 	}
 
-	return s.opt.GraphDriver.Remove(key)
+	id, _ := s.getGraphDriverID(key)
+	return s.opt.GraphDriver.Remove(id)
 }
 
 func (s *snapshotter) Commit(ctx context.Context, name, key string, opts ...snapshots.Opt) error {
