@@ -2,6 +2,7 @@ package buildkit
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	mobyworker "github.com/docker/docker/builder/builder-next/worker"
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/daemon/images"
+	"github.com/docker/docker/pkg/jsonmessage"
 	controlapi "github.com/moby/buildkit/api/services/control"
 	"github.com/moby/buildkit/cache"
 	"github.com/moby/buildkit/cache/metadata"
@@ -72,8 +74,6 @@ func New(opt Opt) (*Builder, error) {
 	}
 	return b, nil
 }
-
-// Status(req *controlapi.StatusRequest, stream controlapi.Control_StatusServer) error
 
 func (b *Builder) Build(ctx context.Context, opt backend.BuildConfig) (*builder.Result, error) {
 	id := identity.NewID()
@@ -132,7 +132,29 @@ func (b *Builder) Build(ctx context.Context, opt backend.BuildConfig) (*builder.
 
 	eg.Go(func() error {
 		for sr := range ch {
-			logrus.Debugf("status: %v", sr)
+			dt, err := sr.Marshal()
+			if err != nil {
+				return err
+			}
+
+			auxJSONBytes, err := json.Marshal(dt)
+			if err != nil {
+				return err
+			}
+			auxJSON := new(json.RawMessage)
+			*auxJSON = auxJSONBytes
+			msgJSON, err := json.Marshal(&jsonmessage.JSONMessage{ID: "buildkit-trace", Aux: auxJSON})
+			if err != nil {
+				return err
+			}
+			msgJSON = append(msgJSON, []byte("\r\n")...)
+			n, err := opt.ProgressWriter.Output.Write(msgJSON)
+			if err != nil {
+				return err
+			}
+			if n != len(msgJSON) {
+				return io.ErrShortWrite
+			}
 		}
 		return nil
 	})
@@ -372,6 +394,7 @@ func (r *results) wait(ctx context.Context, ref string) (*containerimageexp.Resu
 	for {
 		select {
 		case <-ctx.Done():
+			r.mu.Unlock()
 			return nil, ctx.Err()
 		default:
 		}
