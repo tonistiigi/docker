@@ -92,23 +92,22 @@ func (is *imageSource) getCredentialsFromSession(ctx context.Context) func(strin
 }
 
 func (is *imageSource) ResolveImageConfig(ctx context.Context, ref string) (digest.Digest, []byte, error) {
-	// type t struct {
-	// 	dgst digest.Digest
-	// 	dt   []byte
-	// }
-	// res, err := is.g.Do(ctx, ref, func(ctx context.Context) (interface{}, error) {
-	// 	dgst, dt, err := imageutil.Config(ctx, ref, is.getResolver(ctx), is.ContentStore)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	return &t{dgst: dgst, dt: dt}, nil
-	// })
-	// if err != nil {
-	// 	return "", nil, err
-	// }
-	// typed := res.(*t)
-	// return typed.dgst, typed.dt, nil
-	return "", nil, errors.Errorf("not-implemented")
+	type t struct {
+		dgst digest.Digest
+		dt   []byte
+	}
+	res, err := is.g.Do(ctx, ref, func(ctx context.Context) (interface{}, error) {
+		dgst, dt, err := imageutil.Config(ctx, ref, is.getResolver(ctx), is.ContentStore)
+		if err != nil {
+			return nil, err
+		}
+		return &t{dgst: dgst, dt: dt}, nil
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	typed := res.(*t)
+	return typed.dgst, typed.dt, nil
 }
 
 func (is *imageSource) Resolve(ctx context.Context, id source.Identifier) (source.SourceInstance, error) {
