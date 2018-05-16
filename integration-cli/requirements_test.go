@@ -193,6 +193,10 @@ func RegistryHosting() bool {
 	return err == nil
 }
 
+func TODOBuildkit() bool {
+	return os.Getenv("DOCKER_BUILDKIT") == ""
+}
+
 // testRequires checks if the environment satisfies the requirements
 // for the test to run or skips the tests.
 func testRequires(c requirement.SkipT, requirements ...requirement.Test) {
