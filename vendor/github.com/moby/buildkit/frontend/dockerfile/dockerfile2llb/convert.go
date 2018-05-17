@@ -29,6 +29,8 @@ const (
 	emptyImageName   = "scratch"
 	localNameContext = "context"
 	historyComment   = "buildkit.dockerfile.v0"
+
+	CopyImage = "tonistiigi/copy@sha256:476e0a67a1e4650c6adaf213269a2913deb7c52cbc77f954026f769d51e1a14e"
 )
 
 type ConvertOpt struct {
@@ -241,6 +243,9 @@ func Dockerfile2LLB(ctx context.Context, dt []byte, opt ConvertOpt) (*llb.State,
 		}
 	}
 
+	if len(opt.Labels) != 0 && target.image.Config.Labels == nil {
+		target.image.Config.Labels = make(map[string]string, len(opt.Labels))
+	}
 	for k, v := range opt.Labels {
 		target.image.Config.Labels[k] = v
 	}
@@ -453,7 +458,7 @@ func dispatchWorkdir(d *dispatchState, c *instructions.WorkdirCommand, commit bo
 
 func dispatchCopy(d *dispatchState, c instructions.SourcesAndDest, sourceState llb.State, isAddCommand bool, cmdToPrint interface{}, chown string) error {
 	// TODO: this should use CopyOp instead. Current implementation is inefficient
-	img := llb.Image("tonistiigi/copy@sha256:476e0a67a1e4650c6adaf213269a2913deb7c52cbc77f954026f769d51e1a14e")
+	img := llb.Image(CopyImage)
 
 	dest := path.Join("/dest", pathRelativeToWorkingDir(d.state, c.Dest()))
 	if c.Dest() == "." || c.Dest()[len(c.Dest())-1] == filepath.Separator {
@@ -525,7 +530,7 @@ func dispatchMaintainer(d *dispatchState, c *instructions.MaintainerCommand) err
 func dispatchLabel(d *dispatchState, c *instructions.LabelCommand) error {
 	commitMessage := bytes.NewBufferString("LABEL")
 	if d.image.Config.Labels == nil {
-		d.image.Config.Labels = make(map[string]string)
+		d.image.Config.Labels = make(map[string]string, len(c.Labels))
 	}
 	for _, v := range c.Labels {
 		d.image.Config.Labels[v.Key] = v.Value
