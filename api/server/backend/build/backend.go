@@ -112,6 +112,10 @@ func (b *Backend) PruneCache(ctx context.Context) (*types.BuildCachePruneReport,
 		return nil
 	})
 
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
 	return &types.BuildCachePruneReport{SpaceReclaimed: fsCacheSize + uint64(buildCacheSize)}, nil
 }
 
