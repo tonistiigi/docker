@@ -313,10 +313,24 @@ func (b *Builder) Build(ctx context.Context, opt backend.BuildConfig) (*builder.
 	}
 	frontendAttrs["add-hosts"] = extraHosts
 
+	exporterName := ""
 	exporterAttrs := map[string]string{}
 
-	if len(opt.Options.Tags) > 0 {
-		exporterAttrs["name"] = strings.Join(opt.Options.Tags, ",")
+	if len(opt.Options.Outputs) > 1 {
+		return nil, errors.Errorf("multiple outputs not supported")
+	} else if len(opt.Options.Outputs) == 0 {
+		exporterName = "moby"
+	} else {
+		if opt.Options.Outputs[0].Type != "cacheonly" {
+			exporterName = opt.Options.Outputs[0].Type
+			exporterAttrs = opt.Options.Outputs[0].Attrs
+		}
+	}
+
+	if exporterName == "moby" {
+		if len(opt.Options.Tags) > 0 {
+			exporterAttrs["name"] = strings.Join(opt.Options.Tags, ",")
+		}
 	}
 
 	cache := controlapi.CacheOptions{}
@@ -331,7 +345,7 @@ func (b *Builder) Build(ctx context.Context, opt backend.BuildConfig) (*builder.
 
 	req := &controlapi.SolveRequest{
 		Ref:           id,
-		Exporter:      "moby",
+		Exporter:      exporterName,
 		ExporterAttrs: exporterAttrs,
 		Frontend:      "dockerfile.v0",
 		FrontendAttrs: frontendAttrs,

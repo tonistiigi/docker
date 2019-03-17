@@ -187,6 +187,12 @@ type ImageBuildOptions struct {
 	// build request. The same identifier can be used to gracefully cancel the
 	// build with the cancel request.
 	BuildID string
+	Outputs []ImageBuildOutput
+}
+
+type ImageBuildOutput struct {
+	Type  string
+	Attrs map[string]string
 }
 
 // BuilderVersion sets the version of underlying builder to use
