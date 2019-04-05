@@ -15,8 +15,8 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/builder"
+	"github.com/docker/docker/daemon"
 	"github.com/docker/docker/daemon/config"
-	"github.com/docker/docker/daemon/images"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/libnetwork"
@@ -67,7 +67,7 @@ var cacheFields = map[string]bool{
 type Opt struct {
 	SessionManager      *session.Manager
 	Root                string
-	Dist                images.DistributionServices
+	Dist                daemon.DistributionServices
 	NetworkController   libnetwork.NetworkController
 	DefaultCgroupParent string
 	ResolverOpt         resolver.ResolveOptionsFunc
