@@ -21,7 +21,6 @@ import (
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/streamformatter"
-	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/pkg/system"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
@@ -273,18 +272,18 @@ func (b *Builder) build(source builder.Source, dockerfile *parser.Result) (*buil
 	if err != nil {
 		return nil, err
 	}
-	if dispatchState.imageID == "" {
+	if dispatchState.image == nil {
 		buildsFailed.WithValues(metricsDockerfileEmptyError).Inc()
 		return nil, errors.New("No image was generated. Is your Dockerfile empty?")
 	}
-	return &builder.Result{ImageID: dispatchState.imageID, FromImage: dispatchState.baseImage}, nil
+	return &builder.Result{Image: *dispatchState.image, FromImage: dispatchState.baseImage}, nil
 }
 
 func emitImageID(aux *streamformatter.AuxFormatter, state *dispatchState) error {
-	if aux == nil || state.imageID == "" {
+	if aux == nil || state.image == nil {
 		return nil
 	}
-	return aux.Emit("", types.BuildResult{ID: state.imageID})
+	return aux.Emit("", types.BuildResult{ID: state.image.Digest.String()})
 }
 
 func processMetaArg(meta instructions.ArgCommand, shlex *shell.Lex, args *BuildArgs) error {
@@ -337,7 +336,7 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 			return nil, err
 		}
 		dispatchRequest.state.updateRunConfig()
-		fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(dispatchRequest.state.imageID))
+		fmt.Fprintf(b.Stdout, " ---> %s\n", shortDispatchID(dispatchRequest.state))
 		for _, cmd := range stage.Commands {
 			select {
 			case <-b.clientCtx.Done():
@@ -355,7 +354,7 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 				return nil, err
 			}
 			dispatchRequest.state.updateRunConfig()
-			fmt.Fprintf(b.Stdout, " ---> %s\n", stringid.TruncateID(dispatchRequest.state.imageID))
+			fmt.Fprintf(b.Stdout, " ---> %s\n", shortDispatchID(dispatchRequest.state))
 
 		}
 		if err := emitImageID(b.Aux, dispatchRequest.state); err != nil {
@@ -370,6 +369,13 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 	return dispatchRequest.state, nil
 }
 
+func shortDispatchID(state *dispatchState) string {
+	if state.image == nil {
+		return ""
+	}
+	return state.image.Digest.Encoded()[:12]
+}
+
 // BuildFromConfig builds directly from `changes`, treating it as if it were the contents of a Dockerfile
 // It will:
 // - Call parse.Parse() to get an AST root for the concatenated Dockerfile entries.
@@ -378,7 +384,8 @@ func (b *Builder) dispatchDockerfileWithCancellation(parseResult []instructions.
 // BuildFromConfig is used by the /commit endpoint, with the changes
 // coming from the query parameter of the same name.
 //
-// TODO: Remove?
+// TODO(containerd): Remove this context less function?
+// At very least, add context and remove os arg
 func BuildFromConfig(config *container.Config, changes []string, os string) (*container.Config, error) {
 	if !system.IsOSSupported(os) {
 		return nil, errdefs.InvalidParameter(system.ErrNotSupportedOperatingSystem)
@@ -419,10 +426,17 @@ func BuildFromConfig(config *container.Config, changes []string, os string) (*co
 		commands = append(commands, cmd)
 	}
 
+	img, err := b.docker.ResolveImage(context.Background(), config.Image)
+	if err != nil {
+		// TODO(containerd): Resolve and wrap this error better?
+		return nil, errdefs.InvalidParameter(err)
+	}
+
 	dispatchRequest := newDispatchRequest(b, dockerfile.EscapeToken, nil, NewBuildArgs(b.options.BuildArgs), newStagesBuildResults())
 	// We make mutations to the configuration, ensure we have a copy
 	dispatchRequest.state.runConfig = copyRunConfig(config)
-	dispatchRequest.state.imageID = config.Image
+	dispatchRequest.state.image = &img
+	// TODO(containerd): remove OS here after replaced by platform
 	dispatchRequest.state.operatingSystem = os
 	for _, cmd := range commands {
 		err := dispatch(dispatchRequest, cmd)
