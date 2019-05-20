@@ -330,6 +330,10 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
 			continue
 		}
 		id := path.Name()
+		// skip hidden directories
+		if len(id) > 0 && id[0] == '.' {
+			continue
+		}
 		bundle := loadBundle(
 			id,
 			filepath.Join(r.state, ns, id),
@@ -372,7 +376,11 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
 			}).Error("opening shim stdout log pipe")
 			continue
 		}
-		go io.Copy(os.Stdout, shimStdoutLog)
+		if r.config.ShimDebug {
+			go io.Copy(os.Stdout, shimStdoutLog)
+		} else {
+			go io.Copy(ioutil.Discard, shimStdoutLog)
+		}
 
 		shimStderrLog, err := v1.OpenShimStderrLog(ctx, logDirPath)
 		if err != nil {
@@ -383,7 +391,11 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
 			}).Error("opening shim stderr log pipe")
 			continue
 		}
-		go io.Copy(os.Stderr, shimStderrLog)
+		if r.config.ShimDebug {
+			go io.Copy(os.Stderr, shimStderrLog)
+		} else {
+			go io.Copy(ioutil.Discard, shimStderrLog)
+		}
 
 		t, err := newTask(id, ns, pid, s, r.events, r.tasks, bundle)
 		if err != nil {

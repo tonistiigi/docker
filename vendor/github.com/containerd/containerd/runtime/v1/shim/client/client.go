@@ -98,9 +98,9 @@ func WithStart(binary, address, daemonAddress, cgroup string, debug bool, exitHa
 			cmd.Wait()
 			exitHandler()
 			if stdoutLog != nil {
-				stderrLog.Close()
+				stdoutLog.Close()
 			}
-			if stdoutLog != nil {
+			if stderrLog != nil {
 				stderrLog.Close()
 			}
 		}()
@@ -219,8 +219,7 @@ func WithConnect(address string, onClose func()) Opt {
 		if err != nil {
 			return nil, nil, err
 		}
-		client := ttrpc.NewClient(conn)
-		client.OnClose(onClose)
+		client := ttrpc.NewClient(conn, ttrpc.WithOnClose(onClose))
 		return shimapi.NewShimClient(client), conn, nil
 	}
 }

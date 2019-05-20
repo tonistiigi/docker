@@ -65,9 +65,6 @@ func newBundle(id, path, workDir string, spec []byte) (b *bundle, err error) {
 			os.RemoveAll(workDir)
 		}
 	}()
-	if err := os.Mkdir(filepath.Join(path, "rootfs"), 0711); err != nil {
-		return nil, err
-	}
 	err = ioutil.WriteFile(filepath.Join(path, configFilename), spec, 0666)
 	return &bundle{
 		id:      id,
@@ -182,6 +179,9 @@ func atomicDelete(path string) error {
 	// create a hidden dir for an atomic removal
 	atomicPath := filepath.Join(filepath.Dir(path), fmt.Sprintf(".%s", filepath.Base(path)))
 	if err := os.Rename(path, atomicPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
 	return os.RemoveAll(atomicPath)

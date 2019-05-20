@@ -14,14 +14,10 @@
    limitations under the License.
 */
 
-package server
+package images
 
-import (
-	"context"
-
-	srvconfig "github.com/containerd/containerd/services/server/config"
+const (
+	// AnnotationImageName is an annotation on a Descriptor in an index.json
+	// containing the `Name` value as used by an `Image` struct
+	AnnotationImageName = "io.containerd.image.name"
 )
-
-func apply(_ context.Context, _ *srvconfig.Config) error {
-	return nil
-}
