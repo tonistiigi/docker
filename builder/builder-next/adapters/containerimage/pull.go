@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/containerd/containerd/content"
 	containerderrors "github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
+	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/platforms"
 	ctdreference "github.com/containerd/containerd/reference"
 	"github.com/containerd/containerd/remotes"
@@ -21,7 +21,6 @@ import (
 	"github.com/containerd/containerd/remotes/docker/schema1"
 	distreference "github.com/docker/distribution/reference"
 	"github.com/docker/docker/distribution"
-	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
@@ -50,10 +49,10 @@ type SourceOpt struct {
 	CacheAccessor   cache.Accessor
 	ReferenceStore  reference.Store
 	DownloadManager distribution.RootFSDownloadManager
-	MetadataStore   metadata.V2MetadataService
 	ImageStore      image.Store
 	ResolverOpt     resolver.ResolveOptionsFunc
 	LayerStore      layer.Store
+	LeaseManager    leases.Manager
 }
 
 type imageSource struct {
@@ -136,7 +135,7 @@ func (is *imageSource) resolveRemote(ctx context.Context, ref string, platform *
 		dt   []byte
 	}
 	res, err := is.g.Do(ctx, ref, func(ctx context.Context) (interface{}, error) {
-		dgst, dt, err := imageutil.Config(ctx, ref, is.getResolver(ctx, is.ResolverOpt, ref, sm), is.ContentStore, nil, platform)
+		dgst, dt, err := imageutil.Config(ctx, ref, is.getResolver(ctx, is.ResolverOpt, ref, sm), is.ContentStore, is.LeaseManager, platform)
 		if err != nil {
 			return nil, err
 		}
@@ -566,7 +565,7 @@ func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
 	}()
 
 	r := image.NewRootFS()
-	rootFS, release, err := p.is.DownloadManager.Download(ctx, *r, runtime.GOOS, layers, pkgprogress.ChanOutput(pchan))
+	rootFS, release, err := p.is.DownloadManager.Download(ctx, *r, p.platform, layers, pkgprogress.ChanOutput(pchan))
 	stopProgress()
 	if err != nil {
 		return nil, err
@@ -640,8 +639,7 @@ func (ld *layerDescriptor) Close() {
 }
 
 func (ld *layerDescriptor) Registered(diffID layer.DiffID) {
-	// Cache mapping from this layer's DiffID to the blobsum
-	ld.is.MetadataStore.Add(diffID, metadata.V2Metadata{Digest: ld.desc.Digest, SourceRepository: ld.ref.Locator})
+	// TODO: set blob mapping
 }
 
 func showProgress(ctx context.Context, ongoing *jobs, cs content.Store, pw progress.Writer) {
