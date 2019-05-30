@@ -99,8 +99,13 @@ func (l *local) Apply(ctx context.Context, er *diffapi.ApplyRequest, _ ...grpc.C
 		mounts  = toMounts(er.Mounts)
 	)
 
+	var opts []diff.ApplyOpt
+	if er.Payloads != nil {
+		opts = append(opts, diff.WithPayloads(er.Payloads))
+	}
+
 	for _, differ := range l.differs {
-		ocidesc, err = differ.Apply(ctx, desc, mounts)
+		ocidesc, err = differ.Apply(ctx, desc, mounts, opts...)
 		if !errdefs.IsNotImplemented(err) {
 			break
 		}
@@ -164,16 +169,18 @@ func toMounts(apim []*types.Mount) []mount.Mount {
 
 func toDescriptor(d *types.Descriptor) ocispec.Descriptor {
 	return ocispec.Descriptor{
-		MediaType: d.MediaType,
-		Digest:    d.Digest,
-		Size:      d.Size_,
+		MediaType:   d.MediaType,
+		Digest:      d.Digest,
+		Size:        d.Size_,
+		Annotations: d.Annotations,
 	}
 }
 
 func fromDescriptor(d ocispec.Descriptor) *types.Descriptor {
 	return &types.Descriptor{
-		MediaType: d.MediaType,
-		Digest:    d.Digest,
-		Size_:     d.Size,
+		MediaType:   d.MediaType,
+		Digest:      d.Digest,
+		Size_:       d.Size,
+		Annotations: d.Annotations,
 	}
 }

@@ -1,3 +1,5 @@
+// +build !linux
+
 /*
    Copyright The containerd Authors.
 
@@ -14,14 +16,19 @@
    limitations under the License.
 */
 
-package server
+package apply
 
 import (
 	"context"
+	"io"
 
-	srvconfig "github.com/containerd/containerd/services/server/config"
+	"github.com/containerd/containerd/archive"
+	"github.com/containerd/containerd/mount"
 )
 
-func apply(_ context.Context, _ *srvconfig.Config) error {
-	return nil
+func apply(ctx context.Context, mounts []mount.Mount, r io.Reader) error {
+	return mount.WithTempMount(ctx, mounts, func(root string) error {
+		_, err := archive.Apply(ctx, root, r)
+		return err
+	})
 }

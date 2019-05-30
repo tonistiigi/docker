@@ -114,6 +114,7 @@ func (is *imageSource) getCredentialsFromSession(ctx context.Context, sm *sessio
 }
 
 func (is *imageSource) resolveLocal(refStr string) ([]byte, error) {
+	return nil, errors.Errorf("TODO: resolveLocal")
 	ref, err := distreference.ParseNormalizedNamed(refStr)
 	if err != nil {
 		return nil, err
@@ -383,7 +384,7 @@ func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
 		return nil, err
 	}
 
-	if p.config != nil {
+	if p.config != nil && p.is.ImageStore != nil {
 		img, err := p.is.ImageStore.Get(image.ID(digest.FromBytes(p.config)))
 		if err == nil {
 			if len(img.RootFS.DiffIDs) == 0 {

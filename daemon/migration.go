@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/distribution"
 	"github.com/docker/docker/image"
@@ -15,6 +17,10 @@ type DistributionServices struct {
 	LayerStore     layer.Store
 	ImageStore     image.Store           // TODO(tonis): remove
 	ReferenceStore dockerreference.Store // TODO(tonis): remove
+
+	ContentStore  content.Store
+	LeasesManager leases.Manager
+	Namespace     string
 }
 
 // DistributionServices returns services controlling daemon storage
@@ -27,5 +33,8 @@ func (d *Daemon) DistributionServices() (DistributionServices, error) {
 	return DistributionServices{
 		LayerStore:      ls,
 		DownloadManager: d.imageService.DownloadManager(),
+		ContentStore:    d.containerdCli.ContentStore(),
+		LeasesManager:   d.containerdCli.LeasesService(),
+		Namespace:       d.imageService.Namespace(),
 	}, nil
 }

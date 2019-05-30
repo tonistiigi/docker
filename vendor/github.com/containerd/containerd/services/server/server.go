@@ -35,19 +35,24 @@ import (
 	"github.com/containerd/containerd/content/local"
 	csproxy "github.com/containerd/containerd/content/proxy"
 	"github.com/containerd/containerd/defaults"
+	"github.com/containerd/containerd/diff"
 	"github.com/containerd/containerd/events/exchange"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/metadata"
 	"github.com/containerd/containerd/pkg/dialer"
+	"github.com/containerd/containerd/pkg/timeout"
 	"github.com/containerd/containerd/plugin"
 	srvconfig "github.com/containerd/containerd/services/server/config"
 	"github.com/containerd/containerd/snapshots"
 	ssproxy "github.com/containerd/containerd/snapshots/proxy"
+	"github.com/containerd/containerd/sys"
+	"github.com/containerd/ttrpc"
 	metrics "github.com/docker/go-metrics"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/pkg/errors"
 	bolt "go.etcd.io/bbolt"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 // CreateTopLevelDirectories creates the top-level root and state directories.
@@ -61,13 +66,11 @@ func CreateTopLevelDirectories(config *srvconfig.Config) error {
 		return errors.New("root and state must be different paths")
 	}
 
-	if err := os.MkdirAll(config.Root, 0711); err != nil {
+	if err := sys.MkdirAllWithACL(config.Root, 0711); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(config.State, 0711); err != nil {
-		return err
-	}
-	return nil
+
+	return sys.MkdirAllWithACL(config.State, 0711)
 }
 
 // New creates and initializes a new containerd server
@@ -75,9 +78,19 @@ func New(ctx context.Context, config *srvconfig.Config) (*Server, error) {
 	if err := apply(ctx, config); err != nil {
 		return nil, err
 	}
+	for key, sec := range config.Timeouts {
+		d, err := time.ParseDuration(sec)
+		if err != nil {
+			return nil, errors.Errorf("unable to parse %s into a time duration", sec)
+		}
+		timeout.Set(key, d)
+	}
 	plugins, err := LoadPlugins(ctx, config)
 	if err != nil {
 		return nil, err
+	}
+	for id, p := range config.StreamProcessors {
+		diff.RegisterProcessor(diff.BinaryHandler(id, p.Returns, p.Accepts, p.Path, p.Args))
 	}
 
 	serverOpts := []grpc.ServerOption{
@@ -90,18 +103,46 @@ func New(ctx context.Context, config *srvconfig.Config) (*Server, error) {
 	if config.GRPC.MaxSendMsgSize > 0 {
 		serverOpts = append(serverOpts, grpc.MaxSendMsgSize(config.GRPC.MaxSendMsgSize))
 	}
-	rpc := grpc.NewServer(serverOpts...)
+	ttrpcServer, err := newTTRPCServer()
+	if err != nil {
+		return nil, err
+	}
+	tcpServerOpts := serverOpts
+	if config.GRPC.TCPTLSCert != "" {
+		log.G(ctx).Info("setting up tls on tcp GRPC services...")
+		creds, err := credentials.NewServerTLSFromFile(config.GRPC.TCPTLSCert, config.GRPC.TCPTLSKey)
+		if err != nil {
+			return nil, err
+		}
+		tcpServerOpts = append(tcpServerOpts, grpc.Creds(creds))
+	}
 	var (
-		services []plugin.Service
-		s        = &Server{
-			rpc:    rpc,
-			events: exchange.NewExchange(),
-			config: config,
+		grpcServer = grpc.NewServer(serverOpts...)
+		tcpServer  = grpc.NewServer(tcpServerOpts...)
+
+		grpcServices  []plugin.Service
+		tcpServices   []plugin.TCPService
+		ttrpcServices []plugin.TTRPCService
+
+		s = &Server{
+			grpcServer:  grpcServer,
+			tcpServer:   tcpServer,
+			ttrpcServer: ttrpcServer,
+			events:      exchange.NewExchange(),
+			config:      config,
 		}
 		initialized = plugin.NewPluginSet()
+		required    = make(map[string]struct{})
 	)
+	for _, r := range config.RequiredPlugins {
+		required[r] = struct{}{}
+	}
 	for _, p := range plugins {
 		id := p.URI()
+		reqID := id
+		if config.GetVersion() == 1 {
+			reqID = p.ID
+		}
 		log.G(ctx).WithField("type", p.Type).Infof("loading plugin %q...", id)
 
 		initContext := plugin.NewContext(
@@ -113,14 +154,15 @@ func New(ctx context.Context, config *srvconfig.Config) (*Server, error) {
 		)
 		initContext.Events = s.events
 		initContext.Address = config.GRPC.Address
+		initContext.TTRPCAddress = config.TTRPC.Address
 
 		// load the plugin specific configuration if it is provided
 		if p.Config != nil {
-			pluginConfig, err := config.Decode(p.ID, p.Config)
+			pc, err := config.Decode(p)
 			if err != nil {
 				return nil, err
 			}
-			initContext.Config = pluginConfig
+			initContext.Config = pc
 		}
 		result := p.Init(initContext)
 		if err := initialized.Add(result); err != nil {
@@ -134,17 +176,47 @@ func New(ctx context.Context, config *srvconfig.Config) (*Server, error) {
 			} else {
 				log.G(ctx).WithError(err).Warnf("failed to load plugin %s", id)
 			}
+			if _, ok := required[reqID]; ok {
+				return nil, errors.Wrapf(err, "load required plugin %s", id)
+			}
 			continue
 		}
+
+		delete(required, reqID)
 		// check for grpc services that should be registered with the server
-		if service, ok := instance.(plugin.Service); ok {
-			services = append(services, service)
+		if src, ok := instance.(plugin.Service); ok {
+			grpcServices = append(grpcServices, src)
 		}
+		if src, ok := instance.(plugin.TTRPCService); ok {
+			ttrpcServices = append(ttrpcServices, src)
+		}
+		if service, ok := instance.(plugin.TCPService); ok {
+			tcpServices = append(tcpServices, service)
+		}
+
 		s.plugins = append(s.plugins, result)
 	}
+	if len(required) != 0 {
+		var missing []string
+		for id := range required {
+			missing = append(missing, id)
+		}
+		return nil, errors.Errorf("required plugin %s not included", missing)
+	}
+
 	// register services after all plugins have been initialized
-	for _, service := range services {
-		if err := service.Register(rpc); err != nil {
+	for _, service := range grpcServices {
+		if err := service.Register(grpcServer); err != nil {
+			return nil, err
+		}
+	}
+	for _, service := range ttrpcServices {
+		if err := service.RegisterTTRPC(ttrpcServer); err != nil {
+			return nil, err
+		}
+	}
+	for _, service := range tcpServices {
+		if err := service.RegisterTCP(tcpServer); err != nil {
 			return nil, err
 		}
 	}
@@ -153,10 +225,12 @@ func New(ctx context.Context, config *srvconfig.Config) (*Server, error) {
 
 // Server is the containerd main daemon
 type Server struct {
-	rpc     *grpc.Server
-	events  *exchange.Exchange
-	config  *srvconfig.Config
-	plugins []*plugin.Plugin
+	grpcServer  *grpc.Server
+	ttrpcServer *ttrpc.Server
+	tcpServer   *grpc.Server
+	events      *exchange.Exchange
+	config      *srvconfig.Config
+	plugins     []*plugin.Plugin
 }
 
 // ServeGRPC provides the containerd grpc APIs on the provided listener
@@ -168,8 +242,13 @@ func (s *Server) ServeGRPC(l net.Listener) error {
 	// before we start serving the grpc API register the grpc_prometheus metrics
 	// handler.  This needs to be the last service registered so that it can collect
 	// metrics for every other service
-	grpc_prometheus.Register(s.rpc)
-	return trapClosedConnErr(s.rpc.Serve(l))
+	grpc_prometheus.Register(s.grpcServer)
+	return trapClosedConnErr(s.grpcServer.Serve(l))
+}
+
+// ServeTTRPC provides the containerd ttrpc APIs on the provided listener
+func (s *Server) ServeTTRPC(l net.Listener) error {
+	return trapClosedConnErr(s.ttrpcServer.Serve(context.Background(), l))
 }
 
 // ServeMetrics provides a prometheus endpoint for exposing metrics
@@ -177,6 +256,12 @@ func (s *Server) ServeMetrics(l net.Listener) error {
 	m := http.NewServeMux()
 	m.Handle("/v1/metrics", metrics.Handler())
 	return trapClosedConnErr(http.Serve(l, m))
+}
+
+// ServeTCP allows services to serve over tcp
+func (s *Server) ServeTCP(l net.Listener) error {
+	grpc_prometheus.Register(s.tcpServer)
+	return trapClosedConnErr(s.tcpServer.Serve(l))
 }
 
 // ServeDebug provides a debug endpoint
@@ -195,12 +280,12 @@ func (s *Server) ServeDebug(l net.Listener) error {
 
 // Stop the containerd server canceling any open connections
 func (s *Server) Stop() {
-	s.rpc.Stop()
+	s.grpcServer.Stop()
 	for i := len(s.plugins) - 1; i >= 0; i-- {
 		p := s.plugins[i]
 		instance, err := p.Instance()
 		if err != nil {
-			log.L.WithError(err).WithField("id", p.Registration.ID).
+			log.L.WithError(err).WithField("id", p.Registration.URI()).
 				Errorf("could not get plugin instance")
 			continue
 		}
@@ -209,7 +294,7 @@ func (s *Server) Stop() {
 			continue
 		}
 		if err := closer.Close(); err != nil {
-			log.L.WithError(err).WithField("id", p.Registration.ID).
+			log.L.WithError(err).WithField("id", p.Registration.URI()).
 				Errorf("failed to close plugin")
 		}
 	}
@@ -219,7 +304,11 @@ func (s *Server) Stop() {
 // of all plugins.
 func LoadPlugins(ctx context.Context, config *srvconfig.Config) ([]*plugin.Registration, error) {
 	// load all plugins into containerd
-	if err := plugin.Load(filepath.Join(config.Root, "plugins")); err != nil {
+	path := config.PluginDir
+	if path == "" {
+		path = filepath.Join(config.Root, "plugins")
+	}
+	if err := plugin.Load(path); err != nil {
 		return nil, err
 	}
 	// load additional plugins that don't automatically register themselves
@@ -345,8 +434,12 @@ func LoadPlugins(ctx context.Context, config *srvconfig.Config) ([]*plugin.Regis
 
 	}
 
+	filter := srvconfig.V2DisabledFilter
+	if config.GetVersion() == 1 {
+		filter = srvconfig.V1DisabledFilter
+	}
 	// return the ordered graph for plugins
-	return plugin.Graph(config.DisabledPlugins), nil
+	return plugin.Graph(filter(config.DisabledPlugins)), nil
 }
 
 type proxyClients struct {
@@ -366,7 +459,7 @@ func (pc *proxyClients) getClient(address string) (*grpc.ClientConn, error) {
 	gopts := []grpc.DialOption{
 		grpc.WithInsecure(),
 		grpc.WithBackoffMaxDelay(3 * time.Second),
-		grpc.WithDialer(dialer.Dialer),
+		grpc.WithContextDialer(dialer.ContextDialer),
 
 		// TODO(stevvooe): We may need to allow configuration of this on the client.
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(defaults.DefaultMaxRecvMsgSize)),

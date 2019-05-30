@@ -71,9 +71,9 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 
 	mdb := ctdmetadata.NewDB(db, store, map[string]snapshots.Snapshotter{})
 
-	store = containerdsnapshot.NewContentStore(mdb.ContentStore(), "buildkit")
+	store = containerdsnapshot.NewContentStore(mdb.ContentStore(), opt.Dist.Namespace)
 
-	lm := leaseutil.WithNamespace(ctdmetadata.NewLeaseManager(mdb), "buildkit")
+	lm := leaseutil.WithNamespace(ctdmetadata.NewLeaseManager(mdb), opt.Dist.Namespace)
 
 	snapshotter, lm, err := snapshot.NewSnapshotter(snapshot.Opt{
 		GraphDriver:     driver,
@@ -119,6 +119,7 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 		ReferenceStore:  dist.ReferenceStore,
 		ResolverOpt:     opt.ResolverOpt,
 		LayerStore:      dist.LayerStore,
+		LeaseManager:    opt.Dist.LeasesManager,
 	})
 	if err != nil {
 		return nil, err
