@@ -51,7 +51,7 @@ type SourceOpt struct {
 	DownloadManager distribution.RootFSDownloadManager
 	ImageStore      image.Store
 	ResolverOpt     resolver.ResolveOptionsFunc
-	LeaseManager    leases.Manager
+	LeasesManager   leases.Manager
 }
 
 type imageSource struct {
@@ -113,6 +113,7 @@ func (is *imageSource) getCredentialsFromSession(ctx context.Context, sm *sessio
 }
 
 func (is *imageSource) resolveLocal(refStr string) ([]byte, error) {
+	return nil, errors.Errorf("TODO: resolveLocal")
 	ref, err := distreference.ParseNormalizedNamed(refStr)
 	if err != nil {
 		return nil, err
@@ -135,7 +136,7 @@ func (is *imageSource) resolveRemote(ctx context.Context, ref string, platform *
 	}
 	res, err := is.g.Do(ctx, ref, func(ctx context.Context) (interface{}, error) {
 
-		dgst, dt, err := imageutil.Config(ctx, ref, is.getResolver(ctx, is.ResolverOpt, ref, sm), is.ContentStore, is.LeaseManager, platform)
+		dgst, dt, err := imageutil.Config(ctx, ref, is.getResolver(ctx, is.ResolverOpt, ref, sm), is.ContentStore, is.LeasesManager, platform)
 		if err != nil {
 			return nil, err
 		}
@@ -366,7 +367,7 @@ func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
 		return nil, err
 	}
 
-	if p.config != nil {
+	if p.config != nil && p.is.ImageStore != nil {
 		img, err := p.is.ImageStore.Get(image.ID(digest.FromBytes(p.config)))
 		if err == nil {
 			if len(img.RootFS.DiffIDs) == 0 {

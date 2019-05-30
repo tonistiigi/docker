@@ -149,6 +149,10 @@ func (i *ImageService) DownloadManager() *xfer.LayerDownloadManager {
 	return i.downloadManager
 }
 
+func (i *ImageService) Namespace() string {
+	return i.namespace
+}
+
 // GetImageBackend returns the storage backend used by the given image
 // TODO(containerd): return more abstract interface to support snapshotters
 func (i *ImageService) GetImageBackend(image RuntimeImage) (layer.Store, error) {

@@ -1,11 +1,11 @@
 package buildkit
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
 
-	"github.com/containerd/containerd/content/local"
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/builder/builder-next/adapters/containerimage"
@@ -29,12 +29,14 @@ import (
 	"github.com/moby/buildkit/frontend/gateway"
 	"github.com/moby/buildkit/frontend/gateway/forwarder"
 	"github.com/moby/buildkit/snapshot/blobmapping"
+	containerdsnapshot "github.com/moby/buildkit/snapshot/containerd"
 	"github.com/moby/buildkit/solver/bboltcachestorage"
 	"github.com/moby/buildkit/util/binfmt_misc"
 	"github.com/moby/buildkit/util/entitlements"
 	"github.com/moby/buildkit/worker"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
@@ -63,16 +65,21 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 		return nil, err
 	}
 
-	store, err := local.NewStore(filepath.Join(root, "content"))
-	if err != nil {
-		return nil, err
-	}
-	store = &contentStoreNoLabels{store}
+	// store, err := local.NewStore(filepath.Join(root, "content"))
+	// if err != nil {
+	//   return nil, err
+	// }
+	// store = &contentStoreNoLabels{store}
 
 	md, err := metadata.NewStore(filepath.Join(root, "metadata.db"))
 	if err != nil {
 		return nil, err
 	}
+
+	store := containerdsnapshot.NewContentStore(opt.Dist.ContentStore, opt.Dist.Namespace, func(ctx context.Context) error {
+		logrus.Debugf("TODO: call gc")
+		return nil
+	})
 
 	snapshotter := blobmapping.NewSnapshotter(blobmapping.Opt{
 		Content:       store,
@@ -106,6 +113,7 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 		ImageStore:      dist.ImageStore,
 		ReferenceStore:  dist.ReferenceStore,
 		ResolverOpt:     opt.ResolverOpt,
+		LeasesManager:   opt.Dist.LeasesManager,
 	})
 	if err != nil {
 		return nil, err
