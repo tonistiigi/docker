@@ -439,6 +439,7 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, platform 
 }
 
 func (p *v2Puller) pullSchema1(ctx context.Context, ref reference.Reference, unverifiedManifest *schema1.SignedManifest, platform *specs.Platform) (id digest.Digest, manifestDigest digest.Digest, err error) {
+	panic("v2Puller.pullSchema1 should not be reachable")
 	var verifiedManifest *schema1.Manifest
 	verifiedManifest, err = verifySchema1Manifest(unverifiedManifest, ref)
 	if err != nil {
@@ -527,7 +528,7 @@ func (p *v2Puller) pullSchema1(ctx context.Context, ref reference.Reference, unv
 		return "", "", fmt.Errorf("cannot download image with operating system %q when requesting %q", configOS, requestedOS)
 	}
 
-	resultRootFS, release, err := p.config.DownloadManager.Download(ctx, *rootFS, configOS, descriptors, p.config.ProgressOutput)
+	resultRootFS, release, err := p.config.DownloadManager.Download(ctx, *rootFS, specs.Platform{}, descriptors, p.config.ProgressOutput)
 	if err != nil {
 		return "", "", err
 	}
@@ -549,6 +550,7 @@ func (p *v2Puller) pullSchema1(ctx context.Context, ref reference.Reference, unv
 }
 
 func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *schema2.DeserializedManifest, platform *specs.Platform) (id digest.Digest, manifestDigest digest.Digest, err error) {
+	panic("v2Puller.pullSchema2 should not be reachable")
 	manifestDigest, err = schema2ManifestDigest(ref, mfst)
 	if err != nil {
 		return "", "", err
@@ -655,7 +657,7 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
 				rootFS image.RootFS
 			)
 			downloadRootFS := *image.NewRootFS()
-			rootFS, release, err = p.config.DownloadManager.Download(ctx, downloadRootFS, layerStoreOS, descriptors, p.config.ProgressOutput)
+			rootFS, release, err = p.config.DownloadManager.Download(ctx, downloadRootFS, specs.Platform{}, descriptors, p.config.ProgressOutput)
 			if err != nil {
 				// Intentionally do not cancel the config download here
 				// as the error from config download (if there is one)

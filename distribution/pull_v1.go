@@ -182,6 +182,7 @@ func (p *v1Puller) downloadImage(ctx context.Context, repoData *registry.Reposit
 }
 
 func (p *v1Puller) pullImage(ctx context.Context, v1ID, endpoint string, localNameRef reference.Named, layersDownloaded *bool) (err error) {
+	panic("v1Puller.pullImage should not be reachable")
 	var history []string
 	history, err = p.session.GetRemoteHistory(v1ID, endpoint)
 	if err != nil {
@@ -229,7 +230,7 @@ func (p *v1Puller) pullImage(ctx context.Context, v1ID, endpoint string, localNa
 	}
 
 	rootFS := image.NewRootFS()
-	resultRootFS, release, err := p.config.DownloadManager.Download(ctx, *rootFS, "", descriptors, p.config.ProgressOutput)
+	resultRootFS, release, err := p.config.DownloadManager.Download(ctx, *rootFS, specs.Platform{}, descriptors, p.config.ProgressOutput)
 	if err != nil {
 		return err
 	}

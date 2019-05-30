@@ -3,7 +3,6 @@ package daemon
 import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/distribution"
-	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	dockerreference "github.com/docker/docker/reference"
@@ -11,11 +10,11 @@ import (
 
 // DistributionServices provides daemon image storage services
 type DistributionServices struct {
-	DownloadManager   distribution.RootFSDownloadManager
-	V2MetadataService metadata.V2MetadataService
-	LayerStore        layer.Store
-	ImageStore        image.Store
-	ReferenceStore    dockerreference.Store
+	DownloadManager distribution.RootFSDownloadManager
+	// V2MetadataService metadata.V2MetadataService
+	LayerStore     layer.Store
+	ImageStore     image.Store           // TODO(tonis): remove
+	ReferenceStore dockerreference.Store // TODO(tonis): remove
 }
 
 // DistributionServices returns services controlling daemon storage
@@ -26,6 +25,7 @@ func (d *Daemon) DistributionServices() (DistributionServices, error) {
 		return DistributionServices{}, err
 	}
 	return DistributionServices{
-		LayerStore: ls,
+		LayerStore:      ls,
+		DownloadManager: d.imageService.DownloadManager(),
 	}, nil
 }

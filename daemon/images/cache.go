@@ -22,7 +22,7 @@ type cache struct {
 
 // LoadCache loads the image cache by scanning containerd images
 // and listening to containerd events
-// This process can be backgrounded and will hold hold the cache
+// This process can be backgrounded and will hold the cache
 // lock until fully populated.
 func (i *ImageService) LoadCache(ctx context.Context) error {
 	namespace, err := namespaces.NamespaceRequired(ctx)

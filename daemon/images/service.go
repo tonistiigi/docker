@@ -9,6 +9,7 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/container"
 	daemonevents "github.com/docker/docker/daemon/events"
+	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/system"
@@ -64,7 +65,7 @@ func NewImageService(config ImageServiceConfig) *ImageService {
 		layerStores[backend.DriverName()] = backend.Store
 	}
 
-	return &ImageService{
+	is := &ImageService{
 		namespace:       config.DefaultNamespace,
 		defaultPlatform: config.DefaultPlatform,
 		platforms:       pc,
@@ -77,6 +78,10 @@ func NewImageService(config ImageServiceConfig) *ImageService {
 
 		registryService: config.RegistryService,
 	}
+
+	is.downloadManager = xfer.NewLayerDownloadManager(is.GetLayerStore, config.MaxConcurrentDownloads)
+
+	return is
 }
 
 // TODO(containerd): add upstream constructor
@@ -125,6 +130,7 @@ type ImageService struct {
 
 	// To be replaced by containerd client
 	registryService registry.Service
+	downloadManager *xfer.LayerDownloadManager
 }
 
 // CountImages returns the number of images stored by ImageService
@@ -137,6 +143,10 @@ func (i *ImageService) CountImages(ctx context.Context) (int, error) {
 	}
 
 	return len(imgs), nil
+}
+
+func (i *ImageService) DownloadManager() *xfer.LayerDownloadManager {
+	return i.downloadManager
 }
 
 // GetImageBackend returns the storage backend used by the given image

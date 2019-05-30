@@ -103,7 +103,6 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 		CacheAccessor:   cm,
 		ContentStore:    store,
 		DownloadManager: dist.DownloadManager,
-		MetadataStore:   dist.V2MetadataService,
 		ImageStore:      dist.ImageStore,
 		ReferenceStore:  dist.ReferenceStore,
 		ResolverOpt:     opt.ResolverOpt,
@@ -152,20 +151,19 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 	}
 
 	wopt := mobyworker.Opt{
-		ID:                "moby",
-		MetadataStore:     md,
-		ContentStore:      store,
-		CacheManager:      cm,
-		GCPolicy:          gcPolicy,
-		Snapshotter:       snapshotter,
-		Executor:          exec,
-		ImageSource:       src,
-		DownloadManager:   dist.DownloadManager,
-		V2MetadataService: dist.V2MetadataService,
-		Exporter:          exp,
-		Transport:         rt,
-		Layers:            layers,
-		Platforms:         p,
+		ID:              "moby",
+		MetadataStore:   md,
+		ContentStore:    store,
+		CacheManager:    cm,
+		GCPolicy:        gcPolicy,
+		Snapshotter:     snapshotter,
+		Executor:        exec,
+		ImageSource:     src,
+		DownloadManager: dist.DownloadManager,
+		Exporter:        exp,
+		Transport:       rt,
+		Layers:          layers,
+		Platforms:       p,
 	}
 
 	wc := &worker.Controller{}
