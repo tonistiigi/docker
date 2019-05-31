@@ -6,10 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/containerd/containerd/content/local"
-	ctdmetadata "github.com/containerd/containerd/metadata"
 	"github.com/containerd/containerd/platforms"
-	"github.com/containerd/containerd/snapshots"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/builder/builder-next/adapters/containerimage"
 	"github.com/docker/docker/builder/builder-next/adapters/localinlinecache"
@@ -39,7 +36,6 @@ import (
 	"github.com/moby/buildkit/worker"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
-	bolt "go.etcd.io/bbolt"
 )
 
 func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
@@ -59,21 +55,9 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 		return nil, errors.Errorf("could not access graphdriver")
 	}
 
-	store, err := local.NewStore(filepath.Join(root, "content"))
-	if err != nil {
-		return nil, err
-	}
+	store := containerdsnapshot.NewContentStore(opt.Dist.ContentStore, opt.Dist.Namespace)
 
-	db, err := bolt.Open(filepath.Join(root, "containerdmeta.db"), 0644, nil)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-
-	mdb := ctdmetadata.NewDB(db, store, map[string]snapshots.Snapshotter{})
-
-	store = containerdsnapshot.NewContentStore(mdb.ContentStore(), opt.Dist.Namespace)
-
-	lm := leaseutil.WithNamespace(ctdmetadata.NewLeaseManager(mdb), opt.Dist.Namespace)
+	lm := leaseutil.WithNamespace(opt.Dist.LeasesManager, opt.Dist.Namespace)
 
 	snapshotter, lm, err := snapshot.NewSnapshotter(snapshot.Opt{
 		GraphDriver:     driver,
@@ -119,7 +103,7 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 		ReferenceStore:  dist.ReferenceStore,
 		ResolverOpt:     opt.ResolverOpt,
 		LayerStore:      dist.LayerStore,
-		LeaseManager:    opt.Dist.LeasesManager,
+		LeaseManager:    lm,
 	})
 	if err != nil {
 		return nil, err
