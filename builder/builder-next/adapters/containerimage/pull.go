@@ -204,6 +204,7 @@ func (is *imageSource) Resolve(ctx context.Context, id source.Identifier, sm *se
 		resolver: is.getResolver(ctx, is.ResolverOpt, imageIdentifier.Reference.String(), sm),
 		platform: platform,
 		sm:       sm,
+		lm:       is.LeaseManager,
 	}
 	return p, nil
 }
@@ -220,6 +221,7 @@ type puller struct {
 	config           []byte
 	platform         ocispec.Platform
 	sm               *session.Manager
+	lm               leases.Manager
 }
 
 func (p *puller) mainManifestKey(dgst digest.Digest, platform ocispec.Platform) (digest.Digest, error) {
@@ -442,6 +444,7 @@ func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
 		schema1Converter *schema1.Converter
 		handlers         []images.Handler
 	)
+
 	if p.desc.MediaType == images.MediaTypeDockerSchema1Manifest {
 		schema1Converter = schema1.NewConverter(p.is.ContentStore, fetcher)
 		handlers = append(handlers, schema1Converter)
@@ -449,10 +452,6 @@ func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
 		// TODO: Optimize to do dispatch and integrate pulling with download manager,
 		// leverage existing blob mapping and layer storage
 	} else {
-
-		// TODO: need a wrapper snapshot interface that combines content
-		// and snapshots as 1) buildkit shouldn't have a dependency on contentstore
-		// or 2) cachemanager should manage the contentstore
 		handlers = append(handlers, images.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 			switch desc.MediaType {
 			case images.MediaTypeDockerSchema2Manifest, ocispec.MediaTypeImageManifest,
@@ -575,6 +574,33 @@ func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
 	release()
 	if err != nil {
 		return nil, err
+	}
+
+	var usedBlobs []ocispec.Descriptor
+	for _, j := range ongoing.added {
+		usedBlobs = append(usedBlobs, j.Descriptor)
+	}
+
+	// split all pulled data to layers and rest. layers remain roots and are deleted with snapshots. rest will be linked to layers.
+	// TODO: handle schema1
+	var notLayerBlobs []ocispec.Descriptor
+	var layerBlobs []ocispec.Descriptor
+	for _, j := range usedBlobs {
+		switch j.MediaType {
+		case ocispec.MediaTypeImageLayer, images.MediaTypeDockerSchema2Layer, ocispec.MediaTypeImageLayerGzip, images.MediaTypeDockerSchema2LayerGzip, images.MediaTypeDockerSchema2LayerForeign, images.MediaTypeDockerSchema2LayerForeignGzip:
+			layerBlobs = append(layerBlobs, j)
+		default:
+			notLayerBlobs = append(notLayerBlobs, j)
+		}
+	}
+
+	for _, nl := range notLayerBlobs {
+		if err := p.lm.AddResource(ctx, leases.Lease{ID: ref.ID()}, leases.Resource{
+			ID:   nl.Digest.String(),
+			Type: "content",
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	// TODO: handle windows layers for cross platform builds
