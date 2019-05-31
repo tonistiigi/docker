@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/containerd/containerd/content"
@@ -26,6 +27,7 @@ import (
 	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/util/entitlements"
+	"github.com/moby/buildkit/util/imageutil"
 	"github.com/moby/buildkit/util/resolver"
 	"github.com/moby/buildkit/util/tracing"
 	"github.com/pkg/errors"
@@ -80,8 +82,9 @@ type Builder struct {
 	controller     *control.Controller
 	reqBodyHandler *reqBodyHandler
 
-	mu   sync.Mutex
-	jobs map[string]*buildJob
+	mu         sync.Mutex
+	jobs       map[string]*buildJob
+	buildCount int64
 }
 
 // New creates a new builder
@@ -142,6 +145,10 @@ func (b *Builder) DiskUsage(ctx context.Context) ([]*types.BuildCache, error) {
 
 // Prune clears all reclaimable build cache
 func (b *Builder) Prune(ctx context.Context, opts types.BuildCachePruneOptions) (int64, []string, error) {
+	if atomic.LoadInt64(&b.buildCount) == 0 {
+		imageutil.CancelCacheLeases()
+	}
+
 	ch := make(chan *controlapi.UsageRecord)
 
 	eg, ctx := errgroup.WithContext(ctx)
@@ -195,6 +202,9 @@ func (b *Builder) Prune(ctx context.Context, opts types.BuildCachePruneOptions) 
 
 // Build executes a build request
 func (b *Builder) Build(ctx context.Context, opt backend.BuildConfig) (*builder.Result, error) {
+	atomic.AddInt64(&b.buildCount, 1)
+	defer atomic.AddInt64(&b.buildCount, -1)
+
 	var rc = opt.Source
 
 	if buildID := opt.Options.BuildID; buildID != "" {

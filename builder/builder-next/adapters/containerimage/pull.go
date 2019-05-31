@@ -19,6 +19,7 @@ import (
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
 	"github.com/containerd/containerd/remotes/docker/schema1"
+	"github.com/containerd/containerd/rootfs"
 	distreference "github.com/docker/distribution/reference"
 	"github.com/docker/docker/distribution"
 	"github.com/docker/docker/distribution/xfer"
@@ -30,9 +31,11 @@ import (
 	gw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/auth"
+	"github.com/moby/buildkit/snapshot"
 	"github.com/moby/buildkit/source"
 	"github.com/moby/buildkit/util/flightcontrol"
 	"github.com/moby/buildkit/util/imageutil"
+	"github.com/moby/buildkit/util/leaseutil"
 	"github.com/moby/buildkit/util/progress"
 	"github.com/moby/buildkit/util/resolver"
 	"github.com/moby/buildkit/util/tracing"
@@ -52,6 +55,7 @@ type SourceOpt struct {
 	ImageStore      image.Store
 	ResolverOpt     resolver.ResolveOptionsFunc
 	LeasesManager   leases.Manager
+	Snapshotter     snapshot.Snapshotter
 }
 
 type imageSource struct {
@@ -362,6 +366,12 @@ func (p *puller) CacheKey(ctx context.Context, index int) (string, bool, error) 
 }
 
 func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
+	ctx, done, err := leaseutil.WithLease(ctx, p.is.LeasesManager)
+	if err != nil {
+		return nil, err
+	}
+	defer done(ctx)
+
 	p.resolveLocal()
 	if err := p.resolve(ctx); err != nil {
 		return nil, err
@@ -439,7 +449,7 @@ func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
 		// Get all the children for a descriptor
 		childrenHandler := images.ChildrenHandler(p.is.ContentStore)
 		// Set any children labels for that content
-		childrenHandler = images.SetChildrenLabels(p.is.ContentStore, childrenHandler)
+		childrenHandler = imageutil.SetChildrenLabelsNonBlobs(p.is.ContentStore, childrenHandler)
 		// Filter the children by the platform
 		childrenHandler = images.FilterPlatforms(childrenHandler, platform)
 		// Limit manifests pulled to the best match in an index
@@ -537,19 +547,20 @@ func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
 		})
 	}
 
-	defer func() {
-		<-progressDone
-		for _, desc := range mfst.Layers {
-			p.is.ContentStore.Delete(context.TODO(), desc.Digest)
-		}
-	}()
-
 	r := image.NewRootFS()
 	rootFS, release, err := p.is.DownloadManager.Download(ctx, *r, p.platform, layers, pkgprogress.ChanOutput(pchan))
 	if err != nil {
 		return nil, err
 	}
 	stopProgress()
+
+	layers2, err := getLayers(ctx, p.is.ContentStore, p.desc, platform)
+	if err != nil {
+		return nil, err
+	}
+	if err := fillBlobMapping(ctx, p.is.Snapshotter, layers2); err != nil {
+		return nil, err
+	}
 
 	ref, err := p.is.CacheAccessor.GetFromSnapshotter(ctx, string(rootFS.ChainID()), cache.WithDescription(fmt.Sprintf("pulled from %s", p.ref)))
 	release()
@@ -907,4 +918,41 @@ func ensureManifestRequested(ctx context.Context, res remotes.Resolver, ref stri
 	if atomic.LoadInt64(&cr.counter) == 0 {
 		res.Resolve(ctx, ref)
 	}
+}
+
+func getLayers(ctx context.Context, provider content.Provider, desc ocispec.Descriptor, platform platforms.MatchComparer) ([]rootfs.Layer, error) {
+	manifest, err := images.Manifest(ctx, provider, desc, platform)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	image := images.Image{Target: desc}
+	diffIDs, err := image.RootFS(ctx, provider, platform)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to resolve rootfs")
+	}
+	if len(diffIDs) != len(manifest.Layers) {
+		return nil, errors.Errorf("mismatched image rootfs and manifest layers %+v %+v", diffIDs, manifest.Layers)
+	}
+	layers := make([]rootfs.Layer, len(diffIDs))
+	for i := range diffIDs {
+		layers[i].Diff = ocispec.Descriptor{
+			// TODO: derive media type from compressed type
+			MediaType: ocispec.MediaTypeImageLayer,
+			Digest:    diffIDs[i],
+		}
+		layers[i].Blob = manifest.Layers[i]
+	}
+	return layers, nil
+}
+
+func fillBlobMapping(ctx context.Context, s snapshot.Snapshotter, layers []rootfs.Layer) error {
+	var chain []digest.Digest
+	for _, l := range layers {
+		chain = append(chain, l.Diff.Digest)
+		chainID := identity.ChainID(chain)
+		if err := s.SetBlob(ctx, string(chainID), l.Diff.Digest, l.Blob.Digest); err != nil {
+			return err
+		}
+	}
+	return nil
 }
