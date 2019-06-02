@@ -2,14 +2,7 @@
 
 package copy // import "github.com/docker/docker/daemon/graphdriver/copy"
 
-/*
-#include <linux/fs.h>
-
-#ifndef FICLONE
-#define FICLONE		_IOW(0x94, 9, int)
-#endif
-*/
-import "C"
+// https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/ioctl.h
 import (
 	"container/list"
 	"fmt"
@@ -50,10 +43,10 @@ func copyRegular(srcPath, dstPath string, fileinfo os.FileInfo, copyWithFileRang
 	defer dstFile.Close()
 
 	if *copyWithFileClone {
-		_, _, err = unix.Syscall(unix.SYS_IOCTL, dstFile.Fd(), C.FICLONE, srcFile.Fd())
-		if err == nil {
-			return nil
-		}
+		// _, _, err = unix.Syscall(unix.SYS_IOCTL, dstFile.Fd(), C.FICLONE, srcFile.Fd())
+		// if err == nil {
+		//   return nil
+		// }
 
 		*copyWithFileClone = false
 		if err == unix.EXDEV {
