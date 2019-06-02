@@ -1,4 +1,4 @@
-// +build linux
+// +build linux,!no_quota_support
 
 //
 // projectquota.go - implements XFS project quota controls
