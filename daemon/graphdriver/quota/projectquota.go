@@ -63,19 +63,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Quota limit params - currently we only control blocks hard limit
-type Quota struct {
-	Size uint64
-}
-
-// Control - Context to be used by storage driver (e.g. overlay)
-// who wants to apply project quotas to container dirs
-type Control struct {
-	backingFsBlockDev string
-	nextProjectID     uint32
-	quotas            map[string]uint32
-}
-
 // NewControl - initialize project quota support.
 // Test to make sure that quota can be set on a test dir and find
 // the first project id to be used for the next container create.
