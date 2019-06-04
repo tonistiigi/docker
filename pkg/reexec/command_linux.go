@@ -1,6 +1,7 @@
 package reexec // import "github.com/docker/docker/pkg/reexec"
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 
@@ -10,6 +11,9 @@ import (
 // Self returns the path to the current process's binary.
 // Returns "/proc/self/exe".
 func Self() string {
+	if v := os.Getenv("DOCKER_REEXEC_BINARY"); v != "" {
+		return v
+	}
 	return "/proc/self/exe"
 }
 
