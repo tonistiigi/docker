@@ -21,7 +21,6 @@ import (
 	"github.com/docker/docker/daemon/graphdriver/overlayutils"
 	"github.com/docker/docker/daemon/graphdriver/quota"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/directory"
 	"github.com/docker/docker/pkg/fsutils"
@@ -40,7 +39,7 @@ import (
 
 var (
 	// untar defines the untar method
-	untar = chrootarchive.UntarUncompressed
+	untar = archive.UntarUncompressed
 )
 
 // This backend uses the overlay union filesystem for containers

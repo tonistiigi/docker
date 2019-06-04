@@ -40,7 +40,6 @@ import (
 
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/directory"
 	"github.com/docker/docker/pkg/idtools"
@@ -484,7 +483,7 @@ func (a *Driver) DiffGetter(id string) (graphdriver.FileGetCloser, error) {
 }
 
 func (a *Driver) applyDiff(id string, diff io.Reader) error {
-	return chrootarchive.UntarUncompressed(diff, path.Join(a.rootPath(), "diff", id), &archive.TarOptions{
+	return archive.UntarUncompressed(diff, path.Join(a.rootPath(), "diff", id), &archive.TarOptions{
 		UIDMaps: a.uidMaps,
 		GIDMaps: a.gidMaps,
 	})

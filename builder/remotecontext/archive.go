@@ -7,7 +7,6 @@ import (
 
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/tarsum"
@@ -73,7 +72,7 @@ func FromArchive(tarStream io.Reader) (builder.Source, error) {
 		return nil, err
 	}
 
-	err = chrootarchive.Untar(sum, root, nil)
+	err = archive.Untar(sum, root, nil)
 	if err != nil {
 		return nil, err
 	}

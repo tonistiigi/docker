@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/sirupsen/logrus"
@@ -14,7 +13,7 @@ import (
 var (
 	// ApplyUncompressedLayer defines the unpack method used by the graph
 	// driver.
-	ApplyUncompressedLayer = chrootarchive.ApplyUncompressedLayer
+	ApplyUncompressedLayer = archive.ApplyUncompressedLayer
 )
 
 // NaiveDiffDriver takes a ProtoDriver and adds the

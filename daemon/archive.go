@@ -9,7 +9,6 @@ import (
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/system"
 	"github.com/pkg/errors"
@@ -36,14 +35,14 @@ func extractArchive(i interface{}, src io.Reader, dst string, opts *archive.TarO
 		return ea.ExtractArchive(src, dst, opts)
 	}
 
-	return chrootarchive.UntarWithRoot(src, dst, opts, root)
+	return archive.Untar(src, dst, opts)
 }
 
 func archivePath(i interface{}, src string, opts *archive.TarOptions, root string) (io.ReadCloser, error) {
 	if ap, ok := i.(archiver); ok {
 		return ap.ArchivePath(src, opts)
 	}
-	return chrootarchive.Tar(src, opts, root)
+	return archive.TarWithOptions(src, opts)
 }
 
 // ContainerCopy performs a deprecated operation of archiving the resource at

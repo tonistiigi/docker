@@ -8,7 +8,6 @@ import (
 
 	"github.com/containerd/continuity/fs"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/chrootarchive"
 	copy "github.com/tonistiigi/fsutil/copy"
 )
 
@@ -35,7 +34,7 @@ func unpack(ctx context.Context, srcRoot string, src string, destRoot string, de
 	}
 	defer file.Close()
 
-	return true, chrootarchive.Untar(file, dest, nil)
+	return true, archive.Untar(file, dest, nil)
 }
 
 func isArchivePath(path string) bool {

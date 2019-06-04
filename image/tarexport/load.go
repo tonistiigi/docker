@@ -18,7 +18,6 @@ import (
 	"github.com/docker/docker/image/v1"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/stringid"
@@ -41,7 +40,7 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer, quiet bool)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if err := chrootarchive.Untar(inTar, tmpDir, nil); err != nil {
+	if err := archive.Untar(inTar, tmpDir, nil); err != nil {
 		return err
 	}
 	// read manifest, if no file then load in legacy mode

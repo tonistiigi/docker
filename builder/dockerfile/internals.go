@@ -20,7 +20,6 @@ import (
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/stringid"
@@ -55,7 +54,7 @@ func untarFunc(i interface{}) containerfs.UntarFunc {
 	if ea, ok := i.(extractor); ok {
 		return ea.ExtractArchive
 	}
-	return chrootarchive.Untar
+	return archive.Untar
 }
 
 func tarFunc(i interface{}) containerfs.TarFunc {

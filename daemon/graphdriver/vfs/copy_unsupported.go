@@ -2,8 +2,8 @@
 
 package vfs // import "github.com/docker/docker/daemon/graphdriver/vfs"
 
-import "github.com/docker/docker/pkg/chrootarchive"
+import "github.com/docker/docker/pkg/archive"
 
 func dirCopy(srcDir, dstDir string) error {
-	return chrootarchive.NewArchiver(nil).CopyWithTar(srcDir, dstDir)
+	return archive.NewArchiver(nil).CopyWithTar(srcDir, dstDir)
 }

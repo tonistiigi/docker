@@ -26,7 +26,7 @@ import (
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/authorization"
-	"github.com/docker/docker/pkg/chrootarchive"
+	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/pools"
 	"github.com/docker/docker/pkg/progress"
@@ -709,7 +709,7 @@ func (pm *Manager) CreateFromContext(ctx context.Context, tarCtx io.ReadCloser, 
 	layerDigester := digest.Canonical.Digester()
 	rootFSReader := io.TeeReader(rootFS, io.MultiWriter(gzw, layerDigester.Hash()))
 
-	if err := chrootarchive.Untar(rootFSReader, tmpRootFSDir, nil); err != nil {
+	if err := archive.Untar(rootFSReader, tmpRootFSDir, nil); err != nil {
 		return err
 	}
 	if err := rootFS.Close(); err != nil {
