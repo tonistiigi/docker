@@ -40,6 +40,7 @@ import (
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/daemon/network"
 	"github.com/docker/docker/errdefs"
+	"github.com/docker/docker/pkg/binfmt"
 	"github.com/moby/buildkit/util/resolver"
 	"github.com/moby/buildkit/util/tracing"
 	"github.com/sirupsen/logrus"
@@ -724,6 +725,10 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 
 	// Do we have a disabled network?
 	config.DisableBridge = isBridgeNetworkDisabled(config)
+
+	if binfmt.IsEmulatedQEMUUser() {
+		config.DisableBridge = true
+	}
 
 	// Setup the resolv.conf
 	setupResolvConf(config)

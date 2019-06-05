@@ -9,6 +9,7 @@ import (
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/errdefs"
+	"github.com/docker/docker/pkg/binfmt"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -103,6 +104,10 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint 
 	start := time.Now()
 	container.Lock()
 	defer container.Unlock()
+
+	if binfmt.IsEmulatedQEMUUser() {
+		container.Config.NetworkDisabled = true
+	}
 
 	if resetRestartManager && container.Running { // skip this check if already in restarting step and resetRestartManager==false
 		return nil
