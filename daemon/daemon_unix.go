@@ -25,6 +25,7 @@ import (
 	"github.com/docker/docker/daemon/config"
 	"github.com/docker/docker/daemon/initlayer"
 	"github.com/docker/docker/opts"
+	"github.com/docker/docker/pkg/binfmt"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/ioutils"
@@ -924,6 +925,9 @@ func (daemon *Daemon) initNetworkController(config *config.Config, activeSandbox
 }
 
 func driverOptions(config *config.Config) []nwconfig.Option {
+	if binfmt.IsEmulatedQEMUUser() {
+		config.BridgeConfig.EnableIPTables = false
+	}
 	bridgeConfig := options.Generic{
 		"EnableIPForwarding":  config.BridgeConfig.EnableIPForward,
 		"EnableIPTables":      config.BridgeConfig.EnableIPTables,
