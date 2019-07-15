@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"sort"
+	"strconv"
 	"sync"
 
 	"github.com/docker/go-events"
@@ -285,6 +287,13 @@ func (c *controller) agentInit(listenAddr, bindAddrOrInterface, advertiseAddr, d
 	netDBConf.BindAddr = listenAddr
 	netDBConf.AdvertiseAddr = advertiseAddr
 	netDBConf.Keys = keys
+	if v := os.Getenv("DOCKER_NETWORKDB_BINDPORT"); v != "" {
+		p, err := strconv.ParseInt(v, 10, 32)
+		if err != nil {
+			return err
+		}
+		netDBConf.BindPort = int(p)
+	}
 	if c.Config().Daemon.NetworkControlPlaneMTU != 0 {
 		// Consider the MTU remove the IP hdr (IPv4 or IPv6) and the TCP/UDP hdr.
 		// To be on the safe side let's cut 100 bytes

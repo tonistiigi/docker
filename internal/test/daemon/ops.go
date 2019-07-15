@@ -34,6 +34,13 @@ func WithSwarmPort(port int) func(*Daemon) {
 	}
 }
 
+// WithNetworkDBPort sets the networkdb port to use for memberlist
+func WithNetworkDBPort(port int) func(*Daemon) {
+	return func(d *Daemon) {
+		d.NDBPort = port
+	}
+}
+
 // WithSwarmListenAddr sets the swarm listen addr to use for swarm mode
 func WithSwarmListenAddr(listenAddr string) func(*Daemon) {
 	return func(d *Daemon) {
