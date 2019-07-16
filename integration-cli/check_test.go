@@ -294,7 +294,6 @@ func (s *DockerDaemonSuite) TearDownSuite(c *check.C) {
 }
 
 const defaultSwarmPort = 2477
-const defaultNetworkBPort = 7946
 
 func init() {
 	check.Suite(&DockerSwarmSuite{
@@ -326,7 +325,6 @@ func (s *DockerSwarmSuite) AddDaemon(c *check.C, joinSwarm, manager bool) *daemo
 	d := daemon.New(c, dockerBinary, dockerdBinary,
 		testdaemon.WithEnvironment(testEnv.Execution),
 		testdaemon.WithSwarmPort(defaultSwarmPort+s.portIndex),
-		testdaemon.WithNetworkDBPort(defaultNetworkBPort+s.portIndex),
 	)
 	if joinSwarm {
 		if len(s.daemons) > 0 {

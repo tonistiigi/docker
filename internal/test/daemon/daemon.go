@@ -84,7 +84,6 @@ type Daemon struct {
 	// swarm related field
 	swarmListenAddr string
 	SwarmPort       int // FIXME(vdemeester) should probably not be exported
-	NDBPort         int
 	DefaultAddrPool []string
 	SubnetSize      uint32
 	DataPathPort    uint32
@@ -293,9 +292,6 @@ func (d *Daemon) StartWithLogFile(out *os.File, providedArgs ...string) error {
 	args = append(args, providedArgs...)
 	d.cmd = exec.Command(dockerdBinary, args...)
 	d.cmd.Env = append(os.Environ(), "DOCKER_SERVICE_PREFER_OFFLINE_IMAGE=1")
-	if d.NDBPort != 0 {
-		d.cmd.Env = append(d.cmd.Env, fmt.Sprintf("DOCKER_NETWORKDB_BINDPORT=%d", d.NDBPort))
-	}
 	d.cmd.Stdout = out
 	d.cmd.Stderr = out
 	d.logFile = out
