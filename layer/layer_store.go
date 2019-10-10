@@ -1,7 +1,6 @@
 package layer // import "github.com/docker/docker/layer"
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -17,6 +16,7 @@ import (
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/pkg/system"
 	digest "github.com/opencontainers/go-digest"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/vbatts/tar-split/tar/asm"
 	"github.com/vbatts/tar-split/tar/storage"
@@ -294,7 +294,7 @@ func (ls *layerStore) registerWithDescriptor(ts io.Reader, parent ChainID, descr
 	if string(parent) != "" {
 		p = ls.get(parent)
 		if p == nil {
-			return nil, ErrLayerDoesNotExist
+			return nil, errors.WithStack(ErrLayerDoesNotExist)
 		}
 		pid = p.cacheID
 		// Release parent chain if error
@@ -397,7 +397,7 @@ func (ls *layerStore) Get(l ChainID) (Layer, error) {
 
 	layer := ls.getWithoutLock(l)
 	if layer == nil {
-		return nil, ErrLayerDoesNotExist
+		return nil, errors.WithStack(ErrLayerDoesNotExist)
 	}
 
 	return layer.getReference(), nil
@@ -530,7 +530,7 @@ func (ls *layerStore) CreateRWLayer(name string, parent ChainID, opts *CreateRWL
 	if string(parent) != "" {
 		p = ls.get(parent)
 		if p == nil {
-			return nil, ErrLayerDoesNotExist
+			return nil, errors.WithStack(ErrLayerDoesNotExist)
 		}
 		pid = p.cacheID
 

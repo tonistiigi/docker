@@ -119,7 +119,7 @@ func (ls *mockLayerStore) RegisterWithDescriptor(reader io.Reader, parentID laye
 func (ls *mockLayerStore) Get(chainID layer.ChainID) (layer.Layer, error) {
 	l, ok := ls.layers[chainID]
 	if !ok {
-		return nil, layer.ErrLayerDoesNotExist
+		return nil, errors.WithStack(layer.ErrLayerDoesNotExist)
 	}
 	return l, nil
 }

@@ -2,10 +2,10 @@ package layer // import "github.com/docker/docker/layer"
 
 import (
 	"compress/gzip"
-	"errors"
 	"io"
 	"os"
 
+	"github.com/pkg/errors"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/sirupsen/logrus"
 	"github.com/vbatts/tar-split/tar/asm"
@@ -90,7 +90,7 @@ func (ls *layerStore) RegisterByGraphID(graphID string, parent ChainID, diffID D
 	if string(parent) != "" {
 		p = ls.get(parent)
 		if p == nil {
-			return nil, ErrLayerDoesNotExist
+			return nil, errors.WithStack(ErrLayerDoesNotExist)
 		}
 
 		// Release parent chain if error

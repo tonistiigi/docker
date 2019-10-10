@@ -128,7 +128,7 @@ func (i *ImageService) Images(imageFilters filters.Args, all bool, withExtraAttr
 			if err != nil {
 				// The layer may have been deleted between the call to `Map()` or
 				// `Heads()` and the call to `Get()`, so we just ignore this error
-				if err == layer.ErrLayerDoesNotExist {
+				if errors.Cause(err) == layer.ErrLayerDoesNotExist {
 					continue
 				}
 				return nil, err

@@ -1,7 +1,7 @@
 package layer // import "github.com/docker/docker/layer"
 
 import (
-	"errors"
+	"github.com/pkg/errors"
 )
 
 // Getter is an interface to get the path to a layer on the host.
@@ -22,7 +22,7 @@ func GetLayerPath(s Store, layer ChainID) (string, error) {
 
 	rl, ok := ls.layerMap[layer]
 	if !ok {
-		return "", ErrLayerDoesNotExist
+		return "", errors.WithStack(ErrLayerDoesNotExist)
 	}
 
 	if layerGetter, ok := ls.driver.(Getter); ok {
