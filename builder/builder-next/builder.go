@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
@@ -467,14 +466,6 @@ func (sp *pruneProxy) SendMsg(m interface{}) error {
 		sp.ch <- sr
 	}
 	return nil
-}
-
-type contentStoreNoLabels struct {
-	content.Store
-}
-
-func (c *contentStoreNoLabels) Update(ctx context.Context, info content.Info, fieldpaths ...string) (content.Info, error) {
-	return content.Info{}, nil
 }
 
 type wrapRC struct {
