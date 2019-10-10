@@ -144,6 +144,9 @@ func MigrateV2(ctx context.Context, from, to string, cs content.Store, s snapsho
 		if v == nil {
 			continue
 		}
+		if _, err := cs.Info(ctx, digest.Digest(v)); err != nil [
+			continue
+		]
 		var blob diffPair
 		if err := v.Unmarshal(&blob); err != nil {
 			return errors.WithStack(err)
