@@ -11,6 +11,7 @@ import (
 
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/images"
+	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/rootfs"
 	"github.com/docker/docker/distribution"
@@ -24,7 +25,9 @@ import (
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/executor"
 	"github.com/moby/buildkit/exporter"
+	imageexporter "github.com/moby/buildkit/exporter/containerimage"
 	localexporter "github.com/moby/buildkit/exporter/local"
+	ociexporter "github.com/moby/buildkit/exporter/oci"
 	tarexporter "github.com/moby/buildkit/exporter/tar"
 	"github.com/moby/buildkit/frontend"
 	gw "github.com/moby/buildkit/frontend/gateway/client"
@@ -39,6 +42,7 @@ import (
 	"github.com/moby/buildkit/source/local"
 	"github.com/moby/buildkit/util/contentutil"
 	"github.com/moby/buildkit/util/progress"
+	"github.com/moby/buildkit/util/resolver"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -56,21 +60,24 @@ type LayerAccess interface {
 
 // Opt defines a structure for creating a worker.
 type Opt struct {
-	ID                string
-	Labels            map[string]string
-	GCPolicy          []client.PruneInfo
-	MetadataStore     *metadata.Store
-	Executor          executor.Executor
-	Snapshotter       snapshot.Snapshotter
-	ContentStore      content.Store
-	CacheManager      cache.Manager
-	ImageSource       source.Source
-	DownloadManager   distribution.RootFSDownloadManager
-	V2MetadataService distmetadata.V2MetadataService
-	Transport         nethttp.RoundTripper
-	Exporter          exporter.Exporter
-	Layers            LayerAccess
-	Platforms         []ocispec.Platform
+	ID                 string
+	Labels             map[string]string
+	GCPolicy           []client.PruneInfo
+	MetadataStore      *metadata.Store
+	Executor           executor.Executor
+	Snapshotter        snapshot.Snapshotter
+	ContentStore       content.Store
+	CacheManager       cache.Manager
+	ImageSource        source.Source
+	DownloadManager    distribution.RootFSDownloadManager
+	V2MetadataService  distmetadata.V2MetadataService
+	Transport          nethttp.RoundTripper
+	Layers             LayerAccess
+	Platforms          []ocispec.Platform
+	ImageWriter        *imageexporter.ImageWriter
+	ImageStore         images.Store
+	LeaseManager       leases.Manager
+	ResolveOptionsFunc resolver.ResolveOptionsFunc
 }
 
 // Worker is a local worker instance with dedicated snapshotter, cache, and so on.
@@ -214,8 +221,14 @@ func (w *Worker) Prune(ctx context.Context, ch chan client.UsageInfo, info ...cl
 // Exporter returns exporter by name
 func (w *Worker) Exporter(name string, sm *session.Manager) (exporter.Exporter, error) {
 	switch name {
-	case "moby":
-		return w.Opt.Exporter, nil
+	case client.ExporterImage, "moby":
+		return imageexporter.New(imageexporter.Opt{
+			Images:         w.ImageStore,
+			SessionManager: sm,
+			ImageWriter:    w.ImageWriter,
+			ResolverOpt:    w.ResolveOptionsFunc,
+			LeaseManager:   w.LeaseManager,
+		})
 	case client.ExporterLocal:
 		return localexporter.New(localexporter.Opt{
 			SessionManager: sm,
@@ -223,6 +236,20 @@ func (w *Worker) Exporter(name string, sm *session.Manager) (exporter.Exporter, 
 	case client.ExporterTar:
 		return tarexporter.New(tarexporter.Opt{
 			SessionManager: sm,
+		})
+	case client.ExporterOCI:
+		return ociexporter.New(ociexporter.Opt{
+			SessionManager: sm,
+			ImageWriter:    w.ImageWriter,
+			Variant:        ociexporter.VariantOCI,
+			LeaseManager:   w.LeaseManager,
+		})
+	case client.ExporterDocker:
+		return ociexporter.New(ociexporter.Opt{
+			SessionManager: sm,
+			ImageWriter:    w.ImageWriter,
+			Variant:        ociexporter.VariantDocker,
+			LeaseManager:   w.LeaseManager,
 		})
 	default:
 		return nil, errors.Errorf("exporter %q could not be found", name)

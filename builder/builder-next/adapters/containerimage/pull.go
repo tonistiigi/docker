@@ -26,7 +26,6 @@ import (
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	pkgprogress "github.com/docker/docker/pkg/progress"
-	"github.com/docker/docker/reference"
 	"github.com/moby/buildkit/cache"
 	gw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/session"
@@ -49,9 +48,8 @@ import (
 type SourceOpt struct {
 	ContentStore    content.Store
 	CacheAccessor   cache.Accessor
-	ReferenceStore  reference.Store
 	DownloadManager distribution.RootFSDownloadManager
-	ImageStore      image.Store
+	ImageStore      images.Store
 	ResolverOpt     resolver.ResolveOptionsFunc
 	LayerStore      layer.Store
 	LeaseManager    leases.Manager
@@ -117,19 +115,19 @@ func (is *imageSource) getCredentialsFromSession(ctx context.Context, sm *sessio
 
 func (is *imageSource) resolveLocal(refStr string) ([]byte, error) {
 	return nil, errors.Errorf("TODO: resolveLocal")
-	ref, err := distreference.ParseNormalizedNamed(refStr)
-	if err != nil {
-		return nil, err
-	}
-	dgst, err := is.ReferenceStore.Get(ref)
-	if err != nil {
-		return nil, err
-	}
-	img, err := is.ImageStore.Get(image.ID(dgst))
-	if err != nil {
-		return nil, err
-	}
-	return img.RawJSON(), nil
+	// ref, err := distreference.ParseNormalizedNamed(refStr)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// dgst, err := is.ReferenceStore.Get(ref)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// img, err := is.ImageStore.Get(image.ID(dgst))
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// return img.RawJSON(), nil
 }
 
 func (is *imageSource) resolveRemote(ctx context.Context, ref string, platform *ocispec.Platform, sm *session.Manager) (digest.Digest, []byte, error) {
@@ -365,21 +363,21 @@ func (p *puller) CacheKey(ctx context.Context, index int) (string, bool, error) 
 	return k, true, nil
 }
 
-func (p *puller) getRef(ctx context.Context, diffIDs []layer.DiffID, opts ...cache.RefOption) (cache.ImmutableRef, error) {
+func (p *puller) getRef(ctx context.Context, diffIDs []layer.DiffID, layers []ocispec.Descriptor, opts ...cache.RefOption) (cache.ImmutableRef, error) {
 	var parent cache.ImmutableRef
 	if len(diffIDs) > 1 {
 		var err error
-		parent, err = p.getRef(ctx, diffIDs[:len(diffIDs)-1], opts...)
+		parent, err = p.getRef(ctx, diffIDs[:len(diffIDs)-1], layers[:len(layers)-1], opts...)
 		if err != nil {
 			return nil, err
 		}
 		defer parent.Release(context.TODO())
 	}
-	return p.is.CacheAccessor.GetByBlob(ctx, ocispec.Descriptor{
-		Annotations: map[string]string{
-			"containerd.io/uncompressed": diffIDs[len(diffIDs)-1].String(),
-		},
-	}, parent, opts...)
+	desc := layers[len(layers)-1]
+	desc.Annotations = map[string]string{
+		"containerd.io/uncompressed": diffIDs[len(diffIDs)-1].String(),
+	}
+	return p.is.CacheAccessor.GetByBlob(ctx, desc, parent, opts...)
 }
 
 func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
@@ -395,21 +393,21 @@ func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
 	}
 
 	if p.config != nil && p.is.ImageStore != nil {
-		img, err := p.is.ImageStore.Get(image.ID(digest.FromBytes(p.config)))
-		if err == nil {
-			if len(img.RootFS.DiffIDs) == 0 {
-				return nil, nil
-			}
-			l, err := p.is.LayerStore.Get(img.RootFS.ChainID())
-			if err == nil {
-				layer.ReleaseAndLog(p.is.LayerStore, l)
-				ref, err := p.getRef(ctx, img.RootFS.DiffIDs, cache.WithDescription(fmt.Sprintf("from local %s", p.ref)))
-				if err != nil {
-					return nil, err
-				}
-				return ref, nil
-			}
-		}
+		// img, err := p.is.ImageStore.Get(image.ID(digest.FromBytes(p.config)))
+		// if err == nil {
+		// 	if len(img.RootFS.DiffIDs) == 0 {
+		// 		return nil, nil
+		// 	}
+		// 	l, err := p.is.LayerStore.Get(img.RootFS.ChainID())
+		// 	if err == nil {
+		// 		layer.ReleaseAndLog(p.is.LayerStore, l)
+		// 		ref, err := p.getRef(ctx, img.RootFS.DiffIDs, cache.WithDescription(fmt.Sprintf("from local %s", p.ref)))
+		// 		if err != nil {
+		// 			return nil, err
+		// 		}
+		// 		return ref, nil
+		// 	}
+		// }
 	}
 
 	ongoing := newJobs(p.ref)
@@ -570,7 +568,7 @@ func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
 		return nil, err
 	}
 
-	ref, err := p.getRef(ctx, rootFS.DiffIDs, cache.WithDescription(fmt.Sprintf("pulled from %s", p.ref)))
+	ref, err := p.getRef(ctx, rootFS.DiffIDs, mfst.Layers, cache.WithDescription(fmt.Sprintf("pulled from %s", p.ref)))
 	release()
 	if err != nil {
 		return nil, err

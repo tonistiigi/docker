@@ -6,12 +6,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/containerd/containerd/diff"
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/builder/builder-next/adapters/containerimage"
-	"github.com/docker/docker/builder/builder-next/adapters/localinlinecache"
 	"github.com/docker/docker/builder/builder-next/adapters/snapshot"
-	containerimageexp "github.com/docker/docker/builder/builder-next/exporter"
 	"github.com/docker/docker/builder/builder-next/imagerefchecker"
 	mobyworker "github.com/docker/docker/builder/builder-next/worker"
 	"github.com/docker/docker/daemon/config"
@@ -24,6 +23,7 @@ import (
 	localremotecache "github.com/moby/buildkit/cache/remotecache/local"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/control"
+	imageexporter "github.com/moby/buildkit/exporter/containerimage"
 	"github.com/moby/buildkit/frontend"
 	dockerfile "github.com/moby/buildkit/frontend/dockerfile/builder"
 	"github.com/moby/buildkit/frontend/gateway"
@@ -64,6 +64,7 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 		LayerStore:      dist.LayerStore,
 		Root:            root,
 		IdentityMapping: opt.IdentityMapping,
+		ContentStore:    store,
 	}, lm)
 	if err != nil {
 		return nil, err
@@ -80,7 +81,7 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 	}
 
 	refChecker := imagerefchecker.New(imagerefchecker.Opt{
-		ImageStore:  dist.ImageStore,
+		ImageStore:  nil, // TODO
 		LayerGetter: layerGetter,
 	})
 
@@ -100,10 +101,10 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 		ContentStore:    store,
 		DownloadManager: dist.DownloadManager,
 		ImageStore:      dist.ImageStore,
-		ReferenceStore:  dist.ReferenceStore,
-		ResolverOpt:     opt.ResolverOpt,
-		LayerStore:      dist.LayerStore,
-		LeaseManager:    lm,
+		// ReferenceStore:  dist.ReferenceStore,
+		ResolverOpt:  opt.ResolverOpt,
+		LayerStore:   dist.LayerStore,
+		LeaseManager: lm,
 	})
 	if err != nil {
 		return nil, err
@@ -116,15 +117,14 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 		return nil, err
 	}
 
-	differ, ok := snapshotter.(containerimageexp.Differ)
+	differ, ok := snapshotter.(diff.Comparer)
 	if !ok {
 		return nil, errors.Errorf("snapshotter doesn't support differ")
 	}
 
-	exp, err := containerimageexp.New(containerimageexp.Opt{
-		ImageStore:     dist.ImageStore,
-		ReferenceStore: dist.ReferenceStore,
-		Differ:         differ,
+	iw, err := imageexporter.NewImageWriter(imageexporter.WriterOpt{
+		ContentStore: store,
+		Differ:       differ,
 	})
 	if err != nil {
 		return nil, err
@@ -159,19 +159,22 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 	}
 
 	wopt := mobyworker.Opt{
-		ID:              "moby",
-		MetadataStore:   md,
-		ContentStore:    store,
-		CacheManager:    cm,
-		GCPolicy:        gcPolicy,
-		Snapshotter:     snapshotter,
-		Executor:        exec,
-		ImageSource:     src,
-		DownloadManager: dist.DownloadManager,
-		Exporter:        exp,
-		Transport:       rt,
-		Layers:          layers,
-		Platforms:       p,
+		ID:                 "moby",
+		MetadataStore:      md,
+		ContentStore:       store,
+		CacheManager:       cm,
+		GCPolicy:           gcPolicy,
+		Snapshotter:        snapshotter,
+		Executor:           exec,
+		ImageSource:        src,
+		DownloadManager:    dist.DownloadManager,
+		Transport:          rt,
+		Layers:             layers,
+		Platforms:          p,
+		ImageWriter:        iw,
+		ImageStore:         dist.ImageStore,
+		LeaseManager:       lm,
+		ResolveOptionsFunc: opt.ResolverOpt,
 	}
 
 	wc := &worker.Controller{}
@@ -192,8 +195,8 @@ func newController(rt http.RoundTripper, opt Opt) (*control.Controller, error) {
 		Frontends:        frontends,
 		CacheKeyStorage:  cacheStorage,
 		ResolveCacheImporterFuncs: map[string]remotecache.ResolveCacheImporterFunc{
-			"registry": localinlinecache.ResolveCacheImporterFunc(opt.SessionManager, opt.ResolverOpt, store, dist.ReferenceStore, dist.ImageStore),
-			"local":    localremotecache.ResolveCacheImporterFunc(opt.SessionManager),
+			//		"registry": localinlinecache.ResolveCacheImporterFunc(opt.SessionManager, opt.ResolverOpt, store, dist.ReferenceStore, dist.ImageStore),
+			"local": localremotecache.ResolveCacheImporterFunc(opt.SessionManager),
 		},
 		ResolveCacheExporterFuncs: map[string]remotecache.ResolveCacheExporterFunc{
 			"inline": inlineremotecache.ResolveCacheExporterFunc(),

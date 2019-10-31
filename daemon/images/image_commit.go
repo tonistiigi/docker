@@ -308,7 +308,9 @@ func (i *ImageService) compressedLayers(ctx context.Context, diffs []digest.Dige
 	descs := make([]ocispec.Descriptor, len(diffs))
 
 	i.client.ContentStore().Walk(ctx, func(info content.Info) error {
+		// how does this keep from blob getting deleted
 		udgst := digest.Digest(info.Labels["containerd.io/uncompressed"])
+		// looks like a very inefficient query
 		for i, diff := range diffs {
 			if diff == udgst {
 				descs[i] = ocispec.Descriptor{

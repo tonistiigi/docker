@@ -345,7 +345,7 @@ func (b *Builder) Build(ctx context.Context, opt backend.BuildConfig) (*builder.
 		}
 	}
 
-	if exporterName == "moby" {
+	if exporterName != "" {
 		if len(opt.Options.Tags) > 0 {
 			exporterAttrs["name"] = strings.Join(opt.Options.Tags, ",")
 		}

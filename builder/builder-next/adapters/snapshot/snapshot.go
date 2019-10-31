@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/snapshots"
@@ -32,6 +33,7 @@ type Opt struct {
 	LayerStore      layer.Store
 	Root            string
 	IdentityMapping *idtools.IdentityMapping
+	ContentStore    content.Store
 }
 
 type graphIDRegistrar interface {

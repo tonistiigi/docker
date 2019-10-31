@@ -2,11 +2,21 @@ package snapshot
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 
+	"github.com/containerd/containerd/archive/compression"
+	"github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/diff"
+	cerrdefs "github.com/containerd/containerd/errdefs"
+	"github.com/containerd/containerd/images"
+	"github.com/containerd/containerd/mount"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/ioutils"
+	"github.com/docker/swarmkit/log"
+	digest "github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	bolt "go.etcd.io/bbolt"
 	"golang.org/x/sync/errgroup"
@@ -19,6 +29,82 @@ func (s *snapshotter) GetDiffIDs(ctx context.Context, key string) ([]layer.DiffI
 		return getDiffChain(l), nil
 	}
 	return nil, nil
+}
+
+func (s *snapshotter) Compare(ctx context.Context, lower, upper []mount.Mount, opts ...diff.Opt) (ocispec.Descriptor, error) {
+	return ocispec.Descriptor{}, errors.Errorf("compare() not implemented for %T", s)
+}
+
+func (s *snapshotter) CompareWithParent(ctx context.Context, key string, opts ...diff.Opt) (ocispec.Descriptor, error) {
+	diffIDs, err := s.EnsureLayer(ctx, key)
+	if err != nil {
+		return ocispec.Descriptor{}, err 
+	}
+
+	l, err := s.opt.LayerStore.Get(layer.CreateChainID(diffIDs))
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	rc, err := l.TarStream()
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	cs := s.opt.ContentStore
+
+	// TODO(containerd): Handle unavailable error or use random id?
+	w, err := cs.Writer(ctx, content.WithRef("layer-commit-"+string(l.ChainID())))
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	defer func() {
+		if err := w.Close(); err != nil {
+			log.G(ctx).WithError(err).Errorf("failed to close writer")
+		}
+	}()
+	if err := w.Truncate(0); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	dc, err := compression.CompressStream(w, compression.Gzip)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	if _, err := io.Copy(dc, rc); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	dc.Close()
+
+	diffID := digest.Digest(l.DiffID())
+	cdgst := w.Digest()
+	info, err := w.Status()
+	if err != nil {
+		return ocispec.Descriptor{}, err
+
+	}
+	size := info.Offset
+	if size == 0 {
+		return ocispec.Descriptor{}, errors.New("empty write for layer")
+	}
+
+	labels := map[string]string{
+		"containerd.io/uncompressed": string(diffID),
+	}
+
+	if err := w.Commit(ctx, size, cdgst, content.WithLabels(labels)); err != nil {
+		if !cerrdefs.IsAlreadyExists(err) {
+			return ocispec.Descriptor{}, err
+		}
+	}
+
+	return ocispec.Descriptor{
+		MediaType:   images.MediaTypeDockerSchema2LayerGzip,
+		Digest:      cdgst,
+		Size:        size,
+		Annotations: labels,
+	}, nil
 }
 
 func (s *snapshotter) EnsureLayer(ctx context.Context, key string) ([]layer.DiffID, error) {
