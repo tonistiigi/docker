@@ -135,7 +135,11 @@ func (is *imageSource) resolveRemote(ctx context.Context, ref string, platform *
 		dgst digest.Digest
 		dt   []byte
 	}
-	res, err := is.g.Do(ctx, ref, func(ctx context.Context) (interface{}, error) {
+	key := ref
+	if platform != nil {
+		key += platforms.Format(*platform)
+	}
+	res, err := is.g.Do(ctx, key, func(ctx context.Context) (interface{}, error) {
 		dgst, dt, err := imageutil.Config(ctx, ref, is.getResolver(ctx, is.ResolverOpt, ref, sm), is.ContentStore, is.LeaseManager, platform)
 		if err != nil {
 			return nil, err
