@@ -18,7 +18,7 @@ type configWrapper struct {
 
 // ContainerCreate creates a new container based in the given configuration.
 // It can be associated with a name, but it's not mandatory.
-func (cli *Client) ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, containerName string) (container.ContainerCreateCreatedBody, error) {
+func (cli *Client) ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, containerName, platform string) (container.ContainerCreateCreatedBody, error) {
 	var response container.ContainerCreateCreatedBody
 
 	if err := cli.NewVersionError("1.25", "stop timeout"); config != nil && config.StopTimeout != nil && err != nil {
@@ -33,6 +33,10 @@ func (cli *Client) ContainerCreate(ctx context.Context, config *container.Config
 	query := url.Values{}
 	if containerName != "" {
 		query.Set("name", containerName)
+	}
+
+	if platform != "" {
+		query.Set("platform", platform)
 	}
 
 	body := configWrapper{

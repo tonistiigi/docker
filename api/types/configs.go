@@ -12,13 +12,13 @@ import (
 
 // ContainerCreateConfig is the parameter set to ContainerCreate()
 type ContainerCreateConfig struct {
-	Name string
-	// TODO(containerd): Add Platform (OS, Architecture, Variant)
+	Name             string
 	Descriptor       *ocispec.Descriptor
 	Config           *container.Config
 	HostConfig       *container.HostConfig
 	NetworkingConfig *network.NetworkingConfig
 	AdjustCPUShares  bool
+	Platform         *ocispec.Platform
 }
 
 // ContainerRmConfig holds arguments for the container remove

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"syscall"
 
+	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/api/server/httputils"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
@@ -19,6 +20,7 @@ import (
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/signal"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/websocket"
@@ -497,6 +499,15 @@ func (s *containerRouter) postContainersCreate(ctx context.Context, w http.Respo
 		}
 	}
 
+	var pp *specs.Platform
+	if v := r.Form.Get("platform"); v != "" {
+		p, err := platforms.Parse(v)
+		if err != nil {
+			return errors.Wrapf(err, "invalid platform %q", v)
+		}
+		pp = &p
+	}
+
 	if hostConfig != nil && hostConfig.PidsLimit != nil && *hostConfig.PidsLimit <= 0 {
 		// Don't set a limit if either no limit was specified, or "unlimited" was
 		// explicitly set.
@@ -511,6 +522,7 @@ func (s *containerRouter) postContainersCreate(ctx context.Context, w http.Respo
 		HostConfig:       hostConfig,
 		NetworkingConfig: networkingConfig,
 		AdjustCPUShares:  adjustCPUShares,
+		Platform:         pp,
 	})
 	if err != nil {
 		return err

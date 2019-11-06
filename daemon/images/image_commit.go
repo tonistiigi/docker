@@ -60,7 +60,7 @@ func (i *ImageService) CommitImage(ctx context.Context, c backend.CommitConfig) 
 	if c.ParentImage == nil {
 		img.RootFS.Type = "layers"
 	} else {
-		ri, err := i.ResolveRuntimeImage(ctx, *c.ParentImage)
+		ri, err := i.ResolveRuntimeImage(ctx, *c.ParentImage, nil)
 		if err != nil {
 			return ocispec.Descriptor{}, errors.Wrap(err, "unable to resolve parent runtime image")
 		}

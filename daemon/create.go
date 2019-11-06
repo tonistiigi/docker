@@ -83,7 +83,7 @@ func (daemon *Daemon) containerCreate(ctx context.Context, opts createOpts) (con
 	}
 
 	if opts.params.Descriptor != nil {
-		opts.rImage, err = daemon.imageService.ResolveRuntimeImage(ctx, *opts.params.Descriptor)
+		opts.rImage, err = daemon.imageService.ResolveRuntimeImage(ctx, *opts.params.Descriptor, opts.params.Platform)
 		if err != nil {
 			return containertypes.ContainerCreateCreatedBody{}, err
 		}

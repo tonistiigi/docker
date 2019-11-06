@@ -140,15 +140,20 @@ type RuntimeImage struct {
 // A runtime image is platform specific.
 // The platform is resolved based on availability in the image and
 // the order preference of the backend storage drivers.
-func (i *ImageService) ResolveRuntimeImage(ctx context.Context, desc ocispec.Descriptor) (RuntimeImage, error) {
+func (i *ImageService) ResolveRuntimeImage(ctx context.Context, desc ocispec.Descriptor, p *ocispec.Platform) (RuntimeImage, error) {
 	runtimeImages, err := i.runtimeImages(ctx, desc)
 	if err != nil {
 		return RuntimeImage{}, err
 	}
 
+	pm := i.platforms
+	if p != nil {
+		pm = platforms.Only(*p)
+	}
+
 	// filter platforms, do inplace filtering since small sized array
 	for j := 0; j < len(runtimeImages); {
-		if !i.platforms.Match(runtimeImages[j].Platform) {
+		if !pm.Match(runtimeImages[j].Platform) {
 			copy(runtimeImages[j:], runtimeImages[j+1:])
 			runtimeImages = runtimeImages[:len(runtimeImages)-1]
 		} else {
@@ -157,7 +162,7 @@ func (i *ImageService) ResolveRuntimeImage(ctx context.Context, desc ocispec.Des
 	}
 
 	sort.SliceStable(runtimeImages, func(j, k int) bool {
-		return i.platforms.Less(runtimeImages[j].Platform, runtimeImages[k].Platform)
+		return pm.Less(runtimeImages[j].Platform, runtimeImages[k].Platform)
 	})
 
 	if len(runtimeImages) == 0 {
@@ -177,7 +182,7 @@ func (i *ImageService) ResolveRuntimeImage(ctx context.Context, desc ocispec.Des
 
 // ResolveRuntimeConfig resolves the descriptor to a runtime image and returns the config
 func (i *ImageService) ResolveRuntimeConfig(ctx context.Context, desc ocispec.Descriptor) ([]byte, error) {
-	ri, err := i.ResolveRuntimeImage(ctx, desc)
+	ri, err := i.ResolveRuntimeImage(ctx, desc, nil)
 	if err != nil {
 		return nil, err
 	}

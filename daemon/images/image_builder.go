@@ -209,8 +209,7 @@ func (i *ImageService) GetImageAndReleasableLayer(ctx context.Context, refOrID s
 	if opts.PullOption != backend.PullOptionForcePull {
 		desc, err := i.ResolveImage(ctx, refOrID)
 		if err == nil {
-			// TODO(containerd): Use opts.Platform to resolve
-			rImage, err = i.ResolveRuntimeImage(ctx, desc)
+			rImage, err = i.ResolveRuntimeImage(ctx, desc, opts.Platform)
 			if err != nil && opts.PullOption == backend.PullOptionNoPull {
 				return nil, nil, err
 			}
@@ -224,8 +223,7 @@ func (i *ImageService) GetImageAndReleasableLayer(ctx context.Context, refOrID s
 			return nil, nil, err
 		}
 
-		// TODO(containerd): Use opts.Platform to resolve
-		rImage, err = i.ResolveRuntimeImage(ctx, image)
+		rImage, err = i.ResolveRuntimeImage(ctx, image, opts.Platform)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -282,7 +280,7 @@ func (i *ImageService) CreateImage(ctx context.Context, newImage backend.NewImag
 	if newImage.ParentImage == nil {
 		img.RootFS.Type = "layers"
 	} else {
-		ri, err := i.ResolveRuntimeImage(ctx, *newImage.ParentImage)
+		ri, err := i.ResolveRuntimeImage(ctx, *newImage.ParentImage, nil)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
