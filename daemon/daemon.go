@@ -966,7 +966,7 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 		d.graphDrivers[driver.platform.OS] = ls.DriverName()
 		backends = append(backends, images.LayerBackend{
 			Store:    ls,
-			Platform: platforms.Only(driver.platform),
+			Platform: platforms.All, //TODO:
 		})
 	}
 

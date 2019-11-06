@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/platforms"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/builder"
@@ -306,12 +307,14 @@ func (b *Builder) Build(ctx context.Context, opt backend.BuildConfig) (*builder.
 	if opt.Options.Platform != "" {
 		// same as in newBuilder in builder/dockerfile.builder.go
 		// TODO: remove once opt.Options.Platform is of type specs.Platform
-		sp, err := platforms.Parse(opt.Options.Platform)
-		if err != nil {
-			return nil, err
-		}
-		if err := system.ValidatePlatform(sp); err != nil {
-			return nil, err
+		for _, v := range strings.Split(opt.Options.Platform, ",") {
+			sp, err := platforms.Parse(v)
+			if err != nil {
+				return nil, err
+			}
+			if err := system.ValidatePlatform(sp); err != nil {
+				return nil, err
+			}
 		}
 		frontendAttrs["platform"] = opt.Options.Platform
 	}
@@ -336,7 +339,7 @@ func (b *Builder) Build(ctx context.Context, opt backend.BuildConfig) (*builder.
 	if len(opt.Options.Outputs) > 1 {
 		return nil, errors.Errorf("multiple outputs not supported")
 	} else if len(opt.Options.Outputs) == 0 {
-		exporterName = "moby"
+		exporterName = "image"
 	} else {
 		// cacheonly is a special type for triggering skipping all exporters
 		if opt.Options.Outputs[0].Type != "cacheonly" {
@@ -347,7 +350,22 @@ func (b *Builder) Build(ctx context.Context, opt backend.BuildConfig) (*builder.
 
 	if exporterName != "" {
 		if len(opt.Options.Tags) > 0 {
-			exporterAttrs["name"] = strings.Join(opt.Options.Tags, ",")
+			names := make([]string, len(opt.Options.Tags))
+			for i, target := range opt.Options.Tags {
+				ref, err := reference.ParseNormalizedNamed(target)
+				if err != nil {
+					return nil, errors.Wrapf(err, "error parsing reference: %q is not a valid repository/tag", target)
+				}
+				if _, isCanonical := ref.(reference.Canonical); isCanonical {
+					return nil, errors.New("refusing to create a tag with a digest reference")
+				}
+				ref = reference.TagNameOnly(ref)
+				names[i] = ref.String()
+			}
+			exporterAttrs["name"] = strings.Join(names, ",")
+			exporterAttrs["name-canonical"] = "true"
+		} else {
+			exporterAttrs["dangling-name-prefix"] = "<build>"
 		}
 	}
 
