@@ -38,13 +38,14 @@ func (s *snapshotter) Compare(ctx context.Context, lower, upper []mount.Mount, o
 func (s *snapshotter) CompareWithParent(ctx context.Context, key string, opts ...diff.Opt) (ocispec.Descriptor, error) {
 	diffIDs, err := s.EnsureLayer(ctx, key)
 	if err != nil {
-		return ocispec.Descriptor{}, err 
+		return ocispec.Descriptor{}, err
 	}
 
 	l, err := s.opt.LayerStore.Get(layer.CreateChainID(diffIDs))
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
+	defer s.opt.LayerStore.Release(l)
 
 	rc, err := l.TarStream()
 	if err != nil {
@@ -108,6 +109,15 @@ func (s *snapshotter) CompareWithParent(ctx context.Context, key string, opts ..
 }
 
 func (s *snapshotter) EnsureLayer(ctx context.Context, key string) ([]layer.DiffID, error) {
+	v, err := s.g.Do(ctx, key, func(ctx context.Context) (interface{}, error) {
+		return s.ensureLayer(ctx, key)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.([]layer.DiffID), nil
+}
+func (s *snapshotter) ensureLayer(ctx context.Context, key string) ([]layer.DiffID, error) {
 	diffIDs, err := s.GetDiffIDs(ctx, key)
 	if err != nil {
 		return nil, err
@@ -126,8 +136,6 @@ func (s *snapshotter) EnsureLayer(ctx context.Context, key string) ([]layer.Diff
 	}
 
 	eg, gctx := errgroup.WithContext(ctx)
-
-	// TODO: add flightcontrol
 
 	var parentChainID layer.ChainID
 	if info.Parent != "" {
@@ -190,6 +198,7 @@ func (s *snapshotter) EnsureLayer(ctx context.Context, key string) ([]layer.Diff
 	s.mu.Unlock()
 
 	return getDiffChain(l), nil
+
 }
 
 func getDiffChain(l layer.Layer) []layer.DiffID {

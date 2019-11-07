@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/snapshot"
+	"github.com/moby/buildkit/util/flightcontrol"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
 	bolt "go.etcd.io/bbolt"
@@ -53,6 +54,7 @@ type snapshotter struct {
 	db   *bolt.DB
 	mu   sync.Mutex
 	reg  graphIDRegistrar
+	g    flightcontrol.Group
 }
 
 // NewSnapshotter creates a new snapshotter
