@@ -54,7 +54,7 @@ type SourceOpt struct {
 	DownloadManager distribution.RootFSDownloadManager
 	MetadataStore   metadata.V2MetadataService
 	ImageStore      image.Store
-	ResolverOpt     resolver.ResolveOptionsFunc
+	RegistryHosts   docker.RegistryHosts
 	LayerStore      layer.Store
 }
 
@@ -78,19 +78,11 @@ func (is *imageSource) ID() string {
 	return source.DockerImageScheme
 }
 
-func (is *imageSource) getResolver(ctx context.Context, rfn resolver.ResolveOptionsFunc, ref string, sm *session.Manager) remotes.Resolver {
+func (is *imageSource) getResolver(ctx context.Context, hosts docker.RegistryHosts, ref string, sm *session.Manager) remotes.Resolver {
 	if res := is.resolverCache.Get(ctx, ref); res != nil {
 		return res
 	}
-
-	opt := docker.ResolverOptions{
-		Client: tracing.DefaultClient,
-	}
-	if rfn != nil {
-		opt = rfn(ref)
-	}
-	opt.Credentials = is.getCredentialsFromSession(ctx, sm)
-	r := docker.NewResolver(opt)
+	r := resolver.New(ctx, hosts, sm)
 	r = is.resolverCache.Add(ctx, ref, r)
 	return r
 }
@@ -138,7 +130,7 @@ func (is *imageSource) resolveRemote(ctx context.Context, ref string, platform *
 		dt   []byte
 	}
 	res, err := is.g.Do(ctx, ref, func(ctx context.Context) (interface{}, error) {
-		dgst, dt, err := imageutil.Config(ctx, ref, is.getResolver(ctx, is.ResolverOpt, ref, sm), is.ContentStore, nil, platform)
+		dgst, dt, err := imageutil.Config(ctx, ref, is.getResolver(ctx, is.RegistryHosts, ref, sm), is.ContentStore, nil, platform)
 		if err != nil {
 			return nil, err
 		}
@@ -208,7 +200,7 @@ func (is *imageSource) Resolve(ctx context.Context, id source.Identifier, sm *se
 	p := &puller{
 		src:      imageIdentifier,
 		is:       is,
-		resolver: is.getResolver(ctx, is.ResolverOpt, imageIdentifier.Reference.String(), sm),
+		resolver: is.getResolver(ctx, is.RegistryHosts, imageIdentifier.Reference.String(), sm),
 		platform: platform,
 		sm:       sm,
 	}
