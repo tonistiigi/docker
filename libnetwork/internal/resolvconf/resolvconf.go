@@ -1,20 +1,4 @@
-// Package resolvconf is used to generate a container's /etc/resolv.conf file.
-//
-// Constructor Load and Parse read a resolv.conf file from the filesystem or
-// a reader respectively, and return a ResolvConf object.
-//
-// The ResolvConf object can then be updated with overrides for nameserver,
-// search domains, and DNS options.
-//
-// ResolvConf can then be transformed to make it suitable for legacy networking,
-// a network with an internal nameserver, or used as-is for host networking.
-//
-// This package includes methods to write the file for the container, along with
-// a hash that can be used to detect modifications made by the user to avoid
-// overwriting those updates.
-
-// FIXME(thaJeztah): remove once we are a module; the go:build directive prevents go from downgrading language version to go1.16:
-//go:build go1.19
+//go:build go1.21
 
 package resolvconf
 
