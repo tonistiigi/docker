@@ -12,6 +12,10 @@
 // This package includes methods to write the file for the container, along with
 // a hash that can be used to detect modifications made by the user to avoid
 // overwriting those updates.
+
+// FIXME(thaJeztah): remove once we are a module; the go:build directive prevents go from downgrading language version to go1.16:
+//go:build go1.19
+
 package resolvconf
 
 import (
