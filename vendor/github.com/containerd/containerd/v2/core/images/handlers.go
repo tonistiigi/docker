@@ -20,7 +20,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/containerd/errdefs"
@@ -198,6 +200,28 @@ func ChildrenHandler(provider content.Provider) HandlerFunc {
 	}
 }
 
+func SetReferrers(refProvider content.ReferrersProvider, f HandlerFunc) HandlerFunc {
+	return func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		children, err := f(ctx, desc)
+		if err != nil {
+			return children, err
+		}
+		refs, err := refProvider.Referrers(ctx, desc)
+		if err != nil {
+			return children, err
+		}
+		children = slices.Grow(children, len(refs))
+		for _, ref := range refs {
+			if ref.Annotations == nil {
+				ref.Annotations = map[string]string{}
+			}
+			ref.Annotations["containerd.io/subject"] = desc.Digest.String()
+			children = append(children, ref)
+		}
+		return children, nil
+	}
+}
+
 // SetChildrenLabels is a handler wrapper which sets labels for the content on
 // the children returned by the handler and passes through the children.
 // Must follow a handler that returns the children to be labeled.
@@ -235,7 +259,9 @@ func SetChildrenMappedLabels(manager content.Manager, f HandlerFunc, labelMap fu
 				for _, key := range labelKeys {
 					idx := keys[key]
 					keys[key] = idx + 1
-					if idx > 0 || key[len(key)-1] == '.' {
+					if strings.HasSuffix(key, ".sha256.") {
+						key = fmt.Sprintf("%s%s", key, ch.Digest.Hex()[:12])
+					} else if idx > 0 || key[len(key)-1] == '.' {
 						key = fmt.Sprintf("%s%d", key, idx)
 					}
 

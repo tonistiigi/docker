@@ -210,3 +210,7 @@ func WithRef(ref string) WriterOpt {
 		return nil
 	}
 }
+
+type ReferrersProvider interface {
+	Referrers(context.Context, ocispec.Descriptor) ([]ocispec.Descriptor, error)
+}

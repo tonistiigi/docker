@@ -2,6 +2,7 @@ package containerd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/v2/daemon/images"
 	"github.com/moby/moby/v2/errdefs"
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
@@ -51,6 +53,7 @@ func (i *ImageService) ExportImage(ctx context.Context, names []string, platform
 		// Importing the same archive into containerd, will not restrict the platforms.
 		archive.WithPlatform(pm),
 		archive.WithSkipMissing(i.content),
+		archive.WithReferrersProvider(i),
 	}
 
 	ctx, done, err := i.withLease(ctx, false)
@@ -197,6 +200,8 @@ func (i *ImageService) ExportImage(ctx context.Context, names []string, platform
 			return err
 		}
 	}
+
+	opts = append(opts, archive.WithReferrersProvider(i))
 
 	return i.client.Export(ctx, outStream, opts...)
 }
@@ -443,4 +448,47 @@ func (i *ImageService) verifyImagesProvidePlatform(ctx context.Context, imgs []c
 	}
 
 	return errdefs.NotFound(fmt.Errorf(msg, strings.Join(incompleteImgs, ", "), platformNames))
+}
+
+func (i *ImageService) Referrers(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	info, err := i.content.Info(ctx, desc.Digest)
+	if err != nil {
+		if errors.Is(err, cerrdefs.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var refs []ocispec.Descriptor
+	for k, v := range info.Labels {
+		if strings.HasPrefix(k, "containerd.io/gc.ref.content.referrer.sha256.") {
+			dgst, err := digest.Parse(v)
+			if err != nil {
+				continue
+			}
+			var desc ocispec.Descriptor
+			desc.Digest = dgst
+			info, err := i.content.Info(ctx, dgst)
+			if err != nil {
+				continue
+			}
+			desc.Size = info.Size
+			// parse mediatype and artifact type
+			dt, err := content.ReadBlob(ctx, i.content, ocispec.Descriptor{Digest: dgst})
+			if err != nil {
+				continue
+			}
+			var mfst ocispec.Manifest
+			if err := json.Unmarshal(dt, &mfst); err != nil {
+				continue
+			}
+			desc.MediaType = mfst.MediaType
+			if mfst.ArtifactType != "" {
+				desc.ArtifactType = mfst.ArtifactType
+			}
+			// TODO: we should only export signatures but cosign doesn't set artifact type on payload
+			refs = append(refs, desc)
+		}
+	}
+
+	return refs, nil
 }

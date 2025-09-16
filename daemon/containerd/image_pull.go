@@ -2,20 +2,27 @@ package containerd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/core/content"
 	c8dimages "github.com/containerd/containerd/v2/core/images"
+	"github.com/containerd/containerd/v2/core/remotes"
 	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/containerd/containerd/v2/pkg/snapshotters"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/containerd/log"
 	"github.com/containerd/platforms"
 	"github.com/distribution/reference"
+	slsa02 "github.com/in-toto/in-toto-golang/in_toto/slsa_provenance/v0.2"
+	slsa1 "github.com/in-toto/in-toto-golang/in_toto/slsa_provenance/v1"
+	"github.com/moby/buildkit/util/attestation"
 	"github.com/moby/moby/api/pkg/progress"
 	"github.com/moby/moby/api/pkg/streamformatter"
 	"github.com/moby/moby/api/types/events"
@@ -24,9 +31,12 @@ import (
 	"github.com/moby/moby/v2/daemon/internal/metrics"
 	"github.com/moby/moby/v2/daemon/internal/stringid"
 	"github.com/moby/moby/v2/errdefs"
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
+
+const sigArtifactType = "application/vnd.dev.cosign.artifact.sig.v1+json"
 
 // PullImage initiates a pull operation. baseRef is the image to pull.
 // If reference is not tagged, all tags are pulled.
@@ -204,7 +214,11 @@ func (i *ImageService) pullTag(ctx context.Context, ref reference.Named, platfor
 	// this information is used to enable remote snapshotters like nydus and stargz to query a registry.
 	// This is also needed for the pull progress to detect the `Extracting` status.
 	infoHandler := snapshotters.AppendInfoHandlerWrapper(ref.String())
-	opts = append(opts, containerd.WithImageHandlerWrapper(infoHandler))
+
+	rh := NewReferrersHandler(ref.String(), resolver, i.client.ContentStore())
+
+	opts = append(opts, containerd.WithImageHandlerWrapper(joinHandlers(infoHandler, rh.Handler)))
+	opts = append(opts, containerd.WithReferrersProvider(rh))
 
 	img, err := i.client.Pull(ctx, ref.String(), opts...)
 	if err != nil {
@@ -247,7 +261,143 @@ func (i *ImageService) pullTag(ctx context.Context, ref reference.Named, platfor
 
 	i.LogImageEvent(ctx, reference.FamiliarString(ref), reference.FamiliarName(ref), events.ActionPull)
 	outNewImg = img
+
 	return nil
+}
+
+func joinHandlers(funcs ...func(c8dimages.Handler) c8dimages.Handler) func(c8dimages.Handler) c8dimages.Handler {
+	return func(h c8dimages.Handler) c8dimages.Handler {
+		for _, f := range funcs {
+			h = f(h)
+		}
+		return h
+	}
+}
+
+type ReferrersHandler struct {
+	mu         sync.Mutex
+	ref        string
+	store      content.Store
+	candidates map[digest.Digest]ocispec.Descriptor
+	matched    map[digest.Digest]struct{}
+	resolver   remotes.Resolver
+}
+
+func NewReferrersHandler(ref string, resolver remotes.Resolver, st content.Store) *ReferrersHandler {
+	return &ReferrersHandler{
+		ref:        ref,
+		candidates: make(map[digest.Digest]ocispec.Descriptor),
+		matched:    make(map[digest.Digest]struct{}),
+		store:      st,
+		resolver:   resolver,
+	}
+}
+
+func (h *ReferrersHandler) Referrers(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if att, ok := h.candidates[desc.Digest]; ok {
+		att.Platform = nil
+		h.matched[att.Digest] = struct{}{}
+		return []ocispec.Descriptor{att}, nil
+	} else if _, ok := h.matched[desc.Digest]; ok {
+		f, err := h.resolver.Fetcher(ctx, h.ref)
+		if err != nil {
+			return nil, err
+		}
+		referrers, ok := f.(remotes.ReferrersFetcher)
+		if !ok {
+			return nil, errors.New("resolver does not support fetching referrers")
+		}
+
+		rc, _, err := referrers.FetchReferrers(ctx, desc.Digest, sigArtifactType)
+		if err != nil {
+			return nil, err
+		}
+		dt, err := io.ReadAll(rc)
+		if err != nil {
+			return nil, err
+		}
+		var index ocispec.Index
+		if err := json.Unmarshal(dt, &index); err != nil {
+			return nil, err
+		}
+		var out []ocispec.Descriptor
+		for _, att := range index.Manifests {
+			if att.ArtifactType == sigArtifactType {
+				out = append(out, att)
+			}
+		}
+		return out, nil
+	}
+	return nil, nil
+}
+
+func (h *ReferrersHandler) Handler(f c8dimages.Handler) c8dimages.Handler {
+	return c8dimages.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		children, err := f.Handle(ctx, desc)
+		if err != nil {
+			return nil, err
+		}
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if c8dimages.IsManifestType(desc.MediaType) {
+			if _, ok := h.matched[desc.Digest]; ok {
+				// for matched attestation manifest, we only need provenance attestation
+				dt, err := content.ReadBlob(ctx, h.store, desc)
+				if err != nil {
+					return nil, err
+				}
+
+				var mfst ocispec.Manifest
+				if err := json.Unmarshal(dt, &mfst); err != nil {
+					return nil, err
+				}
+				var provenance []ocispec.Descriptor
+				for _, desc := range mfst.Layers {
+					pType, ok := desc.Annotations["in-toto.io/predicate-type"]
+					if !ok {
+						continue
+					}
+					switch pType {
+					case slsa1.PredicateSLSAProvenance, slsa02.PredicateSLSAProvenance:
+						provenance = append(provenance, desc)
+					default:
+					}
+				}
+				_ = provenance // TODO: filter out non-provenance attestation
+			}
+		} else if c8dimages.IsIndexType(desc.MediaType) {
+			p, err := content.ReadBlob(ctx, h.store, desc)
+			if err != nil {
+				return nil, err
+			}
+			// correcteness of the mediatype has already been validated in childrenHandler
+			var index ocispec.Index
+			if err := json.Unmarshal(p, &index); err != nil {
+				return nil, err
+			}
+			for _, desc := range index.Manifests {
+				if !c8dimages.IsManifestType(desc.MediaType) {
+					continue
+				}
+				refType, ok := desc.Annotations[attestation.DockerAnnotationReferenceType]
+				if ok && refType == attestation.DockerAnnotationReferenceTypeDefault {
+					dgstStr, ok := desc.Annotations[attestation.DockerAnnotationReferenceDigest]
+					if !ok {
+						continue
+					}
+					dgst, err := digest.Parse(dgstStr)
+					if err != nil {
+						continue
+					}
+					h.candidates[dgst] = desc // last ref wins
+				}
+			}
+		}
+		return children, nil
+	})
 }
 
 // writeStatus writes a status message to out. If newerDownloaded is true, the
